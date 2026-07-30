@@ -3,7 +3,8 @@
  *
  * Nothing here assumes a parent process: the desktop build used to be handed a
  * free loopback port by the Electron shell and announced it on stdout, which is
- * gone. The host (Render) sets PORT, the app binds 0.0.0.0, and that is all.
+ * gone. The host (Render, Railway) sets PORT, the app binds 0.0.0.0, and that is
+ * all.
  */
 import { createApp } from './app.js';
 import { pool, checkOrgContextReachesPolicies } from './db/index.js';

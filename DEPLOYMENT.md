@@ -5,7 +5,7 @@ Three free services, one app:
 | Piece | Service | What it runs |
 | --- | --- | --- |
 | Database + Auth + file storage | **Supabase** | Postgres 15, Supabase Auth, one Storage bucket |
-| API | **Render** | `server/` — plain Express, `npm start` |
+| API | **Render** or **Railway** | `server/` — plain Express, `npm start` |
 | Frontend | **Vercel** | `client/` — Vite build, static |
 
 Read [Free-tier limits and what breaks](#free-tier-limits-and-what-breaks) before
@@ -128,6 +128,44 @@ Nothing in the startup path expects a parent process: `server/src/server.js`
 binds `0.0.0.0` on `$PORT`, runs pending migrations, and serves. The old
 Electron handshake (port announcement on stdout, `ELECTRON_RUN_AS_NODE`) is
 gone, along with the `electron/` directory.
+
+## 2b. Railway — API (instead of Render)
+
+Same server, different host. Railway has no sleeping service, so the cold start
+described under [Free-tier limits](#free-tier-limits-and-what-breaks) disappears
+— but there is no free plan either: a trial credit, then Hobby (~$5/month).
+
+1. **New Project → Deploy from GitHub repo**, pick this repository.
+2. Service **Settings → Root Directory: `server`**. Railway then reads
+   `server/railway.json`, which sets the build command, `npm start`, and the
+   `/api/v1/health` check — nothing else to configure on that screen.
+3. **Variables** — the same keys as Render (Railway has no way to declare these
+   in the config file, so they are set in the dashboard or with
+   `railway variables --set 'KEY=value'`):
+
+   | Key | Value |
+   | --- | --- |
+   | `NODE_ENV` | `production` |
+   | `AUTH_MODE` | `supabase` |
+   | `DATABASE_URL` | from Supabase (prefer the `app_api` role — see step 1) |
+   | `SUPABASE_URL` | `https://YOUR-PROJECT.supabase.co` |
+   | `SUPABASE_JWT_SECRET` | Project settings → API → JWT keys (omit for asymmetric keys) |
+   | `STORAGE_DRIVER` | `supabase` |
+   | `SUPABASE_SERVICE_ROLE_KEY` | Project settings → API (server-side only) |
+   | `SUPABASE_STORAGE_BUCKET` | `item-images` |
+   | `CORS_ORIGIN` | your exact Vercel URL |
+   | `ALLOW_AUTO_PROVISION` | `1` |
+
+   Do **not** add a Railway Postgres plugin. The database is Supabase, and the
+   plugin would overwrite `DATABASE_URL` with its own.
+4. **Settings → Networking → Generate Domain.** Railway injects `PORT` and the
+   app binds `0.0.0.0` on it. If the domain answers 502, check that the
+   generated domain's target port matches the port in the deploy log.
+5. Put that domain in `VITE_API_URL` on Vercel, then set `CORS_ORIGIN` here to
+   the Vercel URL and redeploy.
+
+`render.yaml` is still in the repo; ignore it (or delete it) if Railway is the
+only host you keep.
 
 ## 3. Vercel — frontend
 
