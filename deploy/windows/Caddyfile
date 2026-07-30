@@ -1,0 +1,41 @@
+# Caddy serves the built frontend and proxies the API, so both live on one
+# origin (https://inventory.example.com). That is not just tidy: same-origin
+# means no CORS preflight, and `CORS_ORIGIN` becomes the site's own URL.
+#
+# Caddy obtains and renews the TLS certificate by itself. The only requirements
+# are that the domain's DNS A record points at this machine's public IP and that
+# ports 80 and 443 reach it — port 80 is used for the ACME challenge and to
+# redirect to HTTPS, so do not close it.
+#
+# Replace inventory.example.com with the real domain before starting Caddy.
+
+inventory.example.com {
+	encode gzip
+
+	# The Express API. Node listens on loopback only (HOST=127.0.0.1), so 4317
+	# is unreachable from outside this machine — Caddy is the only way in, and
+	# therefore TLS is the only way in.
+	handle /api/* {
+		reverse_proxy 127.0.0.1:4317
+	}
+
+	# Product photos, served by the API from server/data/uploads.
+	handle /uploads/* {
+		reverse_proxy 127.0.0.1:4317
+	}
+
+	# The Vite build. try_files is what makes a refresh on a deep link work;
+	# the app uses hash routing (/#/items/…) so this is belt and braces.
+	handle {
+		root * C:/inventory/client/dist
+		try_files {path} /index.html
+		file_server
+	}
+
+	log {
+		output file C:/inventory/logs/caddy-access.log {
+			roll_size 10mb
+			roll_keep 10
+		}
+	}
+}

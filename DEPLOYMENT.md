@@ -12,6 +12,12 @@ durable photo storage** — read [Authentication — there is
 none](#1b-authentication--there-is-none) and [Plan limits and what
 breaks](#plan-limits-and-what-breaks) before this holds anyone's real data.
 
+> **Self-hosting instead?** [`deploy/windows/`](deploy/windows/README.md) covers
+> running this on your own Windows Server behind a domain: requirements,
+> services that survive a reboot, TLS, firewall and backups. Photos become
+> durable there — a real disk, not a container filesystem — but a public port
+> makes the missing login urgent rather than theoretical.
+
 ---
 
 ## 1. Railway — Postgres
