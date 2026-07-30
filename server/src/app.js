@@ -3,7 +3,7 @@ import cors from 'cors';
 
 import { errorHandler } from './lib/http.js';
 import { authenticate, orgContext, AUTH_MODE, authConfigError } from './lib/auth.js';
-import { STORAGE_DRIVER, UPLOADS_DIR, publicUrl } from './lib/storage.js';
+import { STORAGE_DRIVER, UPLOADS_DIR, publicUrl, storageConfigError } from './lib/storage.js';
 import { dbState, dbDetail } from './lib/readiness.js';
 import itemsRoutes from './routes/items.routes.js';
 import categoriesRoutes from './routes/categories.routes.js';
@@ -67,6 +67,7 @@ export function createApp() {
     db: dbState(),
     ...(dbDetail() ? { dbError: dbDetail() } : {}),
     ...(authConfigError ? { authError: authConfigError } : {}),
+    ...(storageConfigError ? { storageError: storageConfigError } : {}),
   }));
 
   /**

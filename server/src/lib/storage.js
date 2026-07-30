@@ -31,21 +31,32 @@ export const UPLOADS_DIR = process.env.UPLOADS_DIR
 
 if (STORAGE_DRIVER === 'local') fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 
-if (STORAGE_DRIVER === 'supabase' && !(SUPABASE_URL && SERVICE_KEY)) {
-  throw new Error(
-    'STORAGE_DRIVER=supabase requires SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY',
-  );
-}
+/**
+ * Recorded, not thrown at import — see db/index.js for why a configuration
+ * error raised while the module graph is loading is the least useful place to
+ * raise it.
+ *
+ * Storage is also the narrowest of these failures: everything except uploading
+ * and deleting a product photo works without it. Refusing to start punished the
+ * whole API for a feature that might not be used all day.
+ */
+export const storageConfigError
+  = STORAGE_DRIVER === 'supabase' && !(SUPABASE_URL && SERVICE_KEY)
+    ? 'STORAGE_DRIVER=supabase requires SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY'
+    : null;
 
 const objectUrl = (name) => `${SUPABASE_URL}/storage/v1/object/${BUCKET}/${encodeURIComponent(name)}`;
 
 /** Where a browser can fetch this file, or null when it is served from disk. */
 export const publicUrl = (name) =>
-  (STORAGE_DRIVER === 'supabase'
+  (STORAGE_DRIVER === 'supabase' && !storageConfigError
     ? `${SUPABASE_URL}/storage/v1/object/public/${BUCKET}/${encodeURIComponent(name)}`
     : null);
 
 export async function putObject(name, buffer, contentType) {
+  if (storageConfigError) {
+    throw new AppError(503, storageConfigError, 'STORAGE_NOT_CONFIGURED');
+  }
   if (STORAGE_DRIVER === 'local') {
     await fs.promises.writeFile(path.join(UPLOADS_DIR, name), buffer);
     return;
@@ -71,6 +82,9 @@ export async function putObject(name, buffer, contentType) {
 /** Remove an object, treating an already-missing one as success. */
 export async function deleteObject(name) {
   if (!name) return;
+  if (storageConfigError) {
+    throw new AppError(503, storageConfigError, 'STORAGE_NOT_CONFIGURED');
+  }
   if (STORAGE_DRIVER === 'local') {
     try {
       await fs.promises.unlink(path.join(UPLOADS_DIR, name));

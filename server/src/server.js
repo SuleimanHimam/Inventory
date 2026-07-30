@@ -9,7 +9,7 @@ import { createApp } from './app.js';
 import { pool, checkOrgContextReachesPolicies } from './db/index.js';
 import { migrate } from './db/migrate.js';
 import { AUTH_MODE, authConfigError } from './lib/auth.js';
-import { STORAGE_DRIVER } from './lib/storage.js';
+import { STORAGE_DRIVER, storageConfigError } from './lib/storage.js';
 import { markReady, markFailed } from './lib/readiness.js';
 
 const port = Number(process.env.PORT ?? 4317);
@@ -25,6 +25,12 @@ const server = app.listen(port, host, () => {
   console.log(`  ➜  cors: ${process.env.CORS_ORIGIN ?? '(localhost dev default)'}\n`);
   if (AUTH_MODE === 'none' && !authConfigError) {
     console.warn('  ⚠  AUTH_MODE=none — every request runs as the local dev user\n');
+  }
+  if (storageConfigError) {
+    console.error(
+      `\n  ✖  image storage is not configured:\n     ${storageConfigError}\n`
+      + '     Everything except uploading and deleting product photos works.\n',
+    );
   }
   if (authConfigError) {
     console.error(
