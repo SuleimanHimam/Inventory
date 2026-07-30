@@ -30,3 +30,7 @@ Thumbs.db
 .env
 .env.*
 !.env.example
+
+# Vendored agent skills (installed via `npx skills add`) — regenerate, do not edit
+.agents/
+.claude/skills/
