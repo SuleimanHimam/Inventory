@@ -30,12 +30,20 @@ pg.types.setTypeParser(pg.types.builtins.NUMERIC, (v) => (v === null ? null : Nu
 
 export const DATABASE_URL = process.env.DATABASE_URL;
 
-if (!DATABASE_URL) {
-  throw new Error(
-    'DATABASE_URL is not set. Point it at your Postgres instance '
-    + '(Supabase: Project settings → Database → Connection string → URI).',
-  );
-}
+/**
+ * Missing configuration is recorded, not thrown at import time.
+ *
+ * Throwing here used to kill the process before `app.listen` ever ran, and a
+ * host that only knows "the port never opened" reports that as a failed health
+ * check — the same message it gives for a missing dependency, a wrong password
+ * or an unreachable database. The one thing the operator needs, which of those
+ * it is, was the thing that got lost. Now the API starts, `/api/v1/health`
+ * names the problem, and the error still surfaces on the first query.
+ */
+export const configError = DATABASE_URL ? null : new Error(
+  'DATABASE_URL is not set. Point it at your Postgres instance '
+  + '(Supabase: Project settings → Database → Connection string → URI).',
+);
 
 /**
  * Supabase (and every other hosted Postgres) requires TLS; a local Docker
@@ -67,6 +75,16 @@ export const pool = new pg.Pool({
 });
 
 pool.on('error', (err) => console.error('[pg] idle client error', err));
+
+/**
+ * Borrow a connection, refusing early and by name when there is no connection
+ * string. Without this, `pg` falls back to its own defaults (localhost, the
+ * OS user) and a missing DATABASE_URL arrives as a puzzling ECONNREFUSED.
+ */
+export async function connect() {
+  if (configError) throw configError;
+  return pool.connect();
+}
 
 // ---------------------------------------------------------------- ambient context
 /**
@@ -117,6 +135,7 @@ export function compile(sql, params) {
 
 /** Run a statement on the ambient transaction if there is one, else the pool. */
 export async function query(sql, params) {
+  if (configError) throw configError;
   const { text, values } = compile(sql, params);
   const client = store.getStore()?.client;
   return (client ?? pool).query(text, values);
@@ -165,7 +184,7 @@ export async function tx(fn) {
   // Reuse the request's dedicated connection when there is one, so the
   // transaction sees the writes made before it on the same connection.
   const borrowed = current?.client ?? null;
-  const client = borrowed ?? await pool.connect();
+  const client = borrowed ?? await connect();
   try {
     await client.query('BEGIN');
     if (!borrowed && current?.orgId) {
@@ -210,7 +229,7 @@ export async function tx(fn) {
  */
 export async function runInOrg(org, fn) {
   if (!org) throw new Error('runInOrg requires an organisation id');
-  const client = await pool.connect();
+  const client = await connect();
   try {
     await client.query('BEGIN');
     await client.query('SELECT set_config($1, $2, true)', ['app.org_id', org]);

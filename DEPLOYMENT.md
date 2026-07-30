@@ -149,9 +149,30 @@ about — but there is no free plan either: a trial credit, then Hobby
    the Vercel URL and redeploy.
 
 Nothing in the startup path expects a parent process: `server/src/server.js`
-binds `0.0.0.0` on `$PORT`, runs pending migrations, and serves. The old
+binds `0.0.0.0` on `$PORT`, serves, and *then* runs pending migrations. The old
 Electron handshake (port announcement on stdout, `ELECTRON_RUN_AS_NODE`) is
 gone, along with the `electron/` directory.
+
+### When the deploy is unhappy, ask the health endpoint
+
+`/api/v1/health` answers before the database is involved, and reports it:
+
+```jsonc
+{ "ok": true, "db": "ready" }                          // everything is fine
+{ "ok": true, "db": "error", "dbError": "DATABASE_URL is not set. …" }
+```
+
+That ordering is deliberate. The database work used to run before `app.listen`,
+so *any* problem with it — a missing variable, a wrong pooler username, an
+unreachable host, a failed migration — killed the process before the port
+opened, and the platform could only say "health check failed". Four unrelated
+causes, one useless message. Now the container stays up and names the problem,
+in the deploy log and at `/api/v1/health`.
+
+The cost: a misconfigured deploy no longer fails the health check, so it will
+not roll itself back. Watch the log line — `✖ the API is listening, but the
+database is not usable` — or the `db` field. Requests that touch data return
+500 immediately; nothing hangs and nothing silently serves empty results.
 
 ## 3. Vercel — frontend
 

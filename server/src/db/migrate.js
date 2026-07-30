@@ -12,7 +12,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { pool } from './index.js';
+import { pool, connect } from './index.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const MIGRATIONS_DIR = path.join(__dirname, '../../migrations');
@@ -23,7 +23,7 @@ const LOCK_KEY = 4317_2026;
 export async function migrate({ log = console.log } = {}) {
   const files = fs.readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith('.sql')).sort();
 
-  const client = await pool.connect();
+  const client = await connect();
   const applied = [];
   try {
     await client.query(`

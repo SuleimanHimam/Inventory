@@ -4,6 +4,7 @@ import cors from 'cors';
 import { errorHandler } from './lib/http.js';
 import { authenticate, orgContext, AUTH_MODE } from './lib/auth.js';
 import { STORAGE_DRIVER, UPLOADS_DIR, publicUrl } from './lib/storage.js';
+import { dbState, dbDetail } from './lib/readiness.js';
 import itemsRoutes from './routes/items.routes.js';
 import categoriesRoutes from './routes/categories.routes.js';
 import invoicesRoutes from './routes/invoices.routes.js';
@@ -54,8 +55,18 @@ export function createApp() {
 
   // Liveness probe — public, and deliberately outside the auth chain so a
   // platform health check never depends on a token.
-  app.get('/api/v1/health', (_req, res) =>
-    res.json({ ok: true, version: '6.0.0', auth: AUTH_MODE, storage: STORAGE_DRIVER }));
+  //
+  // `ok` answers "is this process serving?", which is the question the platform
+  // is really asking, so a database problem does not fail the deploy and hide
+  // itself behind a restart loop. `db` is where that problem is named.
+  app.get('/api/v1/health', (_req, res) => res.json({
+    ok: true,
+    version: '6.0.0',
+    auth: AUTH_MODE,
+    storage: STORAGE_DRIVER,
+    db: dbState(),
+    ...(dbDetail() ? { dbError: dbDetail() } : {}),
+  }));
 
   /**
    * Product photos. Served outside /api and without auth: filenames are random
