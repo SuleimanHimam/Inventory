@@ -57,8 +57,8 @@ function sslOption(url) {
 export const pool = new pg.Pool({
   connectionString: DATABASE_URL,
   ssl: sslOption(DATABASE_URL),
-  // Render's free tier runs a single instance and Supabase's free pooler allows
-  // few connections; a small pool leaves headroom for migrations and psql.
+  // The API runs as a single instance and Supabase's free pooler allows few
+  // connections; a small pool leaves headroom for migrations and psql.
   max: Number(process.env.PG_POOL_MAX ?? 8),
   idleTimeoutMillis: 30_000,
   connectionTimeoutMillis: 15_000,

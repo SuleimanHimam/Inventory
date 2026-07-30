@@ -1,8 +1,8 @@
 # نظام إدارة المخزون — Inventory Management System
 
 Multi-user inventory management with an Arabic-first, right-to-left interface,
-hosted across three free tiers: **Vercel** (frontend), **Render** (API) and
-**Supabase** (Postgres, Auth and file storage).
+hosted across three managed services: **Vercel** (frontend), **Railway** (API)
+and **Supabase** (Postgres, Auth and file storage).
 
 Version 6.0 · React + TypeScript · Node/Express · PostgreSQL · Supabase Auth
 
@@ -37,10 +37,10 @@ To exercise the real login flow locally, put `SUPABASE_URL` +
 
 ### Deploying
 
-See **[DEPLOYMENT.md](DEPLOYMENT.md)** for the Supabase → Render → Vercel
+See **[DEPLOYMENT.md](DEPLOYMENT.md)** for the Supabase → Railway → Vercel
 walkthrough, including how to make the Row Level Security policies actually
-effective, and an honest list of what the free tiers cost you (Render sleeps
-after ~15 minutes idle; there are no database backups on Supabase's free plan).
+effective, and an honest list of what the plans cost you (Railway has no free
+tier; there are no database backups on Supabase's free plan).
 
 ### Tests
 
@@ -146,7 +146,7 @@ context carries the org id and the dedicated connection, which is what let the
 | SQLite triggers | PL/pgSQL `CREATE FUNCTION … RETURNS TRIGGER` |
 | WAL mode for concurrent reads | MVCC — nothing to configure |
 | No authentication, single user | Supabase Auth + `org_id` on every tenant table + RLS |
-| Photos on the local disk | Supabase Storage (Render's free disk is ephemeral) |
+| Photos on the local disk | Supabase Storage (the container disk is ephemeral) |
 | `ORDER BY … COLLATE NOCASE` | `lower(…)` / `ILIKE` |
 | `rowid` as insertion-order tie-break | explicit `seq` identity column |
 

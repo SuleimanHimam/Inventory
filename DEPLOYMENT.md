@@ -1,14 +1,14 @@
 # النشر — Deployment
 
-Three free services, one app:
+Three services, one app — two of them free:
 
 | Piece | Service | What it runs |
 | --- | --- | --- |
 | Database + Auth + file storage | **Supabase** | Postgres 15, Supabase Auth, one Storage bucket |
-| API | **Render** or **Railway** | `server/` — plain Express, `npm start` |
+| API | **Railway** | `server/` — plain Express, `npm start` |
 | Frontend | **Vercel** | `client/` — Vite build, static |
 
-Read [Free-tier limits and what breaks](#free-tier-limits-and-what-breaks) before
+Read [Plan limits and what breaks](#plan-limits-and-what-breaks) before
 promising anything to institutional users.
 
 ---
@@ -21,7 +21,7 @@ promising anything to institutional users.
 
    **Use a pooler connection, not `db.<ref>.supabase.co`.** On current free-tier
    projects the direct host resolves to IPv6 only — the IPv4 address is a paid
-   add-on — so it is simply unreachable from most clients, Render included. The
+   add-on — so it is simply unreachable from most clients, Railway included. The
    pooler is IPv4:
 
    ```
@@ -101,39 +101,11 @@ promising anything to institutional users.
    exposure the desktop app had over LAN. If that is not acceptable, switch the
    bucket to private and serve signed URLs instead.
 
-## 2. Render — API
+## 2. Railway — API
 
-- **Root directory:** `server`
-- **Build command:** `npm install`
-- **Start command:** `npm start`
-- **Health check path:** `/api/v1/health`
-
-Environment variables:
-
-| Key | Value |
-| --- | --- |
-| `NODE_ENV` | `production` |
-| `DATABASE_URL` | from Supabase (prefer the `app_api` role) |
-| `AUTH_MODE` | `supabase` |
-| `SUPABASE_URL` | `https://YOUR-PROJECT.supabase.co` |
-| `SUPABASE_JWT_SECRET` | Project settings → API → JWT keys (omit if the project uses asymmetric keys) |
-| `CORS_ORIGIN` | your exact Vercel URL, e.g. `https://inventory.vercel.app` |
-| `STORAGE_DRIVER` | `supabase` |
-| `SUPABASE_SERVICE_ROLE_KEY` | Project settings → API (server-side only — never in the frontend) |
-| `SUPABASE_STORAGE_BUCKET` | `item-images` |
-
-`render.yaml` in the repo root declares all of this if you prefer a Blueprint.
-
-Nothing in the startup path expects a parent process: `server/src/server.js`
-binds `0.0.0.0` on `$PORT`, runs pending migrations, and serves. The old
-Electron handshake (port announcement on stdout, `ELECTRON_RUN_AS_NODE`) is
-gone, along with the `electron/` directory.
-
-## 2b. Railway — API (instead of Render)
-
-Same server, different host. Railway has no sleeping service, so the cold start
-described under [Free-tier limits](#free-tier-limits-and-what-breaks) disappears
-— but there is no free plan either: a trial credit, then Hobby (~$5/month).
+Railway does not sleep an idle service, so there is no cold start to warn users
+about — but there is no free plan either: a trial credit, then Hobby
+(~$5/month). This is the one paid piece of the stack.
 
 1. **New Project → Deploy from GitHub repo**, pick this repository.
 2. **Leave Root Directory empty** — Railway builds from the repository root and
@@ -149,9 +121,11 @@ described under [Free-tier limits](#free-tier-limits-and-what-breaks) disappears
    Setting Root Directory to `server` also works: Railway then reads
    `server/railway.json` instead, and installs `server/package.json` on its own.
    Pick one — the two files exist so that either choice boots.
-3. **Variables** — the same keys as Render (Railway has no way to declare these
-   in the config file, so they are set in the dashboard or with
-   `railway variables --set 'KEY=value'`):
+3. **Variables.** `railway.json` has no equivalent of a Blueprint's `envVars`
+   block, so every one of these is set in the dashboard or with
+   `railway variables --set 'KEY=value'`. All ten — the five secrets are the
+   easy ones to forget, and a missing `DATABASE_URL` throws at boot *before*
+   `app.listen`, which the platform again reports as a failed health check:
 
    | Key | Value |
    | --- | --- |
@@ -174,8 +148,10 @@ described under [Free-tier limits](#free-tier-limits-and-what-breaks) disappears
 5. Put that domain in `VITE_API_URL` on Vercel, then set `CORS_ORIGIN` here to
    the Vercel URL and redeploy.
 
-`render.yaml` is still in the repo; ignore it (or delete it) if Railway is the
-only host you keep.
+Nothing in the startup path expects a parent process: `server/src/server.js`
+binds `0.0.0.0` on `$PORT`, runs pending migrations, and serves. The old
+Electron handshake (port announcement on stdout, `ELECTRON_RUN_AS_NODE`) is
+gone, along with the `electron/` directory.
 
 ## 3. Vercel — frontend
 
@@ -187,13 +163,13 @@ Environment variables (all three are build-time and public — Vite inlines them
 
 | Key | Value |
 | --- | --- |
-| `VITE_API_URL` | the Render URL, no trailing slash, e.g. `https://inventory-api.onrender.com` |
+| `VITE_API_URL` | the Railway URL, no trailing slash, e.g. `https://inventory-api.up.railway.app` |
 | `VITE_SUPABASE_URL` | `https://YOUR-PROJECT.supabase.co` |
 | `VITE_SUPABASE_ANON_KEY` | Project settings → API → anon/public key |
 
-Set `CORS_ORIGIN` on Render to the Vercel URL *after* the first deploy, then
-redeploy the API. For per-commit preview URLs, set `CORS_ORIGIN_REGEX` on Render
-(e.g. `^https://inventory-[a-z0-9-]+\.vercel\.app$`) — or leave previews unable
+Set `CORS_ORIGIN` on Railway to the Vercel URL *after* the first deploy, then
+redeploy the API. For per-commit preview URLs, set `CORS_ORIGIN_REGEX` on
+Railway (e.g. `^https://inventory-[a-z0-9-]+\.vercel\.app$`) — or leave previews unable
 to reach the API, which is the safer default.
 
 The app uses hash routing (`/#/items/…`), so no rewrite rules are needed and
@@ -266,16 +242,16 @@ It is not difficult, but it is not nothing either — the shape of the job:
 
 ---
 
-## Free-tier limits and what breaks
+## Plan limits and what breaks
 
-Everything here fits the free tiers. What that costs you:
+Supabase and Vercel run on their free tiers; Railway does not have one. What
+that costs you:
 
-- **Render sleeps the service after ~15 minutes of inactivity.** The first
-  request afterwards takes several seconds (container start + database
-  connection). For a government or institutional pilot this reads as "the system
-  is down" the first time someone opens it each morning. If always-on matters,
-  Render's Starter plan (~$7/month) removes the sleep; a keep-alive pinger does
-  not, and violates the free-plan terms.
+- **Railway is not free.** A trial credit, then Hobby at ~$5/month plus usage.
+  What you buy is an always-on service: no sleep, so no multi-second cold start
+  the first time someone opens the app each morning — which on a sleeping free
+  host reads to an institutional user as "the system is down". This is the one
+  line item in the stack that has to be paid, and it is the right one to pay.
 - **Supabase pauses a project after 7 days with no activity.** It has to be
   resumed from the dashboard. Regular use avoids this; a pilot that sits idle for
   a fortnight will need a manual restore.
@@ -290,10 +266,11 @@ Everything here fits the free tiers. What that costs you:
   feature. For real customer data, either take `pg_dump` snapshots on a schedule
   or budget for the Pro plan. This is the one limit I would not ship to a
   paying institutional customer without resolving.
-- **Product photos are ephemeral if `STORAGE_DRIVER=local`** on Render — its
-  free filesystem is wiped on every deploy and every wake. Use the Supabase
-  Storage driver in production (`render.yaml` does).
+- **Product photos are ephemeral if `STORAGE_DRIVER=local`** — Railway's
+  container filesystem is wiped on every deploy, so use the Supabase Storage
+  driver in production. A Railway volume would also work, but it is one more
+  paid resource to back up, and Supabase Storage is already there.
 
-Nothing in the migration *requires* a paid tier to work correctly. The three
-things that would push you off free are always-on behaviour, backups, and photo
+Beyond the API host, nothing here *requires* a paid tier to work correctly. The
+two things that would push the rest of the stack off free are backups and photo
 volume.

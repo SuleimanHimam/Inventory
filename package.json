@@ -2,7 +2,7 @@
   "name": "inventory-web",
   "version": "6.0.0",
   "private": true,
-  "description": "نظام إدارة المخزون — Inventory Management System (Arabic / RTL web app: Vercel + Render + Supabase)",
+  "description": "نظام إدارة المخزون — Inventory Management System (Arabic / RTL web app: Vercel + Railway + Supabase)",
   "engines": {
     "node": ">=20.12"
   },

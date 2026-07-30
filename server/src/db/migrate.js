@@ -3,7 +3,7 @@
  *
  * Plain SQL files in `server/migrations`, applied in filename order, each in its
  * own transaction, recorded in `schema_migrations` so a re-run is a no-op. No
- * migration framework: the deployment target is a free Render instance that
+ * migration framework: the deployment target is a single Railway instance that
  * boots with `npm start`, and one advisory lock is all the coordination a
  * single-instance deploy needs.
  *

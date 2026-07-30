@@ -1,7 +1,7 @@
 /**
  * Thin fetch wrapper around the REST API.
  *
- * The API is a separate deployment (Render) from this frontend (Vercel), so its
+ * The API is a separate deployment (Railway) from this frontend (Vercel), so its
  * base URL is baked in at build time through `VITE_API_URL`. In development the
  * variable is usually left unset and requests go to a same-origin `/api/v1`,
  * which Vite proxies to the local server.

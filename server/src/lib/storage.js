@@ -2,10 +2,10 @@
  * Product-photo storage.
  *
  * The desktop build wrote images to a folder next to the SQLite file. That does
- * not survive on Render's free tier, whose filesystem is ephemeral: every
- * deploy — and every wake from sleep — starts from the built image, so uploaded
- * photos would silently disappear. (Render's persistent disks are a paid
- * feature.) Supabase Storage has a free bucket allowance and is already part of
+ * not survive on Railway, whose container filesystem is ephemeral: every deploy
+ * starts from the built image, so uploaded photos would silently disappear. (A
+ * Railway volume would persist them, at the cost of another paid resource to
+ * back up.) Supabase Storage has a free bucket allowance and is already part of
  * this stack, so it is the default in production.
  *
  * Either way `items.image_file` holds a bare, random filename and the API keeps

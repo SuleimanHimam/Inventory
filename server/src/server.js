@@ -3,8 +3,7 @@
  *
  * Nothing here assumes a parent process: the desktop build used to be handed a
  * free loopback port by the Electron shell and announced it on stdout, which is
- * gone. The host (Render, Railway) sets PORT, the app binds 0.0.0.0, and that is
- * all.
+ * gone. The host (Railway) sets PORT, the app binds 0.0.0.0, and that is all.
  */
 import { createApp } from './app.js';
 import { pool, checkOrgContextReachesPolicies } from './db/index.js';
@@ -16,8 +15,8 @@ const port = Number(process.env.PORT ?? 4317);
 // 0.0.0.0 by default: a container's port mapping cannot reach a loopback bind.
 const host = process.env.HOST ?? '0.0.0.0';
 
-// Schema changes are applied at boot. Render's free tier has no release phase,
-// and the advisory lock inside migrate() makes a concurrent run safe.
+// Schema changes are applied at boot: the host has no release phase, and the
+// advisory lock inside migrate() makes a concurrent run safe.
 if (process.env.SKIP_MIGRATIONS !== '1') {
   await migrate();
 }

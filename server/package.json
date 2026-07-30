@@ -12,7 +12,7 @@
     "start": "node src/server.js",
     "migrate": "node --env-file-if-exists=.env src/db/migrate.js",
     "doctor": "node --env-file-if-exists=.env src/db/doctor.js",
-    "doctor:render": "node --env-file=.env.render src/db/doctor.js",
+    "doctor:prod": "node --env-file=.env.prod src/db/doctor.js",
     "seed": "node --env-file-if-exists=.env src/db/seed.js",
     "test": "node --env-file-if-exists=.env --test --test-concurrency=1 test/api.test.js"
   },

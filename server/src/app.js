@@ -46,7 +46,7 @@ export function createApp() {
   const app = express();
 
   app.disable('x-powered-by');
-  // Render terminates TLS in front of the app; trust its forwarding headers so
+  // Railway terminates TLS in front of the app; trust its forwarding headers so
   // req.protocol and rate-limiting by IP see the real client.
   app.set('trust proxy', 1);
   app.use(cors(corsOptions()));
