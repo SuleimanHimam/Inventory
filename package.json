@@ -15,7 +15,8 @@
     "db:down": "docker compose down",
     "migrate": "npm --prefix server run migrate",
     "seed": "npm --prefix server run seed",
-    "build": "npm --prefix client run build",
+    "_comment_build": "Installs the client's dependencies first, so a host that builds from the repository root (rather than with its root directory set to client/) still finds tsc and vite.",
+    "build": "npm --prefix client install && npm --prefix client run build",
     "start": "npm --prefix server start",
     "test": "npm --prefix server test"
   },
