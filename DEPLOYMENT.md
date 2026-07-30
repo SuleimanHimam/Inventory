@@ -159,20 +159,25 @@ gone, along with the `electron/` directory.
 
 ```jsonc
 { "ok": true, "db": "ready" }                          // everything is fine
-{ "ok": true, "db": "error", "dbError": "DATABASE_URL is not set. …" }
+{ "ok": true, "db": "error",  "dbError":   "DATABASE_URL is not set. …" }
+{ "ok": true, "db": "ready",  "authError": "Set SUPABASE_JWT_SECRET …" }
 ```
 
-That ordering is deliberate. The database work used to run before `app.listen`,
-so *any* problem with it — a missing variable, a wrong pooler username, an
-unreachable host, a failed migration — killed the process before the port
-opened, and the platform could only say "health check failed". Four unrelated
-causes, one useless message. Now the container stays up and names the problem,
-in the deploy log and at `/api/v1/health`.
+That ordering is deliberate. Configuration used to be validated at module load,
+so *any* mistake — a missing variable, a wrong pooler username, an unreachable
+host, a failed migration, no JWT secret — killed the process before the port
+opened, and the platform could only say "health check failed". Unrelated causes,
+one useless message, and you learn them one redeploy at a time. Now the
+container stays up and names the problem, in the deploy log and here.
+
+Safety is unchanged where it matters. `authError` means **every** request is
+refused with 503 (`AUTH_NOT_CONFIGURED`) — including under `AUTH_MODE=none`, so
+a production deployment that cannot verify a token still serves nothing.
+`dbError` means requests that touch data fail with 500 immediately. Nothing
+hangs, and nothing silently answers with empty results.
 
 The cost: a misconfigured deploy no longer fails the health check, so it will
-not roll itself back. Watch the log line — `✖ the API is listening, but the
-database is not usable` — or the `db` field. Requests that touch data return
-500 immediately; nothing hangs and nothing silently serves empty results.
+not roll itself back. Watch for `✖` in the deploy log, or read the fields above.
 
 ## 3. Vercel — frontend
 

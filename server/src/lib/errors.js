@@ -19,6 +19,8 @@ export const notFound = (msg = 'غير موجود', code, details) => new AppErr
 export const conflict = (msg, code, details) => new AppError(409, msg, code, details);
 /** 422 — the request was well-formed but violates a business rule. */
 export const unprocessable = (msg, code, details) => new AppError(422, msg, code, details);
+/** 503 — the request is fine; this deployment is not configured to serve it. */
+export const unavailable = (msg, code, details) => new AppError(503, msg, code, details);
 
 /**
  * Translate raw Postgres failures into meaningful API errors.

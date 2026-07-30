@@ -8,7 +8,7 @@
 import { createApp } from './app.js';
 import { pool, checkOrgContextReachesPolicies } from './db/index.js';
 import { migrate } from './db/migrate.js';
-import { AUTH_MODE } from './lib/auth.js';
+import { AUTH_MODE, authConfigError } from './lib/auth.js';
 import { STORAGE_DRIVER } from './lib/storage.js';
 import { markReady, markFailed } from './lib/readiness.js';
 
@@ -23,8 +23,15 @@ const server = app.listen(port, host, () => {
   console.log(`  ➜  listening on http://${host}:${port}`);
   console.log(`  ➜  auth: ${AUTH_MODE}   storage: ${STORAGE_DRIVER}`);
   console.log(`  ➜  cors: ${process.env.CORS_ORIGIN ?? '(localhost dev default)'}\n`);
-  if (AUTH_MODE === 'none') {
+  if (AUTH_MODE === 'none' && !authConfigError) {
     console.warn('  ⚠  AUTH_MODE=none — every request runs as the local dev user\n');
+  }
+  if (authConfigError) {
+    console.error(
+      `\n  ✖  authentication is not configured:\n     ${authConfigError}\n`
+      + '     Every request is refused with 503 until this is fixed.\n'
+      + '     GET /api/v1/health reports the same thing.\n',
+    );
   }
 });
 

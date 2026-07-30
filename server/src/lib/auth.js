@@ -19,7 +19,7 @@
 import { createRemoteJWKSet, jwtVerify } from 'jose';
 import { runInOrg } from '../db/index.js';
 import { resolveOrg, DEV_USER_ID, DEV_USER_EMAIL } from './orgs.js';
-import { unauthorized } from './errors.js';
+import { unauthorized, unavailable } from './errors.js';
 
 const SUPABASE_URL = process.env.SUPABASE_URL?.replace(/\/$/, '');
 const JWT_SECRET = process.env.SUPABASE_JWT_SECRET;
@@ -32,15 +32,28 @@ const JWT_SECRET = process.env.SUPABASE_JWT_SECRET;
  */
 export const AUTH_MODE = process.env.AUTH_MODE ?? 'supabase';
 
-if (AUTH_MODE === 'none' && process.env.NODE_ENV === 'production') {
-  throw new Error('AUTH_MODE=none is refused in production — configure Supabase Auth');
-}
-if (AUTH_MODE === 'supabase' && !JWT_SECRET && !SUPABASE_URL) {
-  throw new Error(
-    'Set SUPABASE_JWT_SECRET (or SUPABASE_URL for JWKS verification), '
-    + 'or AUTH_MODE=none for local development',
-  );
-}
+/**
+ * A misconfiguration this module cannot serve safely — recorded rather than
+ * thrown at import, for the reason described in db/index.js: a throw here runs
+ * before `app.listen`, so the port never opens and the platform reports it as a
+ * failed health check, which is the one description that fits every possible
+ * cause equally badly.
+ *
+ * Recording it costs nothing in safety. `authenticate` refuses *every* request
+ * while this is set — including the AUTH_MODE=none path — so a deployment that
+ * cannot verify a token serves no data, exactly as when it refused to boot. The
+ * difference is that now it can be asked why.
+ */
+export const authConfigError = (() => {
+  if (AUTH_MODE === 'none' && process.env.NODE_ENV === 'production') {
+    return 'AUTH_MODE=none is refused in production — configure Supabase Auth';
+  }
+  if (AUTH_MODE === 'supabase' && !JWT_SECRET && !SUPABASE_URL) {
+    return 'Set SUPABASE_JWT_SECRET (or SUPABASE_URL for JWKS verification), '
+      + 'or AUTH_MODE=none for local development';
+  }
+  return null;
+})();
 
 const secretKey = JWT_SECRET ? new TextEncoder().encode(JWT_SECRET) : null;
 const jwks = SUPABASE_URL
@@ -75,6 +88,9 @@ const bearer = (req) => {
  */
 export async function authenticate(req, _res, next) {
   try {
+    // Nothing is served while auth is unconfigured — see authConfigError.
+    if (authConfigError) throw unavailable(authConfigError, 'AUTH_NOT_CONFIGURED');
+
     if (AUTH_MODE === 'none') {
       const { orgId, role } = await resolveOrg({ userId: DEV_USER_ID, email: DEV_USER_EMAIL });
       req.auth = { userId: DEV_USER_ID, email: DEV_USER_EMAIL, orgId, role };
