@@ -136,9 +136,19 @@ described under [Free-tier limits](#free-tier-limits-and-what-breaks) disappears
 — but there is no free plan either: a trial credit, then Hobby (~$5/month).
 
 1. **New Project → Deploy from GitHub repo**, pick this repository.
-2. Service **Settings → Root Directory: `server`**. Railway then reads
-   `server/railway.json`, which sets the build command, `npm start`, and the
-   `/api/v1/health` check — nothing else to configure on that screen.
+2. **Leave Root Directory empty** — Railway builds from the repository root and
+   reads `railway.json` there, which installs `server/`'s dependencies and then
+   runs the root `start` script (`npm --prefix server start`).
+
+   This is the step that bites. The root `package.json` declares no runtime
+   dependencies, so a build that only installs the root leaves the API without
+   `express` and it dies at import with `ERR_MODULE_NOT_FOUND` — before
+   `app.listen`, which the platform reports as a failed health check rather than
+   as a crash. The build command in `railway.json` is what prevents that.
+
+   Setting Root Directory to `server` also works: Railway then reads
+   `server/railway.json` instead, and installs `server/package.json` on its own.
+   Pick one — the two files exist so that either choice boots.
 3. **Variables** — the same keys as Render (Railway has no way to declare these
    in the config file, so they are set in the dashboard or with
    `railway variables --set 'KEY=value'`):

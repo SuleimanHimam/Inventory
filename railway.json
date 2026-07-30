@@ -1,0 +1,15 @@
+{
+  "$schema": "https://railway.com/railway.schema.json",
+  "build": {
+    "builder": "NIXPACKS",
+    "_comment": "Railway builds from the repository root unless the service's Root Directory is set to `server`, and the root package.json declares no runtime dependencies — so install the API's own. Mirrors the root `build` script, which does the same for the client.",
+    "buildCommand": "npm install --prefix server --omit=dev"
+  },
+  "deploy": {
+    "startCommand": "npm start",
+    "healthcheckPath": "/api/v1/health",
+    "healthcheckTimeout": 120,
+    "restartPolicyType": "ON_FAILURE",
+    "restartPolicyMaxRetries": 10
+  }
+}
