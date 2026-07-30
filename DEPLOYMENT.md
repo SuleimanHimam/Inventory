@@ -1,105 +1,113 @@
 # النشر — Deployment
 
-Three services, one app — two of them free:
+Two services, one app:
 
 | Piece | Service | What it runs |
 | --- | --- | --- |
-| Database + Auth + file storage | **Supabase** | Postgres 15, Supabase Auth, one Storage bucket |
-| API | **Railway** | `server/` — plain Express, `npm start` |
+| API + database | **Railway** | `server/` — plain Express, plus a Postgres service |
 | Frontend | **Vercel** | `client/` — Vite build, static |
 
-Read [Plan limits and what breaks](#plan-limits-and-what-breaks) before
-promising anything to institutional users.
+Supabase is no longer part of this. The cost is that **there is no login and no
+durable photo storage** — read [Authentication — there is
+none](#1b-authentication--there-is-none) and [Plan limits and what
+breaks](#plan-limits-and-what-breaks) before this holds anyone's real data.
 
 ---
 
-## 1. Supabase — database
+## 1. Railway — Postgres
 
-1. Create a project (any region close to your users; the API region should match).
-2. **Connect** (top of the dashboard) → this is where `DATABASE_URL` comes from.
-   On older projects it is under Project settings → Database → Connection string.
-
-   **Use a pooler connection, not `db.<ref>.supabase.co`.** On current free-tier
-   projects the direct host resolves to IPv6 only — the IPv4 address is a paid
-   add-on — so it is simply unreachable from most clients, Railway included. The
-   pooler is IPv4:
+1. In the Railway project: **New → Database → Add PostgreSQL**.
+2. In the **API service**'s Variables, reference it rather than pasting a URL:
 
    ```
-   postgresql://postgres.<PROJECT-REF>:<DB-PASSWORD>@aws-0-<region>.pooler.supabase.com:6543/postgres
+   DATABASE_URL = ${{Postgres.DATABASE_URL}}
    ```
 
-   Note the username carries the project ref (`postgres.abcdefgh`), which the
-   pooler needs to identify the tenant.
-
-   **Either pooler port works.** `6543` is transaction mode, `5432` session mode;
-   some projects only accept one of them. The API binds `app.org_id` *inside a
-   transaction* (`SET LOCAL`), and a pooler pins one backend for a transaction's
-   duration, so the RLS policies see it under both modes. This is why
-   `runInOrg` runs a request as one transaction rather than setting a
-   session-level GUC — a session `SET` would silently vanish behind a
-   transaction pooler and leave every policy matching nothing.
-
-   The API verifies this at boot with `app_current_org()` and prints a loud
-   warning if the context is not reaching the policies, so a wrong URL announces
-   itself in the first deploy log.
-3. Apply the schema:
+   A reference keeps working when Railway rotates the credentials. Both services
+   must be in the same project for the private network to resolve.
+3. That is the whole database setup. The schema applies itself: the API runs
+   `server/migrations` in order at boot and records each file in
+   `schema_migrations`, so a plain redeploy ships a migration. To apply them from
+   your machine instead:
 
    ```bash
    cd server
-   DATABASE_URL='postgres://postgres:…@…supabase.com:5432/postgres' npm run migrate
+   DATABASE_URL='postgres://…' npm run migrate
    ```
 
-   The runner applies everything in `server/migrations` in order and records each
-   file in `schema_migrations`, so re-running it is a no-op. The API also runs it
-   at boot, which means a plain redeploy is enough to ship a migration.
+   Nothing in the schema is Supabase-specific — `pgcrypto` is the only extension,
+   and `memberships.user_id` is a plain `uuid` with no foreign key into an
+   external auth table.
 
-4. **Make RLS effective (recommended).** The policies in
-   `migrations/002_rls.sql` compare `org_id` against the `app.org_id` setting the
-   API puts on every request. A superuser bypasses RLS entirely, and Supabase's
-   `postgres` role is one — so create a least-privilege login role and use *that*
-   in `DATABASE_URL`:
+### Row Level Security
 
-   ```sql
-   -- SQL editor, once:
-   ALTER ROLE app_api WITH LOGIN PASSWORD 'a-long-random-password';
-   ```
+`migrations/002_rls.sql` compares `org_id` against the `app.org_id` setting the
+API puts on every request. **A superuser bypasses RLS entirely**, and Railway's
+default `postgres` role is one — so with the reference variable above, the
+policies are inert. Application-level scoping still holds (every service query
+carries an `org_id` predicate, and the test suite covers it), but the second
+layer is off.
 
-   `app_api` is created (without login) by `002_rls.sql` and already has
-   `SELECT/INSERT/UPDATE/DELETE` on every table. Then:
+To make it effective, create the least-privilege login role and point
+`DATABASE_URL` at it instead:
 
-   ```
-   DATABASE_URL=postgresql://app_api.<PROJECT-REF>:a-long-random-password@aws-0-<region>.pooler.supabase.com:6543/postgres
-   ```
+```sql
+-- once, against the Railway database:
+ALTER ROLE app_api WITH LOGIN PASSWORD 'a-long-random-password';
+```
 
-   The `.<PROJECT-REF>` suffix on the username is required for every role, not
-   just `postgres` — it is how the pooler identifies the tenant. Without it the
-   connection fails with `no tenant identifier provided`.
+`app_api` is created (without login) by `002_rls.sql` and already holds
+`SELECT/INSERT/UPDATE/DELETE` on every table. Then set `DATABASE_URL` to that
+role — by hand this time, since a reference variable always resolves to
+`postgres`. Check it before trusting it:
 
-   Check the string before deploying with it:
+```bash
+cd server && DATABASE_URL='…' npm run doctor    # want: bypasses RLS: no
+```
 
-   ```bash
-   cd server && DATABASE_URL='…' npm run doctor    # want: bypasses RLS: no
-   ```
+Keep running migrations as `postgres`: `app_api` deliberately cannot change the
+schema.
 
-   Verify it worked — this must return `0` rows, not your data:
+> **On pooling.** `runInOrg` sets `app.org_id` with `SET LOCAL` inside a
+> transaction rather than as a session GUC. That was written for Supabase's
+> transaction pooler, where a session `SET` silently vanishes between statements.
+> Railway hands out a direct connection, so it is not strictly required here —
+> but it is correct under both, and the API verifies at boot with
+> `app_current_org()` that the context reaches the policies.
 
-   ```sql
-   SET ROLE app_api; SELECT count(*) FROM items;  -- 0
-   ```
+## 1b. Authentication — there is none
 
-   Keep running migrations as `postgres`: `app_api` deliberately cannot change
-   the schema.
+This deployment runs `AUTH_MODE=none`. The API verifies no one: every request is
+served as a single fixed user in a single organisation, and **anyone who knows
+the URL can read and change all of the data**. The URL is the only thing
+protecting it.
 
-5. **Auth:** Authentication → Providers → Email. Enable it. For a pilot, turn
-   *Confirm email* off if you would rather not wire up SMTP yet; magic links and
-   confirmations both need the built-in email service, which is rate-limited to a
-   few messages an hour on the free plan (fine for a handful of staff, not for
-   onboarding a hundred users in an afternoon).
-6. **Storage:** create a **public** bucket named `item-images`. Product photos go
-   there; the API redirects `/uploads/<file>` to it. Public means anyone with the
-   URL can view a photo — the filenames are random UUIDs, which is the same
-   exposure the desktop app had over LAN. If that is not acceptable, switch the
-   bucket to private and serve signed URLs instead.
+That used to be refused outright when `NODE_ENV=production`. The guard existed
+so a hosted deployment could not end up open *by accident*; it is gone because
+without Supabase Auth nothing issues tokens, so the openness is a decision
+instead. What replaces it is visibility — `insecure: true` on
+`/api/v1/health`, and a warning on every boot.
+
+Before this holds real inventory data for a real organisation, it needs a login.
+The two honest routes:
+
+- **Supabase Auth on its own.** Free, needs only `SUPABASE_URL` on the API and
+  `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` on the frontend, and does not
+  require the Supabase *database*. The verification code in
+  `server/src/lib/auth.js` and `client/src/lib/session.ts` is still there and
+  still works — set the variables and it comes back.
+- **Build it into the API.** A users table, password hashing, token issuing, and
+  a rewritten login screen. Then you own resets, lockout and email delivery.
+
+## 1c. Product photos
+
+`STORAGE_DRIVER=local` writes them to the container filesystem, **which Railway
+wipes on every deploy.** Photos uploaded today are gone after the next push.
+Acceptable while evaluating; not acceptable once anyone relies on them.
+
+The durable options are a Railway volume mounted at `server/data/uploads`, or
+setting `STORAGE_DRIVER=supabase` with a bucket (that code path is intact and
+needs no Supabase database either).
 
 ## 2. Railway — API
 
@@ -123,25 +131,20 @@ about — but there is no free plan either: a trial credit, then Hobby
    Pick one — the two files exist so that either choice boots.
 3. **Variables.** `railway.json` has no equivalent of a Blueprint's `envVars`
    block, so every one of these is set in the dashboard or with
-   `railway variables --set 'KEY=value'`. All ten — the five secrets are the
-   easy ones to forget, and a missing `DATABASE_URL` throws at boot *before*
-   `app.listen`, which the platform again reports as a failed health check:
+   `railway variables --set 'KEY=value'`. All six:
 
    | Key | Value |
    | --- | --- |
    | `NODE_ENV` | `production` |
-   | `AUTH_MODE` | `supabase` |
-   | `DATABASE_URL` | from Supabase (prefer the `app_api` role — see step 1) |
-   | `SUPABASE_URL` | `https://YOUR-PROJECT.supabase.co` |
-   | `SUPABASE_JWT_SECRET` | Project settings → API → JWT keys (omit for asymmetric keys) |
-   | `STORAGE_DRIVER` | `supabase` |
-   | `SUPABASE_SERVICE_ROLE_KEY` | Project settings → API (server-side only) |
-   | `SUPABASE_STORAGE_BUCKET` | `item-images` |
+   | `DATABASE_URL` | `${{Postgres.DATABASE_URL}}` — see step 1 |
+   | `AUTH_MODE` | `none` — **the API is open; see 1b** |
+   | `STORAGE_DRIVER` | `local` — photos do not survive a deploy; see 1c |
    | `CORS_ORIGIN` | your exact Vercel URL |
    | `ALLOW_AUTO_PROVISION` | `1` |
 
-   Do **not** add a Railway Postgres plugin. The database is Supabase, and the
-   plugin would overwrite `DATABASE_URL` with its own.
+   Delete any `SUPABASE_*` variables left over from an earlier setup. They are
+   read only when `AUTH_MODE=supabase` or `STORAGE_DRIVER=supabase`, so they do
+   nothing here except mislead the next person reading the dashboard.
 4. **Settings → Networking → Generate Domain.** Railway injects `PORT` and the
    app binds `0.0.0.0` on it. If the domain answers 502, check that the
    generated domain's target port matches the port in the deploy log.
@@ -158,10 +161,13 @@ gone, along with the `electron/` directory.
 `/api/v1/health` answers before the database is involved, and reports it:
 
 ```jsonc
-{ "ok": true, "db": "ready" }                          // everything is fine
-{ "ok": true, "db": "error",  "dbError":   "DATABASE_URL is not set. …" }
-{ "ok": true, "db": "ready",  "authError": "Set SUPABASE_JWT_SECRET …" }
+{ "ok": true, "db": "ready", "insecure": true }        // as configured here
+{ "ok": true, "db": "error", "dbError":   "DATABASE_URL is not set. …" }
+{ "ok": true, "db": "ready", "authError": "Set SUPABASE_JWT_SECRET …" }
 ```
+
+`insecure: true` is `AUTH_MODE=none` announcing itself. It is not an error and
+will not go away until this deployment has a login.
 
 That ordering is deliberate. Configuration used to be validated at module load,
 so *any* mistake — a missing variable, a wrong pooler username, an unreachable
@@ -170,11 +176,11 @@ opened, and the platform could only say "health check failed". Unrelated causes,
 one useless message, and you learn them one redeploy at a time. Now the
 container stays up and names the problem, in the deploy log and here.
 
-Safety is unchanged where it matters. `authError` means **every** request is
-refused with 503 (`AUTH_NOT_CONFIGURED`) — including under `AUTH_MODE=none`, so
-a production deployment that cannot verify a token still serves nothing.
-`dbError` means requests that touch data fail with 500 immediately. Nothing
-hangs, and nothing silently answers with empty results.
+`authError` means every request is refused with 503 (`AUTH_NOT_CONFIGURED`) —
+that is `AUTH_MODE=supabase` with no way to verify a token, which serves nothing
+rather than serving everything. `dbError` means requests that touch data fail
+with 500 immediately. Nothing hangs, and nothing silently answers with empty
+results.
 
 The cost: a misconfigured deploy no longer fails the health check, so it will
 not roll itself back. Watch for `✖` in the deploy log, or read the fields above.
@@ -185,13 +191,16 @@ not roll itself back. Watch for `✖` in the deploy log, or read the fields abov
 - **Build command:** `npm run build`
 - **Output directory:** `dist`
 
-Environment variables (all three are build-time and public — Vite inlines them):
+Environment variables (build-time and public — Vite inlines them):
 
 | Key | Value |
 | --- | --- |
 | `VITE_API_URL` | the Railway URL, no trailing slash, e.g. `https://inventory-api.up.railway.app` |
-| `VITE_SUPABASE_URL` | `https://YOUR-PROJECT.supabase.co` |
-| `VITE_SUPABASE_ANON_KEY` | Project settings → API → anon/public key |
+
+That is the only one needed here. `client/src/lib/session.ts` shows no login
+screen when `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` are absent, which is
+the frontend half of `AUTH_MODE=none` — leave them unset. Setting all three is
+how you turn the login back on later; no code changes, on either side.
 
 Set `CORS_ORIGIN` on Railway to the Vercel URL *after* the first deploy, then
 redeploy the API. For per-commit preview URLs, set `CORS_ORIGIN_REGEX` on
@@ -222,7 +231,7 @@ use the column-specific `ON DELETE SET NULL (col)` form.
 
 With `AUTH_MODE=none` (the default in `.env.example`) there is no login screen
 and every request runs as a single local development user with its own
-organisation. The server refuses that mode when `NODE_ENV=production`.
+organisation — the same mode the hosted deployment currently runs in.
 
 To exercise the real login flow locally, set `SUPABASE_URL` +
 `SUPABASE_JWT_SECRET` and `AUTH_MODE=supabase` in `server/.env`, and
@@ -270,33 +279,29 @@ It is not difficult, but it is not nothing either — the shape of the job:
 
 ## Plan limits and what breaks
 
-Supabase and Vercel run on their free tiers; Railway does not have one. What
-that costs you:
+Vercel runs on its free tier; Railway does not have one. What that costs you —
+the first two are consequences of dropping Supabase, and they are the ones that
+matter:
 
 - **Railway is not free.** A trial credit, then Hobby at ~$5/month plus usage.
   What you buy is an always-on service: no sleep, so no multi-second cold start
   the first time someone opens the app each morning — which on a sleeping free
   host reads to an institutional user as "the system is down". This is the one
   line item in the stack that has to be paid, and it is the right one to pay.
-- **Supabase pauses a project after 7 days with no activity.** It has to be
-  resumed from the dashboard. Regular use avoids this; a pilot that sits idle for
-  a fortnight will need a manual restore.
-- **Supabase free storage:** 500 MB database + 1 GB file storage. This schema is
-  small — the largest table is `stock_movements` at roughly 150 bytes a row, so
-  500 MB is millions of movements. Product photos are what will hit the wall
-  first: 1 GB is about 2,000 photos at 500 KB each.
-- **Supabase Auth email** is rate-limited on the free plan. Bulk-onboarding
-  users, or relying on magic links for daily sign-in, needs your own SMTP
-  provider configured in Supabase (free options exist).
-- **No backups on the free plan.** Supabase's point-in-time recovery is a paid
-  feature. For real customer data, either take `pg_dump` snapshots on a schedule
-  or budget for the Pro plan. This is the one limit I would not ship to a
-  paying institutional customer without resolving.
-- **Product photos are ephemeral if `STORAGE_DRIVER=local`** — Railway's
-  container filesystem is wiped on every deploy, so use the Supabase Storage
-  driver in production. A Railway volume would also work, but it is one more
-  paid resource to back up, and Supabase Storage is already there.
+- **There is no authentication.** Anyone with the API URL can read and change
+  every row. This is the limit that should stop a rollout, not the plan prices.
+  See [1b](#1b-authentication--there-is-none).
+- **Product photos do not survive a deploy.** `STORAGE_DRIVER=local` writes to
+  the container filesystem, which Railway rebuilds on every push. A Railway
+  volume fixes it; so does the Supabase Storage driver, which still works and
+  needs no Supabase database.
+- **Backups are yours to arrange.** Railway Postgres has no point-in-time
+  recovery on the starter plans. Schedule `pg_dump` somewhere off-platform. For
+  real customer data this is the one I would not ship without resolving.
+- **Railway bills for the database too.** Postgres is a second service with its
+  own usage, on top of the API. Still small for this workload — the largest
+  table is `stock_movements` at roughly 150 bytes a row — but it is no longer a
+  free 500 MB.
 
-Beyond the API host, nothing here *requires* a paid tier to work correctly. The
-two things that would push the rest of the stack off free are backups and photo
-volume.
+Nothing here is a limitation of the *code*: auth and durable storage both exist
+and are switched off by configuration, not deleted.

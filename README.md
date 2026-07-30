@@ -1,10 +1,15 @@
 # نظام إدارة المخزون — Inventory Management System
 
 Multi-user inventory management with an Arabic-first, right-to-left interface,
-hosted across three managed services: **Vercel** (frontend), **Railway** (API)
-and **Supabase** (Postgres, Auth and file storage).
+hosted on **Vercel** (frontend) and **Railway** (API + Postgres).
 
-Version 6.0 · React + TypeScript · Node/Express · PostgreSQL · Supabase Auth
+Version 6.0 · React + TypeScript · Node/Express · PostgreSQL
+
+> **The hosted deployment currently runs with `AUTH_MODE=none` — it has no
+> login.** Supabase Auth was dropped along with the Supabase database, and
+> nothing replaced it, so anyone with the API URL can read and change every row.
+> The verification code is intact and re-enabled by configuration alone; see
+> [DEPLOYMENT.md](DEPLOYMENT.md#1b-authentication--there-is-none).
 
 > **Migrated from the offline desktop build (v5.0).** The Electron shell and the
 > embedded SQLite database are gone; the business rules, the service layer and
@@ -37,10 +42,10 @@ To exercise the real login flow locally, put `SUPABASE_URL` +
 
 ### Deploying
 
-See **[DEPLOYMENT.md](DEPLOYMENT.md)** for the Supabase → Railway → Vercel
-walkthrough, including how to make the Row Level Security policies actually
-effective, and an honest list of what the plans cost you (Railway has no free
-tier; there are no database backups on Supabase's free plan).
+See **[DEPLOYMENT.md](DEPLOYMENT.md)** for the Railway → Vercel walkthrough,
+including how to make the Row Level Security policies actually effective, and an
+honest list of what this setup costs you (no authentication, photos wiped on
+every deploy, and backups you have to arrange yourself).
 
 ### Tests
 
@@ -55,7 +60,7 @@ posting and price propagation, and the full stocktaking lifecycle including
 transactional rollback — plus two new ones covering tenant isolation and
 per-organisation settings. Each run creates its own organisation and drops it
 afterwards, so the suite is safe against any database, including a throwaway
-Supabase branch.
+Railway or Docker one.
 
 ---
 
@@ -77,9 +82,11 @@ client/            React + TypeScript + Vite + Tailwind v4
   src/lib/           API client, Supabase session, formatting, types
 ```
 
-The frontend is a static bundle. It knows the API by `VITE_API_URL`, signs in
-against Supabase Auth directly, and sends the resulting access token as a bearer
-token — no password or refresh token ever passes through our API. Hash routing
+The frontend is a static bundle. It knows the API by `VITE_API_URL`. When the
+`VITE_SUPABASE_*` variables are set it signs in against Supabase Auth directly
+and sends the resulting access token as a bearer token — no password or refresh
+token ever passes through our API. Unset, as on the current deployment, it skips
+the login screen entirely and every request is anonymous. Hash routing
 (`/#/items/…`) means deep links resolve on static hosting with no rewrite rules
 and no server-rendering assumptions.
 
@@ -145,8 +152,8 @@ context carries the org id and the dedicated connection, which is what let the
 | `schema.sql` run at startup | tracked migrations in `server/migrations` |
 | SQLite triggers | PL/pgSQL `CREATE FUNCTION … RETURNS TRIGGER` |
 | WAL mode for concurrent reads | MVCC — nothing to configure |
-| No authentication, single user | Supabase Auth + `org_id` on every tenant table + RLS |
-| Photos on the local disk | Supabase Storage (the container disk is ephemeral) |
+| No authentication, single user | `org_id` on every tenant table + RLS (login: see the note above) |
+| Photos on the local disk | still the local disk — now ephemeral, since the container is rebuilt each deploy |
 | `ORDER BY … COLLATE NOCASE` | `lower(…)` / `ILIKE` |
 | `rowid` as insertion-order tie-break | explicit `seq` identity column |
 

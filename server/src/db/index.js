@@ -41,8 +41,8 @@ export const DATABASE_URL = process.env.DATABASE_URL;
  * names the problem, and the error still surfaces on the first query.
  */
 export const configError = DATABASE_URL ? null : new Error(
-  'DATABASE_URL is not set. Point it at your Postgres instance '
-  + '(Supabase: Project settings → Database → Connection string → URI).',
+  'DATABASE_URL is not set. Point it at your Postgres instance — on Railway, '
+  + 'reference the Postgres service with ${{Postgres.DATABASE_URL}}.',
 );
 
 /**

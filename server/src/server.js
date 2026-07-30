@@ -8,7 +8,7 @@
 import { createApp } from './app.js';
 import { pool, checkOrgContextReachesPolicies } from './db/index.js';
 import { migrate } from './db/migrate.js';
-import { AUTH_MODE, authConfigError } from './lib/auth.js';
+import { AUTH_MODE, AUTH_DISABLED, authConfigError } from './lib/auth.js';
 import { STORAGE_DRIVER, storageConfigError } from './lib/storage.js';
 import { markReady, markFailed } from './lib/readiness.js';
 
@@ -23,8 +23,13 @@ const server = app.listen(port, host, () => {
   console.log(`  ➜  listening on http://${host}:${port}`);
   console.log(`  ➜  auth: ${AUTH_MODE}   storage: ${STORAGE_DRIVER}`);
   console.log(`  ➜  cors: ${process.env.CORS_ORIGIN ?? '(localhost dev default)'}\n`);
-  if (AUTH_MODE === 'none' && !authConfigError) {
-    console.warn('  ⚠  AUTH_MODE=none — every request runs as the local dev user\n');
+  if (AUTH_DISABLED) {
+    console.warn(
+      '\n  ⚠  AUTH_MODE=none — this API verifies nobody.\n'
+      + '     Every request runs as the same user in the same organisation, and\n'
+      + '     anyone who knows the URL can read and change all of the data.\n'
+      + '     The URL is the only thing protecting it.\n',
+    );
   }
   if (storageConfigError) {
     console.error(

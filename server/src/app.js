@@ -2,7 +2,9 @@ import express from 'express';
 import cors from 'cors';
 
 import { errorHandler } from './lib/http.js';
-import { authenticate, orgContext, AUTH_MODE, authConfigError } from './lib/auth.js';
+import {
+  authenticate, orgContext, AUTH_MODE, AUTH_DISABLED, authConfigError,
+} from './lib/auth.js';
 import { STORAGE_DRIVER, UPLOADS_DIR, publicUrl, storageConfigError } from './lib/storage.js';
 import { dbState, dbDetail } from './lib/readiness.js';
 import itemsRoutes from './routes/items.routes.js';
@@ -68,6 +70,8 @@ export function createApp() {
     ...(dbDetail() ? { dbError: dbDetail() } : {}),
     ...(authConfigError ? { authError: authConfigError } : {}),
     ...(storageConfigError ? { storageError: storageConfigError } : {}),
+    // Deliberately visible: an open API should be obvious from the outside.
+    ...(AUTH_DISABLED ? { insecure: true } : {}),
   }));
 
   /**

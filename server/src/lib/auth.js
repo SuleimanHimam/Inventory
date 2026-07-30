@@ -26,11 +26,21 @@ const JWT_SECRET = process.env.SUPABASE_JWT_SECRET;
 
 /**
  * `AUTH_MODE=none` disables verification and puts every request in one fixed
- * organisation. It exists for local development and the test suite, and refuses
- * to start when NODE_ENV=production so it can never be the reason a hosted
- * deployment is wide open.
+ * organisation.
+ *
+ * It used to refuse to start under NODE_ENV=production, on the reasoning that a
+ * hosted deployment should never be open by accident. That guard is gone
+ * because this deployment runs without Supabase Auth and has nothing else
+ * issuing tokens — the openness is now a decision, not an accident.
+ *
+ * What replaces the guard is noise: `insecure: true` on /api/v1/health and a
+ * warning on every boot. Anyone who can reach the URL can read and write every
+ * organisation's data, so the URL is the only thing protecting it.
  */
 export const AUTH_MODE = process.env.AUTH_MODE ?? 'supabase';
+
+/** True when the API is answering without verifying anyone. */
+export const AUTH_DISABLED = AUTH_MODE === 'none';
 
 /**
  * A misconfiguration this module cannot serve safely — recorded rather than
@@ -45,9 +55,6 @@ export const AUTH_MODE = process.env.AUTH_MODE ?? 'supabase';
  * difference is that now it can be asked why.
  */
 export const authConfigError = (() => {
-  if (AUTH_MODE === 'none' && process.env.NODE_ENV === 'production') {
-    return 'AUTH_MODE=none is refused in production — configure Supabase Auth';
-  }
   if (AUTH_MODE === 'supabase' && !JWT_SECRET && !SUPABASE_URL) {
     return 'Set SUPABASE_JWT_SECRET (or SUPABASE_URL for JWKS verification), '
       + 'or AUTH_MODE=none for local development';
