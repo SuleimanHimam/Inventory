@@ -71,10 +71,19 @@ try {
   if (err.code === '28P01') {
     console.log('  Wrong password. Reset it under Settings → Database → Database password.\n');
   }
-  if (/tenant or user not found/i.test(err.message)) {
+  if (/user not found in the database/i.test(err.message)) {
+    console.log(
+      '  The pooler found the project but not that role — which is what you get\n'
+      + '  before the role has been given a login. For app_api, run once in the\n'
+      + '  Supabase SQL editor:\n'
+      + "    ALTER ROLE app_api WITH LOGIN PASSWORD '…';\n",
+    );
+  }
+  if (/tenant or user not found|no tenant identifier/i.test(err.message)) {
     console.log(
       '  The pooler could not identify the project. Two usual causes:\n'
-      + '    • the username must carry the project ref: postgres.<PROJECT-REF>\n'
+      + '    • the username must carry the project ref, for ANY role:\n'
+      + '        postgres.<PROJECT-REF>   app_api.<PROJECT-REF>\n'
       + '    • the region in the host must match the project (aws-0 vs aws-1, etc.)\n',
     );
   }

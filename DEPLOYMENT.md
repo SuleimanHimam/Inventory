@@ -68,7 +68,17 @@ promising anything to institutional users.
    `SELECT/INSERT/UPDATE/DELETE` on every table. Then:
 
    ```
-   DATABASE_URL=postgres://app_api:a-long-random-password@…supabase.com:5432/postgres
+   DATABASE_URL=postgresql://app_api.<PROJECT-REF>:a-long-random-password@aws-0-<region>.pooler.supabase.com:6543/postgres
+   ```
+
+   The `.<PROJECT-REF>` suffix on the username is required for every role, not
+   just `postgres` — it is how the pooler identifies the tenant. Without it the
+   connection fails with `no tenant identifier provided`.
+
+   Check the string before deploying with it:
+
+   ```bash
+   cd server && DATABASE_URL='…' npm run doctor    # want: bypasses RLS: no
    ```
 
    Verify it worked — this must return `0` rows, not your data:
