@@ -188,11 +188,23 @@ export async function tx(fn) {
 /**
  * Bind an organisation to everything `fn` does.
  *
- * Checks out one connection for the whole unit of work and sets `app.org_id` on
- * it, which is what makes the RLS policies effective — a connection with no
- * setting can read nothing. Statements outside an explicit `tx()` still
- * autocommit individually, exactly as they did against SQLite; the operations
- * that must be all-or-nothing open their own transaction.
+ * Runs the whole unit of work in one transaction with `app.org_id` set
+ * *transaction-locally*, which is what makes the RLS policies effective — a
+ * connection with no setting can read nothing.
+ *
+ * Transaction-scoped rather than session-scoped on purpose. A session-level
+ * `SET` only survives if the connection maps to one backend for its lifetime,
+ * and that is exactly what a transaction pooler does not promise: Supabase's
+ * Supavisor on port 6543, and PgBouncer in transaction mode, hand consecutive
+ * statements to different backends. `SET LOCAL` inside a transaction is safe
+ * under both pooling modes, because a pooler pins one backend for the duration
+ * of a transaction. Free-tier Supabase reaches the pooler over IPv4 while the
+ * direct connection is IPv6-only, so the pooler is not really optional.
+ *
+ * The cost is that a request is one transaction: an error part-way through rolls
+ * back everything it wrote, rather than leaving earlier statements committed the
+ * way autocommit did against SQLite. For this API that is the better default —
+ * a request that answers with an error should not leave rows behind.
  *
  * The API calls this once per request.
  */
@@ -200,12 +212,18 @@ export async function runInOrg(org, fn) {
   if (!org) throw new Error('runInOrg requires an organisation id');
   const client = await pool.connect();
   try {
-    await client.query('SELECT set_config($1, $2, false)', ['app.org_id', org]);
-    return await store.run({ orgId: org, client, inTx: false }, fn);
+    await client.query('BEGIN');
+    await client.query('SELECT set_config($1, $2, true)', ['app.org_id', org]);
+    let result;
+    try {
+      result = await store.run({ orgId: org, client, inTx: true }, fn);
+    } catch (err) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw err;
+    }
+    await client.query('COMMIT');
+    return result;
   } finally {
-    // A pooled connection must never carry one organisation's context into the
-    // next request that borrows it.
-    await client.query('SELECT set_config($1, $2, false)', ['app.org_id', '']).catch(() => {});
     client.release();
   }
 }
@@ -214,43 +232,26 @@ export async function runInOrg(org, fn) {
 export const runWithoutOrg = (fn) => store.run({ orgId: null, client: null, inTx: false }, fn);
 
 /**
- * Check that `app.org_id` survives from one statement to the next on a single
- * checked-out connection.
+ * Verify at boot that the organisation context actually reaches the RLS
+ * policies: bind a probe org, then ask the policy function what it sees.
  *
- * `runInOrg` sets it once per request at session level, which requires the
- * connection to map to one backend for as long as it is held. A *transaction*
- * pooler (Supabase's Supavisor on port 6543, PgBouncer in transaction mode) does
- * not promise that: it can hand consecutive statements to different backends, so
- * the setting silently vanishes and every RLS policy then matches nothing.
- *
- * Called at boot so a pooler misconfiguration announces itself immediately,
- * instead of looking like "the database is empty" in production.
+ * This is the one thing that, if silently broken by a connection-string change,
+ * turns the second line of tenant isolation off without any visible symptom.
  */
-export async function checkSessionScopedConnection() {
+export async function checkOrgContextReachesPolicies() {
   const probe = '00000000-0000-4000-8000-0000000000ff';
-  const client = await pool.connect();
-  try {
-    await client.query('SELECT set_config($1, $2, false)', ['app.org_id', probe]);
-    // Deliberately a second, separate statement: that is what a transaction
-    // pooler is free to route elsewhere.
-    const { rows } = await client.query("SELECT current_setting('app.org_id', true) AS value");
-    const survived = rows[0]?.value === probe;
-    if (!survived) {
-      console.error(
-        '\n  ⚠  DATABASE_URL looks like a TRANSACTION pooler.\n'
-        + '     `app.org_id` did not survive between two statements on one connection,\n'
-        + '     so the Row Level Security policies cannot see it and will match no rows.\n'
-        + '     Use a session-mode connection instead (Supabase: the direct connection or\n'
-        + '     the session pooler on port 5432, not the transaction pooler on 6543).\n'
-        + '     Tenant scoping in the service layer is unaffected — the database-level\n'
-        + '     second line of defence is what stops working.\n',
-      );
-    }
-    return survived;
-  } finally {
-    await client.query('SELECT set_config($1, $2, false)', ['app.org_id', '']).catch(() => {});
-    client.release();
+  const seen = await runInOrg(probe, () =>
+    get('SELECT app_current_org()::text AS value'));
+  const ok = seen?.value === probe;
+  if (!ok) {
+    console.error(
+      '\n  ⚠  app.org_id is not reaching the RLS policies.\n'
+      + `     Bound ${probe} but app_current_org() reported ${seen?.value ?? 'NULL'}.\n`
+      + '     Row Level Security will match no rows. Check DATABASE_URL, and that\n'
+      + '     migrations/002_rls.sql has been applied.\n',
+    );
   }
+  return ok;
 }
 
 // ---------------------------------------------------------------------- utils

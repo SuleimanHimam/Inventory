@@ -16,18 +16,32 @@ promising anything to institutional users.
 ## 1. Supabase — database
 
 1. Create a project (any region close to your users; the API region should match).
-2. **Project settings → Database → Connection string → URI** — this is `DATABASE_URL`.
+2. **Connect** (top of the dashboard) → this is where `DATABASE_URL` comes from.
+   On older projects it is under Project settings → Database → Connection string.
 
-   **Use a session-mode connection: the direct connection or the session pooler,
-   both on port `5432`. Not the transaction pooler on `6543`.** The API sets
-   `app.org_id` once per request at session level, and a transaction pooler is
-   free to route consecutive statements to different backends — the setting
-   vanishes, every RLS policy matches nothing, and the app looks like an empty
-   database. Render's free plan runs a single instance with a pool of 8, so the
-   direct connection ceiling is not a constraint here.
+   **Use a pooler connection, not `db.<ref>.supabase.co`.** On current free-tier
+   projects the direct host resolves to IPv6 only — the IPv4 address is a paid
+   add-on — so it is simply unreachable from most clients, Render included. The
+   pooler is IPv4:
 
-   The API checks this at boot and prints a loud warning if the setting does not
-   survive, so a wrong URL announces itself in the first deploy log.
+   ```
+   postgresql://postgres.<PROJECT-REF>:<DB-PASSWORD>@aws-0-<region>.pooler.supabase.com:6543/postgres
+   ```
+
+   Note the username carries the project ref (`postgres.abcdefgh`), which the
+   pooler needs to identify the tenant.
+
+   **Either pooler port works.** `6543` is transaction mode, `5432` session mode;
+   some projects only accept one of them. The API binds `app.org_id` *inside a
+   transaction* (`SET LOCAL`), and a pooler pins one backend for a transaction's
+   duration, so the RLS policies see it under both modes. This is why
+   `runInOrg` runs a request as one transaction rather than setting a
+   session-level GUC — a session `SET` would silently vanish behind a
+   transaction pooler and leave every policy matching nothing.
+
+   The API verifies this at boot with `app_current_org()` and prints a loud
+   warning if the context is not reaching the policies, so a wrong URL announces
+   itself in the first deploy log.
 3. Apply the schema:
 
    ```bash

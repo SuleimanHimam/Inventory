@@ -21,7 +21,7 @@ if (!process.env.DATABASE_URL) {
 process.env.AUTH_MODE = 'none';
 
 // Imported dynamically so the environment above is set before the modules load.
-const { pool, get, run, runInOrg } = await import('../src/db/index.js');
+const { pool, get, run, tx, runInOrg } = await import('../src/db/index.js');
 const { migrate } = await import('../src/db/migrate.js');
 const { resolveOrg } = await import('../src/lib/orgs.js');
 const categories = await import('../src/services/categories.service.js');
@@ -59,9 +59,17 @@ test.after(async () => {
  */
 const ORG_SCOPED = { org: ORG };
 
-/** Assert that a promise rejects with a given business error code. */
+/**
+ * Assert that a promise rejects with a given business error code.
+ *
+ * The call runs in its own savepoint. In Postgres a failed statement poisons the
+ * enclosing transaction, and since the API runs one transaction per request, an
+ * expected failure here stands for a *request* that errored and rolled back —
+ * after which the next request works normally. The savepoint reproduces that,
+ * so a test can assert a rejection and then carry on, as a user would.
+ */
 const rejectsWith = (fn, code) =>
-  assert.rejects(fn, (err) => err.code === code || String(err.message).includes(code),
+  assert.rejects(() => tx(fn), (err) => err.code === code || String(err.message).includes(code),
     `expected error code ${code}`);
 
 let cat, itemA, itemB;

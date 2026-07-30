@@ -6,7 +6,7 @@
  * gone. The host (Render) sets PORT, the app binds 0.0.0.0, and that is all.
  */
 import { createApp } from './app.js';
-import { pool, checkSessionScopedConnection } from './db/index.js';
+import { pool, checkOrgContextReachesPolicies } from './db/index.js';
 import { migrate } from './db/migrate.js';
 import { AUTH_MODE } from './lib/auth.js';
 import { STORAGE_DRIVER } from './lib/storage.js';
@@ -21,10 +21,11 @@ if (process.env.SKIP_MIGRATIONS !== '1') {
   await migrate();
 }
 
-// Warns (loudly) if DATABASE_URL points at a transaction pooler, which would
-// silently disable the RLS layer. Not fatal: application-level org scoping still
-// holds, and refusing to boot over a second line of defence would be worse.
-await checkSessionScopedConnection();
+// Warns (loudly) if the organisation context is not reaching the RLS policies,
+// which would silently disable the database-level half of tenant isolation. Not
+// fatal: application-level org scoping still holds, and refusing to boot over a
+// second line of defence would be worse.
+await checkOrgContextReachesPolicies();
 
 const app = createApp();
 
