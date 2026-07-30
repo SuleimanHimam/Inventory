@@ -1,0 +1,133 @@
+{
+  "app": {
+    "name": "Inventory Management System",
+    "tagline": "Track stock, invoices and counts"
+  },
+  "nav": {
+    "groups": {
+      "main": "Main",
+      "movement": "Movement",
+      "parties": "Contacts",
+      "tools": "Tools"
+    },
+    "dashboard": "Dashboard",
+    "items": "Items",
+    "categories": "Categories",
+    "invoices": "Invoices",
+    "movements": "Stock movements",
+    "stockCounts": "Stocktaking",
+    "customers": "Customers",
+    "suppliers": "Suppliers",
+    "import": "Excel import",
+    "lowStock": "Low stock",
+    "settings": "Settings",
+    "collapse": "Collapse menu"
+  },
+  "actions": {
+    "new": "New",
+    "add": "Add",
+    "edit": "Edit",
+    "delete": "Delete",
+    "save": "Save",
+    "saveChanges": "Save changes",
+    "cancel": "Cancel",
+    "confirm": "Confirm",
+    "close": "Close",
+    "search": "Search",
+    "clear": "Clear",
+    "print": "Print",
+    "export": "Export",
+    "download": "Download",
+    "archive": "Archive",
+    "restore": "Restore",
+    "refresh": "Refresh",
+    "viewAll": "View all",
+    "next": "Next",
+    "previous": "Previous"
+  },
+  "entities": {
+    "item": "Item",
+    "items": "Items",
+    "category": "Category",
+    "barcode": "Barcode",
+    "subBarcode": "Sub-barcode",
+    "quantity": "Quantity",
+    "purchasePrice": "Purchase price",
+    "salePrice": "Sale price",
+    "customer": "Customer",
+    "supplier": "Supplier",
+    "invoice": "Invoice",
+    "date": "Date",
+    "note": "Note",
+    "total": "Total",
+    "subtotal": "Subtotal",
+    "discount": "Discount",
+    "tax": "Tax",
+    "status": "Status",
+    "phone": "Phone",
+    "email": "Email",
+    "address": "Address",
+    "taxNumber": "Tax number",
+    "notes": "Notes"
+  },
+  "invoiceType": {
+    "STOCK_IN": "Stock in",
+    "STOCK_OUT": "Stock out",
+    "PURCHASE": "Purchase invoice",
+    "SALE": "Sale invoice",
+    "short": {
+      "STOCK_IN": "In",
+      "STOCK_OUT": "Out",
+      "PURCHASE": "Purchase",
+      "SALE": "Sale"
+    }
+  },
+  "invoiceStatus": {
+    "DRAFT": "Draft",
+    "POSTED": "Posted",
+    "CANCELLED": "Cancelled"
+  },
+  "invoiceSource": {
+    "QUICK": "Quick movement",
+    "STOCK_COUNT": "Auto stocktake",
+    "IMPORT": "Import"
+  },
+  "countStatus": {
+    "OPEN": "In progress",
+    "SUBMITTED": "Pending review",
+    "APPLIED": "Applied",
+    "CANCELLED": "Cancelled"
+  },
+  "movementType": {
+    "IN": "In",
+    "OUT": "Out"
+  },
+  "referenceType": {
+    "MANUAL": "Manual",
+    "STOCK_COUNT": "Stocktake adjustment",
+    "IMPORT": "Import",
+    "INVOICE": "Invoice"
+  },
+  "table": {
+    "showing": "Showing {{from}}–{{to}} of {{total}}",
+    "perPage": "{{count}} / page",
+    "rowCount": "Rows",
+    "noResults": "No results",
+    "loading": "Loading…"
+  },
+  "search": {
+    "placeholder": "Search items or barcodes…",
+    "full": "Search by name, barcode or sub-barcode…",
+    "label": "Global search",
+    "goTo": "Go to",
+    "navigate": "Navigate",
+    "open": "Open",
+    "matchedName": "Matched on name",
+    "matchedBarcode": "Matched on barcode",
+    "matchedSubBarcode": "Matched on sub-barcode"
+  },
+  "theme": {
+    "dark": "Dark mode",
+    "light": "Light mode"
+  }
+}

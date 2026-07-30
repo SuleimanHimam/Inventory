@@ -1,0 +1,133 @@
+{
+  "app": {
+    "name": "نظام إدارة المخزون",
+    "tagline": "إدارة المخزون بلغة عربية كاملة"
+  },
+  "nav": {
+    "groups": {
+      "main": "الرئيسية",
+      "movement": "الحركة",
+      "parties": "جهات التعامل",
+      "tools": "أدوات"
+    },
+    "dashboard": "لوحة المعلومات",
+    "items": "الأصناف",
+    "categories": "التصنيفات",
+    "invoices": "الفواتير",
+    "movements": "حركات المخزون",
+    "stockCounts": "الجرد",
+    "customers": "العملاء",
+    "suppliers": "الموردون",
+    "import": "استيراد Excel",
+    "lowStock": "نواقص المخزون",
+    "settings": "الإعدادات",
+    "collapse": "طيّ القائمة"
+  },
+  "actions": {
+    "new": "جديد",
+    "add": "إضافة",
+    "edit": "تعديل",
+    "delete": "حذف",
+    "save": "حفظ",
+    "saveChanges": "حفظ التغييرات",
+    "cancel": "إلغاء",
+    "confirm": "تأكيد",
+    "close": "إغلاق",
+    "search": "بحث",
+    "clear": "مسح",
+    "print": "طباعة",
+    "export": "تصدير",
+    "download": "تنزيل",
+    "archive": "أرشفة",
+    "restore": "إعادة تنشيط",
+    "refresh": "تحديث",
+    "viewAll": "عرض الكل",
+    "next": "التالي",
+    "previous": "السابق"
+  },
+  "entities": {
+    "item": "صنف",
+    "items": "أصناف",
+    "category": "تصنيف",
+    "barcode": "الباركود",
+    "subBarcode": "باركود فرعي",
+    "quantity": "الكمية",
+    "purchasePrice": "سعر الشراء",
+    "salePrice": "سعر البيع",
+    "customer": "عميل",
+    "supplier": "مورد",
+    "invoice": "فاتورة",
+    "date": "التاريخ",
+    "note": "ملاحظة",
+    "total": "الإجمالي",
+    "subtotal": "المجموع",
+    "discount": "الخصم",
+    "tax": "الضريبة",
+    "status": "الحالة",
+    "phone": "الهاتف",
+    "email": "البريد الإلكتروني",
+    "address": "العنوان",
+    "taxNumber": "الرقم الضريبي",
+    "notes": "ملاحظات"
+  },
+  "invoiceType": {
+    "STOCK_IN": "إدخال مخزون",
+    "STOCK_OUT": "إخراج مخزون",
+    "PURCHASE": "فاتورة شراء",
+    "SALE": "فاتورة بيع",
+    "short": {
+      "STOCK_IN": "إدخال",
+      "STOCK_OUT": "إخراج",
+      "PURCHASE": "شراء",
+      "SALE": "بيع"
+    }
+  },
+  "invoiceStatus": {
+    "DRAFT": "مسودة",
+    "POSTED": "مرحّلة",
+    "CANCELLED": "ملغاة"
+  },
+  "invoiceSource": {
+    "QUICK": "حركة سريعة",
+    "STOCK_COUNT": "جرد آلي",
+    "IMPORT": "استيراد"
+  },
+  "countStatus": {
+    "OPEN": "قيد الإدخال",
+    "SUBMITTED": "بانتظار الاعتماد",
+    "APPLIED": "مطبّقة",
+    "CANCELLED": "ملغاة"
+  },
+  "movementType": {
+    "IN": "وارد",
+    "OUT": "صادر"
+  },
+  "referenceType": {
+    "MANUAL": "حركة يدوية",
+    "STOCK_COUNT": "تسوية جرد",
+    "IMPORT": "استيراد",
+    "INVOICE": "فاتورة"
+  },
+  "table": {
+    "showing": "عرض {{from}}–{{to}} من {{total}}",
+    "perPage": "{{count}} / صفحة",
+    "rowCount": "عدد الصفوف",
+    "noResults": "لا توجد نتائج",
+    "loading": "جارٍ التحميل…"
+  },
+  "search": {
+    "placeholder": "ابحث عن صنف أو باركود…",
+    "full": "ابحث بالاسم أو الباركود أو الباركود الفرعي…",
+    "label": "البحث الشامل",
+    "goTo": "الانتقال إلى",
+    "navigate": "تنقّل",
+    "open": "فتح",
+    "matchedName": "مطابقة بالاسم",
+    "matchedBarcode": "مطابقة بالباركود",
+    "matchedSubBarcode": "مطابقة بباركود فرعي"
+  },
+  "theme": {
+    "dark": "الوضع الداكن",
+    "light": "الوضع الفاتح"
+  }
+}

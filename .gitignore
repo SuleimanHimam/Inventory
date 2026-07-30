@@ -1,0 +1,32 @@
+node_modules/
+dist/
+build/
+
+# The retired Electron shell and its installers (~470 MB). Kept on disk only
+# because this working copy had no version control when it was retired — see
+# legacy-desktop/README.md. Never commit it: individual installers exceed
+# GitHub's 100 MB per-file limit.
+legacy-desktop/
+
+# Local uploads and scratch data (product photos live in Supabase Storage when hosted)
+server/data/
+server/.tmp/
+
+# Screenshots from driving the app
+.shots/
+
+# Build caches
+*.tsbuildinfo
+
+# Logs / editor / OS
+*.log
+npm-debug.log*
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Environment — never commit a real one; .env.example is the documentation
+.env
+.env.*
+!.env.example

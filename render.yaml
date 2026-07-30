@@ -1,0 +1,45 @@
+# Render Blueprint for the API. Import it from the dashboard (New → Blueprint)
+# or configure the same values by hand.
+#
+# The free web-service plan sleeps after ~15 minutes without traffic; the next
+# request pays a cold start of a few seconds — including a fresh Postgres
+# connection and the migration check at boot. Acceptable for a pilot, not for
+# users who expect an always-on system. See DEPLOYMENT.md.
+services:
+  - type: web
+    name: inventory-api
+    runtime: node
+    plan: free
+    region: frankfurt
+    rootDir: server
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /api/v1/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: AUTH_MODE
+        value: supabase
+      # Supabase connection string. Prefer the least-privilege `app_api` role so
+      # the Row Level Security policies actually apply — `postgres` bypasses them.
+      - key: DATABASE_URL
+        sync: false
+      # Project settings → API. Either the JWT secret (HS256) or the URL alone
+      # (asymmetric keys, verified via JWKS) is enough.
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_JWT_SECRET
+        sync: false
+      # Product photos: Render's disk is ephemeral on the free plan, so they go
+      # to a Supabase Storage bucket.
+      - key: STORAGE_DRIVER
+        value: supabase
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: SUPABASE_STORAGE_BUCKET
+        value: item-images
+      # The Vercel deployment, exactly — the API never answers '*'.
+      - key: CORS_ORIGIN
+        sync: false
+      - key: ALLOW_AUTO_PROVISION
+        value: '1'

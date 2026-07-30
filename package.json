@@ -1,0 +1,26 @@
+{
+  "name": "inventory-web",
+  "version": "6.0.0",
+  "private": true,
+  "description": "نظام إدارة المخزون — Inventory Management System (Arabic / RTL web app: Vercel + Render + Supabase)",
+  "engines": {
+    "node": ">=20.12"
+  },
+  "scripts": {
+    "setup": "npm --prefix server install && npm --prefix client install",
+    "dev": "concurrently -k -n server,client -c cyan,magenta \"npm:dev:server\" \"npm:dev:client\"",
+    "dev:server": "npm --prefix server run dev",
+    "dev:client": "npm --prefix client run dev",
+    "db:up": "docker compose up -d db",
+    "db:down": "docker compose down",
+    "migrate": "npm --prefix server run migrate",
+    "seed": "npm --prefix server run seed",
+    "build": "npm --prefix client run build",
+    "start": "npm --prefix server start",
+    "test": "npm --prefix server test"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  },
+  "author": "Inventory Systems"
+}

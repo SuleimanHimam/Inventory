@@ -1,0 +1,244 @@
+@import 'tailwindcss';
+
+/* Dark mode is driven by a class on <html>, toggled by the theme switch. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ---------------------------------------------------------------- tokens */
+:root {
+  --page: #f4f6fb;
+  --surface: #ffffff;
+  --surface-2: #f8fafc;
+  --surface-3: #eef2f9;
+  --border: #e4e8f0;
+  --border-strong: #cbd5e1;
+  --text: #0f172a;
+  --text-muted: #64748b;
+  --text-subtle: #94a3b8;
+  --ring: #6366f1;
+  --shadow-color: 220 40% 40%;
+}
+
+.dark {
+  --page: #080c18;
+  --surface: #111828;
+  --surface-2: #161e30;
+  --surface-3: #1d2740;
+  --border: #263149;
+  --border-strong: #35415e;
+  --text: #e9edf7;
+  --text-muted: #97a3b8;
+  --text-subtle: #6b7a92;
+  --ring: #818cf8;
+  --shadow-color: 225 60% 3%;
+}
+
+@theme inline {
+  --font-sans: 'Cairo Variable', 'Cairo', 'Segoe UI', Tahoma, system-ui, sans-serif;
+
+  --color-page: var(--page);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-line: var(--border);
+  --color-line-strong: var(--border-strong);
+  --color-ink: var(--text);
+  --color-muted: var(--text-muted);
+  --color-subtle: var(--text-subtle);
+}
+
+@theme {
+  /* Brand — indigo/violet, confident but calm for long working sessions. */
+  --color-brand-50: #eef2ff;
+  --color-brand-100: #e0e7ff;
+  --color-brand-200: #c7d2fe;
+  --color-brand-300: #a5b4fc;
+  --color-brand-400: #818cf8;
+  --color-brand-500: #6366f1;
+  --color-brand-600: #4f46e5;
+  --color-brand-700: #4338ca;
+  --color-brand-800: #3730a3;
+  --color-brand-900: #312e81;
+
+  --animate-fade-in: fade-in 0.18s ease-out;
+  --animate-rise: rise 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+  --animate-toast-in: toast-in 0.26s cubic-bezier(0.16, 1, 0.3, 1);
+  --animate-flash: flash 0.7s ease-out;
+  --animate-shimmer: shimmer 1.4s ease-in-out infinite;
+}
+
+@keyframes fade-in { from { opacity: 0 } to { opacity: 1 } }
+@keyframes rise { from { opacity: 0; transform: translateY(8px) scale(0.985) } to { opacity: 1; transform: none } }
+@keyframes toast-in { from { opacity: 0; transform: translateX(-24px) } to { opacity: 1; transform: none } }
+@keyframes flash {
+  0%   { background-color: color-mix(in oklab, var(--color-emerald-400) 45%, transparent) }
+  100% { background-color: transparent }
+}
+@keyframes shimmer { 0%, 100% { opacity: 0.45 } 50% { opacity: 0.8 } }
+
+/* ------------------------------------------------------------------ base */
+@layer base {
+  * { border-color: var(--border); }
+
+  html { color-scheme: light; }
+  html.dark { color-scheme: dark; }
+
+  body {
+    background-color: var(--page);
+    color: var(--text);
+    font-family: var(--font-sans);
+    font-feature-settings: 'ss01';
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* Tabular figures keep numeric columns aligned in RTL tables. */
+  .nums { font-variant-numeric: tabular-nums; }
+
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  ::selection { background: color-mix(in oklab, var(--color-brand-500) 28%, transparent); }
+
+  ::-webkit-scrollbar { width: 11px; height: 11px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb {
+    background: color-mix(in oklab, var(--text-subtle) 40%, transparent);
+    border-radius: 99px;
+    border: 3px solid transparent;
+    background-clip: content-box;
+  }
+  ::-webkit-scrollbar-thumb:hover { background-color: color-mix(in oklab, var(--text-muted) 65%, transparent); background-clip: content-box; }
+
+  /* Number inputs: hide spinners, they fight with barcode/quantity entry. */
+  input[type='number']::-webkit-inner-spin-button,
+  input[type='number']::-webkit-outer-spin-button { appearance: none; margin: 0; }
+  input[type='number'] { appearance: textfield; -moz-appearance: textfield; }
+}
+
+/* ------------------------------------------------------------ components */
+@layer components {
+  .card {
+    background-color: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 1rem;
+    box-shadow: 0 1px 2px hsl(var(--shadow-color) / 0.06),
+                0 8px 24px -12px hsl(var(--shadow-color) / 0.14);
+  }
+
+  .field {
+    width: 100%;
+    background-color: var(--surface);
+    border: 1px solid var(--border-strong);
+    border-radius: 0.625rem;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.875rem;
+    color: var(--text);
+    transition: border-color 0.15s, box-shadow 0.15s, background-color 0.15s;
+  }
+  .field::placeholder { color: var(--text-subtle); }
+  .field:hover:not(:disabled):not(:focus) { border-color: color-mix(in oklab, var(--ring) 45%, var(--border-strong)); }
+  .field:focus {
+    outline: none;
+    border-color: var(--ring);
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--ring) 22%, transparent);
+  }
+  .field:disabled { background-color: var(--surface-2); color: var(--text-muted); cursor: not-allowed; }
+  .field[aria-invalid='true'] {
+    border-color: var(--color-rose-500);
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-rose-500) 18%, transparent);
+  }
+
+  /* Sticky, scroll-aware data table shared by every list screen. */
+  .data-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 0.875rem; }
+  .data-table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background-color: var(--surface-2);
+    color: var(--text-muted);
+    font-weight: 600;
+    font-size: 0.75rem;
+    text-align: start;
+    padding: 0.7rem 1rem;
+    white-space: nowrap;
+    border-bottom: 1px solid var(--border);
+  }
+  .data-table tbody td { padding: 0.7rem 1rem; border-bottom: 1px solid color-mix(in oklab, var(--border) 65%, transparent); }
+  .data-table tbody tr { transition: background-color 0.12s; }
+  .data-table tbody tr:hover { background-color: color-mix(in oklab, var(--color-brand-500) 5%, transparent); }
+  .data-table tbody tr:last-child td { border-bottom: 0; }
+
+  /*
+   * Phone layout for list tables.
+   *
+   * A six-column table cannot shrink to 380px without becoming unreadable, so
+   * below `sm` each row becomes a card: the header row is dropped and every
+   * cell carries its own label. Driven by data attributes rather than parallel
+   * markup, so a page only annotates its cells and both layouts stay in sync.
+   *
+   *   data-label="…"  the column name, shown beside the value
+   *   data-primary    the identifying cell — rendered as the card's title
+   *   data-thumb      an image cell — sits on the title line, not its own row
+   */
+  @media (max-width: 639.98px) {
+    .data-table.stacked,
+    .data-table.stacked tbody { display: block; }
+    .data-table.stacked thead { display: none; }
+
+    .data-table.stacked tbody tr {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0 0.5rem;
+      padding: 0.75rem 0.9rem;
+      margin-bottom: 0.5rem;
+      border: 1px solid var(--border);
+      border-radius: 0.85rem;
+      background-color: var(--surface);
+    }
+    .data-table.stacked tbody tr:last-child { margin-bottom: 0; }
+    .data-table.stacked tbody tr:hover { background-color: var(--surface); }
+
+    .data-table.stacked tbody td {
+      flex: 1 1 100%;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+      padding: 0.2rem 0;
+      border-bottom: 0;
+      text-align: start;
+    }
+    .data-table.stacked tbody td::before {
+      content: attr(data-label);
+      flex: none;
+      font-size: 0.7rem;
+      font-weight: 600;
+      color: var(--text-subtle);
+    }
+
+    .data-table.stacked tbody td[data-thumb] { flex: 0 0 auto; padding-inline-end: 0.6rem; }
+    .data-table.stacked tbody td[data-primary] {
+      flex: 1 1 auto;
+      font-size: 0.95rem;
+      font-weight: 700;
+      padding-bottom: 0.35rem;
+    }
+
+    /* Cells with nothing to say (spacers, empty actions) collapse away. */
+    .data-table.stacked tbody td:empty { display: none; }
+  }
+}
+
+/* ----------------------------------------------------------------- print */
+@media print {
+  @page { margin: 14mm; }
+  html, body { background: #fff !important; color: #000 !important; }
+  .no-print, header.topnav { display: none !important; }
+  .print-area { box-shadow: none !important; border: 0 !important; }
+  .card { break-inside: avoid; box-shadow: none !important; }
+  main { padding: 0 !important; overflow: visible !important; }
+}
