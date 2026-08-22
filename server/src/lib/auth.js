@@ -3,26 +3,36 @@
  *
  * The desktop app had no auth — one machine, one user, one database file. Once
  * the same API answers over the internet that is not defensible, so every
- * request now has to arrive with a Supabase Auth access token.
+ * request now has to arrive with a verified access token. Two providers issue
+ * one, chosen by `AUTH_MODE`:
  *
- * Supabase Auth is used rather than a hand-rolled login because it is free with
- * the Postgres project this app already needs, and it keeps password hashes,
- * email verification and password resets out of this codebase entirely. This
- * module never issues tokens — it only verifies them:
+ *   • 'supabase' — Supabase Auth. Free with the Postgres project this app
+ *     already needs, and keeps password hashes, email verification and
+ *     password resets out of this codebase entirely.
+ *   • 'local'    — this API issues and verifies its own HS256 tokens, backed
+ *     by the `users` table (see routes/auth.routes.js). The bounded
+ *     alternative for a deployment that would rather not depend on Supabase.
+ *
+ * This module never issues a Supabase token — it only verifies one:
  *
  *   • HS256 tokens (Supabase's shared JWT secret)      → SUPABASE_JWT_SECRET
  *   • asymmetric tokens (Supabase's newer signing keys) → JWKS from SUPABASE_URL
  *
- * The verified `sub` claim is then mapped to an organisation through the
- * `memberships` table. An org id is never read from the request itself.
+ * Local tokens are both issued (routes/auth.routes.js) and verified (here)
+ * with the same HS256 secret, AUTH_SECRET.
+ *
+ * Either way, the verified `sub` claim is mapped to an organisation through
+ * the `memberships` table. An org id is never read from the request itself.
  */
-import { createRemoteJWKSet, jwtVerify } from 'jose';
+import { createRemoteJWKSet, jwtVerify, SignJWT } from 'jose';
 import { runInOrg } from '../db/index.js';
 import { resolveOrg, DEV_USER_ID, DEV_USER_EMAIL } from './orgs.js';
 import { unauthorized, unavailable } from './errors.js';
 
 const SUPABASE_URL = process.env.SUPABASE_URL?.replace(/\/$/, '');
 const JWT_SECRET = process.env.SUPABASE_JWT_SECRET;
+const AUTH_SECRET = process.env.AUTH_SECRET;
+const LOCAL_TOKEN_TTL = '30d';
 
 /**
  * `AUTH_MODE=none` disables verification and puts every request in one fixed
@@ -59,6 +69,9 @@ export const authConfigError = (() => {
     return 'Set SUPABASE_JWT_SECRET (or SUPABASE_URL for JWKS verification), '
       + 'or AUTH_MODE=none for local development';
   }
+  if (AUTH_MODE === 'local' && !AUTH_SECRET) {
+    return 'Set AUTH_SECRET (a long random string) to sign local login tokens';
+  }
   return null;
 })();
 
@@ -66,9 +79,24 @@ const secretKey = JWT_SECRET ? new TextEncoder().encode(JWT_SECRET) : null;
 const jwks = SUPABASE_URL
   ? createRemoteJWKSet(new URL(`${SUPABASE_URL}/auth/v1/.well-known/jwks.json`))
   : null;
+const localKey = AUTH_SECRET ? new TextEncoder().encode(AUTH_SECRET) : null;
 
-/** Verify a Supabase access token, whichever signing scheme the project uses. */
+/** Sign a local access token for a user who just registered or logged in. */
+export async function issueLocalToken({ userId, email }) {
+  return new SignJWT({ email })
+    .setProtectedHeader({ alg: 'HS256' })
+    .setSubject(userId)
+    .setIssuedAt()
+    .setExpirationTime(LOCAL_TOKEN_TTL)
+    .sign(localKey);
+}
+
+/** Verify an access token against whichever provider `AUTH_MODE` selects. */
 async function verifyToken(token) {
+  if (AUTH_MODE === 'local') {
+    const { payload } = await jwtVerify(token, localKey, { algorithms: ['HS256'] });
+    return payload;
+  }
   // Symmetric first: it needs no network call, and is what a project using the
   // shared JWT secret issues.
   if (secretKey) {
@@ -135,11 +163,54 @@ export async function authenticate(req, _res, next) {
 export function orgContext(req, res, next) {
   if (!req.auth?.orgId) return next(new Error('orgContext used without authenticate'));
 
-  runInOrg(req.auth.orgId, () => new Promise((resolve) => {
-    // 'close' fires once the response has been sent, or if the client hung up.
-    res.on('close', resolve);
+  /*
+   * The 'close' listener is attached here — synchronously, in the middleware
+   * itself — and not inside the callback below. That ordering is the whole
+   * point, and getting it wrong took the API down.
+   *
+   * `runInOrg` awaits a pooled connection and a BEGIN TRANSACTION before it
+   * ever calls its callback. Attaching the listener in there left a window of
+   * a few milliseconds per request in which the response could close with
+   * nobody listening: a page reload, a navigation, React Query cancelling a
+   * stale fetch, a phone losing signal. When that happened the promise never
+   * settled, so the transaction was never committed or rolled back and its
+   * pooled connection was gone for the lifetime of the process.
+   *
+   * With `DB_POOL_MAX` at 8, the eighth such abort takes the whole API down —
+   * every later request waits forever for a connection that is never coming
+   * back. Nothing is logged, and `/health` keeps answering `ok` because it
+   * touches no database, so the only symptom is that everything hangs.
+   *
+   * Reproduced deliberately, and this is why a `res.destroyed` check inside
+   * the callback is not enough: it narrows the window but does not close it.
+   * 40 aborts survived that version; 200 still wedged it. Attached here, the
+   * listener exists before the first `await`, so there is no window at all.
+   */
+  let closed = false;
+  const finished = new Promise((resolve) => {
+    const done = () => { closed = true; resolve(); };
+    /*
+     * Check first, listen second, both synchronously.
+     *
+     * `authenticate` runs a query of its own to resolve the organisation, so
+     * by the time this middleware is reached the client may already be gone —
+     * in which case 'close' has fired and a listener added now would never be
+     * called. Testing the response state up front covers that; attaching the
+     * listener before any `await` covers the rest. Neither alone is enough,
+     * which is what the reproduction below kept proving.
+     */
+    if (res.destroyed || res.writableEnded || res.closed) return done();
+    res.on('close', done);
+    return undefined;
+  });
+
+  runInOrg(req.auth.orgId, () => {
+    // Gone already: `finished` is resolved, so the transaction is opened and
+    // released without running a handler for a response nobody will read.
+    if (closed) return finished;
     next();
-  })).catch((err) => {
+    return finished;
+  }).catch((err) => {
     // Route errors are handled by the error middleware; anything arriving here
     // is a failure of the context itself, and the response is already gone.
     console.error('[db] request context failed', err);

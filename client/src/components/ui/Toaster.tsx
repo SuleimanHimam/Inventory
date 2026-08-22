@@ -1,12 +1,40 @@
-import { CheckCircle2, AlertTriangle, XCircle, Info, X } from 'lucide-react';
+import { AlertTriangle, XCircle, Info, X } from 'lucide-react';
 import { useToasts, type ToastTone } from '@/store/toast';
 import { cn } from '@/lib/cn';
 
-const TONE: Record<ToastTone, { icon: typeof Info; ring: string; iconColor: string }> = {
-  success: { icon: CheckCircle2, ring: 'ring-emerald-500/25', iconColor: 'text-emerald-500' },
-  error: { icon: XCircle, ring: 'ring-rose-500/25', iconColor: 'text-rose-500' },
-  warning: { icon: AlertTriangle, ring: 'ring-amber-500/25', iconColor: 'text-amber-500' },
-  info: { icon: Info, ring: 'ring-brand-500/25', iconColor: 'text-brand-500' },
+/**
+ * A checkmark that draws itself in, instead of a static tick appearing.
+ *
+ * This is the app's "it worked" moment, and it is deliberately small: it
+ * fires on every save, post and delete — hundreds of times a shift in a
+ * warehouse — so it reads as a quick, satisfying confirmation rather than a
+ * celebration that demands attention. (Confetti was considered and rejected
+ * for exactly that reason.)
+ */
+function DrawnCheck({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden>
+      <circle cx="12" cy="12" r="10" className="stroke-current opacity-25" strokeWidth="2" />
+      <path
+        d="M7.5 12.5l3 3 6-6"
+        className="stroke-current animate-check"
+        strokeWidth="2.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeDasharray="24"
+      />
+    </svg>
+  );
+}
+
+/** Both lucide icons and the local DrawnCheck satisfy this. */
+type ToneIcon = React.ComponentType<{ className?: string }>;
+
+const TONE: Record<ToastTone, { icon: ToneIcon; ring: string; iconColor: string }> = {
+  success: { icon: DrawnCheck, ring: 'ring-emerald-500/30', iconColor: 'text-emerald-600 dark:text-emerald-400' },
+  error: { icon: XCircle, ring: 'ring-accent-500/30', iconColor: 'text-accent-600 dark:text-accent-400' },
+  warning: { icon: AlertTriangle, ring: 'ring-accent-500/30', iconColor: 'text-accent-700 dark:text-accent-400' },
+  info: { icon: Info, ring: 'ring-sky-500/30', iconColor: 'text-sky-700 dark:text-sky-400' },
 };
 
 export function Toaster() {

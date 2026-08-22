@@ -3,7 +3,7 @@
  * Safe to re-run: it clears the development organisation first.
  * Usage: npm run seed  (add `--force` to wipe an already-populated database)
  */
-import { pool, get, all, runInOrg } from './index.js';
+import { close, get, all, run, runInOrg } from './index.js';
 import { devOrg, DEV_USER_ID } from '../lib/orgs.js';
 import { createCategory } from '../services/categories.service.js';
 import { createItem, addSubBarcode } from '../services/items.service.js';
@@ -19,15 +19,15 @@ const force = process.argv.includes('--force');
  *
  * The ledger's immutability trigger has to stand down for that: it is there to
  * stop the *application* from rewriting history, and a development reset is the
- * one legitimate exception. It needs table-owner rights, which is why this is a
- * seed-only path and not something the API can do.
+ * one legitimate exception. It needs ALTER permission on the table (db_ddladmin),
+ * which is why this is a seed-only path and not something the API can do.
  */
 async function wipeOrg(orgId) {
-  await pool.query('ALTER TABLE stock_movements DISABLE TRIGGER trg_movements_immutable_del');
+  await run('ALTER TABLE stock_movements DISABLE TRIGGER trg_movements_immutable_del');
   try {
-    await pool.query('DELETE FROM orgs WHERE id = $1', [orgId]);
+    await run('DELETE FROM orgs WHERE id = @id', { id: orgId });
   } finally {
-    await pool.query('ALTER TABLE stock_movements ENABLE TRIGGER trg_movements_immutable_del');
+    await run('ALTER TABLE stock_movements ENABLE TRIGGER trg_movements_immutable_del');
   }
 }
 
@@ -74,11 +74,11 @@ const SUPPLIERS = [
 // ---------------------------------------------------------------------------
 const first = await devOrg();
 const populated = await runInOrg(first.orgId, async () =>
-  (await get('SELECT COUNT(*) n FROM items WHERE org_id = $1', [first.orgId])).n);
+  (await get('SELECT COUNT(*) n FROM items WHERE org_id = @org', { org: first.orgId })).n);
 
 if (populated && !force) {
   console.log(`قاعدة البيانات تحتوي على ${populated} صنف بالفعل. استخدم --force للاستبدال.`);
-  await pool.end();
+  await close();
   process.exit(0);
 }
 
@@ -134,19 +134,19 @@ await runInOrg(orgId, async () => {
   }
   await postInvoice(opening.id, { referenceType: 'IMPORT' });
 
-  console.log('[seed] posting sample purchase & sale invoices…');
-  const suppliers = await all('SELECT id FROM suppliers WHERE org_id = $1 ORDER BY name', [orgId]);
-  const customers = await all('SELECT id FROM customers WHERE org_id = $1 ORDER BY name', [orgId]);
+  console.log('[seed] posting sample stock-in & stock-out invoices…');
+  const suppliers = await all('SELECT id FROM suppliers WHERE org_id = @org ORDER BY name', { org: orgId });
+  const customers = await all('SELECT id FROM customers WHERE org_id = @org ORDER BY name', { org: orgId });
 
   const purchase = await createInvoice({
-    type: 'PURCHASE', supplier_id: suppliers[0].id, note: 'طلبية إلكترونيات',
+    type: 'STOCK_IN', supplier_id: suppliers[0].id, note: 'طلبية إلكترونيات',
   });
   await addLineByBarcode(purchase.id, { item_id: items[1].id, quantity: 20, unit_price: 44 });
   await addLineByBarcode(purchase.id, { item_id: items[4].id, quantity: 50, unit_price: 11.5 });
   await postInvoice(purchase.id);
 
   const sale = await createInvoice({
-    type: 'SALE', customer_id: customers[0].id, note: 'طلب مكتبي',
+    type: 'STOCK_OUT', customer_id: customers[0].id, note: 'طلب مكتبي',
   });
   await addLineByBarcode(sale.id, { item_id: items[5].id, quantity: 100, unit_price: 2.5 });
   await addLineByBarcode(sale.id, { item_id: items[9].id, quantity: 10, unit_price: 22 });
@@ -155,7 +155,7 @@ await runInOrg(orgId, async () => {
 
   // One open draft so the Invoices screen shows every status.
   const draft = await createInvoice({
-    type: 'SALE', customer_id: customers[1].id, note: 'عرض سعر قيد الإعداد',
+    type: 'STOCK_OUT', customer_id: customers[1].id, note: 'عرض سعر قيد الإعداد',
   });
   await addLineByBarcode(draft.id, { item_id: items[16].id, quantity: 2 });
 
@@ -174,4 +174,4 @@ await runInOrg(orgId, async () => {
   console.log('[seed] done:', stats);
 });
 
-await pool.end();
+await close();

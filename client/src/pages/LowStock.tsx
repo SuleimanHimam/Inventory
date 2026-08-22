@@ -1,21 +1,21 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { TriangleAlert, PackageCheck, ShoppingCart, ArrowLeftRight, Printer } from 'lucide-react';
+import { TriangleAlert, PackageCheck, ShoppingCart, Printer } from 'lucide-react';
 import {
   Button, Card, PageHeader, Pagination, Select, EmptyState, TableSkeleton, Badge,
 } from '@/components/ui';
-import { StockMovementModal } from '@/components/ItemFormModal';
 import { BarcodeChip, ItemLink, QuantityCell } from '@/components/domain';
 import { useCategories, useItems } from '@/hooks';
 import { fmtCurrency, fmtInt } from '@/lib/format';
 import { usePrefs } from '@/store/prefs';
-import type { Item } from '@/lib/types';
+import { usePermissions } from '@/lib/permissions';
+import { cn } from '@/lib/cn';
 
 export default function LowStock() {
   const [categoryId, setCategoryId] = useState('');
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(25);
-  const [moveItem, setMoveItem] = useState<Item | null>(null);
+  const { canSeePrices } = usePermissions();
 
   const { data: categories = [] } = useCategories();
   const threshold = usePrefs((s) => s.lowStockThreshold);
@@ -49,24 +49,29 @@ export default function LowStock() {
       />
 
       {!!items.length && (
-        <div className="mb-4 grid grid-cols-2 gap-4 sm:grid-cols-3">
+        <div className={cn('mb-4 grid gap-4', canSeePrices ? 'grid-cols-2 sm:grid-cols-3' : 'grid-cols-2')}>
           <Card className="p-4">
             <p className="text-xs text-muted">أصناف تحت الحد</p>
-            <p className="nums mt-1 text-2xl font-bold text-amber-600 dark:text-amber-400">
+            <p className="nums mt-1 text-2xl font-bold text-accent-600 dark:text-accent-400">
               {fmtInt(data?.meta.total)}
             </p>
           </Card>
           <Card className="p-4">
             <p className="text-xs text-muted">نفدت تماماً (في هذه الصفحة)</p>
-            <p className="nums mt-1 text-2xl font-bold text-rose-600 dark:text-rose-400">{fmtInt(outOfStock)}</p>
+            <p className="nums mt-1 text-2xl font-bold text-accent-600 dark:text-accent-400">{fmtInt(outOfStock)}</p>
           </Card>
-          <Card className="p-4">
-            <p className="text-xs text-muted">تكلفة إعادة التعبئة التقديرية</p>
-            <p className="nums mt-1 text-2xl font-bold">
-              {fmtCurrency(items.reduce(
-                (sum, item) => sum + Math.max(0, item.effective_threshold - item.quantity) * item.purchase_price, 0))}
-            </p>
-          </Card>
+          {/* A restocking cost is purchase price × shortfall — the same
+              number by another name, so it goes with the rest of the money. */}
+          {canSeePrices && (
+            <Card className="p-4">
+              <p className="text-xs text-muted">تكلفة إعادة التعبئة التقديرية</p>
+              <p className="nums mt-1 text-2xl font-bold">
+                {fmtCurrency(items.reduce(
+                  (sum, item) => sum
+                    + Math.max(0, item.effective_threshold - item.quantity) * (item.purchase_price ?? 0), 0))}
+              </p>
+            </Card>
+          )}
         </div>
       )}
 
@@ -128,12 +133,8 @@ export default function LowStock() {
                       </td>
                       <td className="no-print">
                         <div className="flex justify-end gap-0.5">
-                          <Button size="icon" variant="ghost" title="حركة مخزون"
-                            onClick={() => setMoveItem(item)}>
-                            <ArrowLeftRight className="size-4" />
-                          </Button>
-                          <Link to={`/invoices/new?type=PURCHASE`}>
-                            <Button size="icon" variant="ghost" title="إنشاء فاتورة شراء">
+                          <Link to={`/invoices/new?type=STOCK_IN`}>
+                            <Button size="icon" variant="ghost" title="إنشاء فاتورة إدخال">
                               <ShoppingCart className="size-4" />
                             </Button>
                           </Link>
@@ -160,7 +161,6 @@ export default function LowStock() {
         </p>
       )}
 
-      <StockMovementModal open={!!moveItem} onClose={() => setMoveItem(null)} item={moveItem} />
     </>
   );
 }

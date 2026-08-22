@@ -3,15 +3,22 @@ import { ImagePlus, Trash2, Loader2, ImageOff, Star } from 'lucide-react';
 import { mediaUrl } from '@/lib/api';
 import { cn } from '@/lib/cn';
 
-const MAX_BYTES = 5 * 1024 * 1024;
-const ACCEPT = 'image/jpeg,image/png,image/webp,image/gif';
+const MAX_BYTES = 20 * 1024 * 1024;
+// Every format a browser can display via <img> — matches server ALLOWED in
+// images.service.js. HEIC/HEIF (iPhone's default) is deliberately excluded:
+// no browser renders it, so accepting it would just move the failure from
+// "rejected here" to "broken image everywhere it's shown".
+const ACCEPT = 'image/jpeg,image/png,image/webp,image/gif,image/bmp,image/avif,image/svg+xml';
 
 export const MAX_IMAGES = 8;
 
 /** Reject anything the server would reject anyway, but before the round trip. */
 function reject(file: File): string | null {
-  if (!ACCEPT.split(',').includes(file.type)) return 'صيغة غير مدعومة — استخدم JPG أو PNG أو WEBP';
-  if (file.size > MAX_BYTES) return `«${file.name}» يتجاوز 5 ميغابايت`;
+  if (!ACCEPT.split(',').includes(file.type)) {
+    return 'صيغة غير مدعومة — استخدم JPG أو PNG أو WEBP أو GIF أو BMP أو SVG أو AVIF '
+      + '(صور iPhone بصيغة HEIC: غيّرها إلى JPEG من إعدادات الكاميرا)';
+  }
+  if (file.size > MAX_BYTES) return `«${file.name}» يتجاوز 20 ميغابايت`;
   return null;
 }
 
@@ -92,7 +99,7 @@ export function ImagePicker({
                 type="button"
                 onClick={() => onRemoveExisting(image.id)}
                 aria-label="حذف الصورة"
-                className="absolute bottom-1 end-1 grid size-6 place-items-center rounded-md bg-rose-600/90 text-white opacity-0 transition group-hover:opacity-100 focus:opacity-100"
+                className="absolute bottom-1 end-1 grid size-6 place-items-center rounded-md bg-accent-600/90 text-white opacity-0 transition group-hover:opacity-100 focus:opacity-100"
               >
                 <Trash2 className="size-3.5" />
               </button>
@@ -110,7 +117,7 @@ export function ImagePicker({
               type="button"
               onClick={() => onChange(files.filter((_, i) => i !== index))}
               aria-label="إزالة الصورة المختارة"
-              className="absolute bottom-1 end-1 grid size-6 place-items-center rounded-md bg-rose-600/90 text-white opacity-0 transition group-hover:opacity-100 focus:opacity-100"
+              className="absolute bottom-1 end-1 grid size-6 place-items-center rounded-md bg-accent-600/90 text-white opacity-0 transition group-hover:opacity-100 focus:opacity-100"
             >
               <Trash2 className="size-3.5" />
             </button>
@@ -134,9 +141,9 @@ export function ImagePicker({
 
       <p className="mt-1.5 text-xs text-muted">
         حتى {max} صور للصنف. الأولى هي الرئيسية التي تظهر في القوائم.
-        JPG أو PNG أو WEBP، بحد أقصى 5 ميغابايت للصورة.
+        JPG أو PNG أو WEBP أو GIF أو BMP أو SVG أو AVIF، بحد أقصى 20 ميغابايت للصورة.
       </p>
-      {error && <p className="mt-1 text-xs font-medium text-rose-600 dark:text-rose-400">{error}</p>}
+      {error && <p className="mt-1 text-xs font-medium text-accent-600 dark:text-accent-400">{error}</p>}
 
       <input
         ref={inputRef}
@@ -231,7 +238,7 @@ export function ImageGallery({
             <button
               type="button"
               onClick={() => onRemove(active.id)}
-              className="flex items-center gap-1 rounded-lg border border-line px-2.5 py-1 text-xs font-medium text-rose-600 transition hover:bg-rose-500/10 dark:text-rose-400"
+              className="flex items-center gap-1 rounded-lg border border-line px-2.5 py-1 text-xs font-medium text-accent-600 transition hover:bg-accent-500/10 dark:text-accent-400"
             >
               <Trash2 className="size-3.5" /> حذف هذه الصورة
             </button>
@@ -242,17 +249,60 @@ export function ImageGallery({
   );
 }
 
-/** Small square thumbnail for table rows. */
+/**
+ * Small square thumbnail for table rows.
+ *
+ * Loads the derived thumbnail rather than the original. Phone photos here run
+ * 3–11 MB each, so a 22-row items list was pulling ~38 MB of full-resolution
+ * images to draw 40px squares — that was what made the list slow. The
+ * thumbnails total 0.15 MB for the same set.
+ *
+ * The thumbnail URL is derived by convention (`abc.jpg` → `thumb-abc.webp`,
+ * matching server/src/lib/thumbnails.js) so this needed no API or schema
+ * change. Anything without one — an SVG, a failed conversion, an upload that
+ * arrived before the server had thumbnailing — falls back to the original on
+ * error, so an image always shows.
+ */
+export const thumbUrl = (url: string) =>
+  url.replace(/([^/]+)\.[^.]+$/, 'thumb-$1.webp');
+
+/**
+ * Absolute URL of an image's thumbnail, for the places that need their own
+ * `<img>` rather than the `Thumb` box below (the phone card grid, the picker
+ * grid). SVGs have no thumbnail and pass through unchanged.
+ *
+ * Pair this with `useThumbFallback` so a missing thumbnail still renders.
+ */
+export const thumbSrc = (url?: string | null) =>
+  mediaUrl(url && !/\.svg$/i.test(url) ? thumbUrl(url) : url);
+
+/** onError handler that swaps a failed thumbnail for its original. */
+export function useThumbFallback(url?: string | null) {
+  const [failed, setFailed] = useState(false);
+  return {
+    src: failed ? mediaUrl(url) : thumbSrc(url),
+    onError: () => setFailed(true),
+  };
+}
+
 export function Thumb({ url, alt = '', className }: { url?: string | null; alt?: string; className?: string }) {
-  const src = mediaUrl(url);
+  const img = useThumbFallback(url);
+
   return (
     <span className={cn(
       'grid size-10 shrink-0 place-items-center overflow-hidden rounded-lg border border-line bg-surface-2',
       className,
     )}>
-      {src
-        ? <img src={src} alt={alt} loading="lazy" className="size-full object-cover" />
-        : <ImageOff className="size-4 text-subtle" />}
+      {img.src ? (
+        <img
+          src={img.src}
+          alt={alt}
+          loading="lazy"
+          decoding="async"
+          className="size-full object-cover"
+          onError={img.onError}
+        />
+      ) : <ImageOff className="size-4 text-subtle" />}
     </span>
   );
 }

@@ -5,14 +5,32 @@ import { notFound, unprocessable, badRequest, conflict } from '../lib/errors.js'
 import { getItem, findByBarcode } from './items.service.js';
 
 /** Invoice type → document-number prefix. */
-const PREFIX = { STOCK_IN: 'IN', STOCK_OUT: 'OUT', PURCHASE: 'PUR', SALE: 'SAL' };
+const PREFIX = { STOCK_IN: 'IN', STOCK_OUT: 'OUT' };
 
 /** Types that add stock when posted; the rest subtract it. */
-const INBOUND = new Set(['STOCK_IN', 'PURCHASE']);
+const INBOUND = new Set(['STOCK_IN']);
 export const directionOf = (type) => (INBOUND.has(type) ? 'IN' : 'OUT');
 
 /** Which stored price a posted line propagates to. */
 const priceColumnOf = (type) => (INBOUND.has(type) ? 'purchase_price' : 'sale_price');
+
+/**
+ * Whole number of base-unit stock a line represents. `conversion_factor` is a
+ * per-line snapshot (1 for the item's own base unit), so this is the single
+ * point of unit-conversion math shared by the outbound-stock guard and the
+ * ledger write — a line entered in a fractional-factor unit that doesn't
+ * divide evenly is rejected here rather than tripping the ledger's integer
+ * CHECK constraint downstream.
+ */
+function baseQuantity(line) {
+  const raw = line.quantity * line.conversion_factor;
+  const rounded = Math.round(raw);
+  if (Math.abs(raw - rounded) > 1e-6 || rounded <= 0) {
+    throw unprocessable(
+      'الكمية المدخلة لا تتحول إلى عدد صحيح من الوحدة الأساسية', 'UNIT_QUANTITY_NOT_WHOLE');
+  }
+  return rounded;
+}
 
 const TOTALS = `
   (SELECT COALESCE(SUM(l.quantity * l.unit_price), 0) FROM invoice_lines l WHERE l.invoice_id = v.id)`;
@@ -37,10 +55,25 @@ const shape = (r) => r && {
 };
 
 export async function listInvoices({ type, status, party_id, source, search, date_from, date_to, page, limit }) {
-  const where = ['v.org_id = @org'];
+  const where = [
+    'v.org_id = @org',
+    // An invoice nobody has added a line to yet isn't a document worth
+    // surfacing — it's litter from a form opened and abandoned, whatever
+    // status it ended up in.
+    'EXISTS (SELECT 1 FROM invoice_lines il WHERE il.invoice_id = v.id)',
+  ];
   const params = { org: orgId() };
   if (type) { where.push('v.type = @type'); params.type = type; }
   if (status) { where.push('v.status = @status'); params.status = status; }
+  else {
+    // A draft isn't a document worth surfacing as an invoice even with lines
+    // in it — it's still being built by a scanner mid-invoice, not a
+    // finished record. Excluded from every unfiltered list/search; still
+    // reachable by explicitly asking for status=DRAFT, since that's the one
+    // way to recover a specific in-progress draft after e.g. a dropped
+    // connection cut a session short.
+    where.push("v.status <> 'DRAFT'");
+  }
   if (source) { where.push('v.source = @source'); params.source = source; }
   if (party_id) {
     where.push('(v.customer_id = @party_id OR v.supplier_id = @party_id)');
@@ -50,8 +83,8 @@ export async function listInvoices({ type, status, party_id, source, search, dat
   if (date_to) { where.push('v.invoice_date <= @date_to'); params.date_to = date_to; }
   if (search) {
     params.q = `%${search}%`;
-    where.push(`(v.number LIKE @q OR v.note ILIKE @q
-              OR s.name ILIKE @q OR c.name ILIKE @q)`);
+    where.push(`(v.number LIKE @q OR v.note LIKE @q
+              OR s.name LIKE @q OR c.name LIKE @q)`);
   }
   const clause = `WHERE ${where.join(' AND ')}`;
 
@@ -62,11 +95,59 @@ export async function listInvoices({ type, status, party_id, source, search, dat
 
   const rows = await all(
     `${SELECT_INVOICE} ${clause}
-      ORDER BY v.invoice_date DESC, v.created_at DESC LIMIT @limit OFFSET @offset`,
+      ORDER BY v.invoice_date DESC, v.created_at DESC OFFSET @offset ROWS FETCH NEXT @limit ROWS ONLY`,
     { ...params, limit, offset: (page - 1) * limit },
   );
 
-  return { rows: rows.map(shape), total };
+  /*
+   * Totals for the filtered set — what the date range being looked at is worth.
+   *
+   * Same `clause`, deliberately: a summary computed over a different set of
+   * rows than the table shows is worse than no summary, because it looks
+   * authoritative. Change the filters and both move together, by construction.
+   *
+   * Two narrowings on top of it, both of which the UI states in words:
+   *
+   *  • POSTED only. A cancelled document is not money that moved, and a draft
+   *    is not a document. Counting either would make the total disagree with
+   *    the ledger, which is the one number the whole system is built to keep
+   *    honest.
+   *  • It spans the whole filter, not the current page — a per-page total is a
+   *    number nobody asked for.
+   */
+  /*
+   * The per-invoice net is computed in a CROSS APPLY rather than inline inside
+   * the SUM(). SQL Server refuses a subquery within an aggregate — "Cannot
+   * perform an aggregate function on an expression containing an aggregate or
+   * a subquery" (error 130) — where PostgreSQL accepted it. The APPLY makes
+   * `t.net` an ordinary column by the time SUM() sees it. Same trap family as
+   * the ones in the migration notes; this one only shows up at runtime.
+   */
+  const totals = await get(
+    `SELECT
+       COALESCE(SUM(CASE WHEN v.type = 'STOCK_IN'  THEN t.net END), 0) AS in_total,
+       COALESCE(SUM(CASE WHEN v.type = 'STOCK_OUT' THEN t.net END), 0) AS out_total,
+       COALESCE(SUM(CASE WHEN v.type = 'STOCK_IN'  THEN 1 ELSE 0 END), 0) AS in_count,
+       COALESCE(SUM(CASE WHEN v.type = 'STOCK_OUT' THEN 1 ELSE 0 END), 0) AS out_count
+       FROM invoices v
+       LEFT JOIN suppliers s ON s.id = v.supplier_id
+       LEFT JOIN customers c ON c.id = v.customer_id
+       CROSS APPLY (
+         SELECT (SELECT COALESCE(SUM(l.quantity * l.unit_price), 0)
+                   FROM invoice_lines l WHERE l.invoice_id = v.id)
+                - v.discount_total + v.tax_total AS net
+       ) t
+      ${clause} AND v.status = 'POSTED'`, params);
+
+  const summary = {
+    in_total: money(totals.in_total),
+    out_total: money(totals.out_total),
+    net_total: money(totals.out_total - totals.in_total),
+    in_count: totals.in_count,
+    out_count: totals.out_count,
+  };
+
+  return { rows: rows.map(shape), total, summary };
 }
 
 export async function getInvoice(id, { withDetail = true } = {}) {
@@ -79,27 +160,39 @@ export async function getInvoice(id, { withDetail = true } = {}) {
     invoice.movements = (await all(
       `SELECT m.*, i.name AS item_name, i.barcode AS item_barcode
          FROM stock_movements m JOIN items i ON i.id = m.item_id
-        WHERE m.invoice_id = ? AND m.org_id = ? ORDER BY m.created_at, m.seq`,
-      [id, orgId()])).map(publicRow);
+        WHERE m.invoice_id = @id AND m.org_id = @org ORDER BY m.created_at, m.seq`,
+      { id, org: orgId() })).map(publicRow);
   }
   return invoice;
 }
 
 export async function getLines(invoiceId) {
   // `seq` replaces SQLite's implicit rowid as the insertion-order tie-break.
+  // `item_units_json` comes back as JSON text (FOR JSON PATH), not a parsed
+  // value the way Postgres's json_agg was — mssql/Tedious has no JSON column
+  // type to auto-parse, so it's parsed below instead.
   const rows = await all(
     `SELECT l.*, l.quantity * l.unit_price AS line_total,
             i.name AS item_name, i.barcode AS item_barcode, i.quantity AS item_quantity,
             CASE WHEN i.image_file IS NULL THEN NULL
-                 ELSE '/uploads/' || i.image_file END AS item_image_url,
-            c.name AS category_name
+                 ELSE '/uploads/' + i.image_file END AS item_image_url,
+            c.name AS category_name,
+            u.name AS unit_name, u.barcode AS unit_barcode,
+            ISNULL((SELECT iu.id, iu.name, iu.conversion_factor
+                      FROM item_units iu WHERE iu.item_id = l.item_id AND iu.org_id = l.org_id
+                     ORDER BY iu.conversion_factor
+                     FOR JSON PATH), '[]') AS item_units_json
        FROM invoice_lines l
        JOIN items i ON i.id = l.item_id
        LEFT JOIN categories c ON c.id = i.category_id
-      WHERE l.invoice_id = ? AND l.org_id = ? ORDER BY l.sort_order, l.seq`,
-    [invoiceId, orgId()]);
-  return rows.map((l) => ({
-    ...publicRow(l), line_total: money(l.line_total), update_item_price: !!l.update_item_price,
+       LEFT JOIN item_units u ON u.id = l.unit_id AND u.org_id = l.org_id
+      WHERE l.invoice_id = @id AND l.org_id = @org ORDER BY l.sort_order, l.seq`,
+    { id: invoiceId, org: orgId() });
+  return rows.map(({ item_units_json, ...l }) => ({
+    ...publicRow(l),
+    line_total: money(l.line_total),
+    update_item_price: !!l.update_item_price,
+    item_units: JSON.parse(item_units_json),
   }));
 }
 
@@ -110,15 +203,49 @@ const assertDraft = (invoice) => {
 };
 
 const loadRaw = async (id) => {
-  const row = await get('SELECT * FROM invoices WHERE id = ? AND org_id = ?', [id, orgId()]);
+  const row = await get('SELECT * FROM invoices WHERE id = @id AND org_id = @org', { id, org: orgId() });
   if (!row) throw notFound('الفاتورة غير موجودة', 'INVOICE_NOT_FOUND');
   return row;
 };
+
+/**
+ * Reap abandoned invoice rows.
+ *
+ * The entry screen creates its row on arrival, before anything has been keyed
+ * in, so every glance at the form leaves a numbered invoice behind. Those rows
+ * are unsaved and never listed, which is exactly what makes them dangerous:
+ * they accumulate silently. This deployment had 56 of them, invisible, before
+ * anyone noticed.
+ *
+ * Swept here rather than from the client because a browser that is closed
+ * mid-invoice never gets to run its own cleanup — and because doing it on
+ * unmount would fire under React StrictMode's double-mount and delete the row
+ * the operator is about to type into.
+ *
+ * Only line-less rows are touched, and only after a grace period: another
+ * device may have an empty form open right now, and deleting its row out from
+ * under it would 404 the first line they add.
+ */
+const ABANDONED_AFTER_MS = 2 * 60 * 60_000;
+
+async function sweepAbandoned() {
+  const cutoff = new Date(Date.now() - ABANDONED_AFTER_MS).toISOString();
+  await run(
+    `DELETE FROM invoices
+      WHERE org_id = @org AND status = 'DRAFT' AND created_at < @cutoff
+        AND NOT EXISTS (SELECT 1 FROM invoice_lines l WHERE l.invoice_id = invoices.id)`,
+    { org: orgId(), cutoff },
+  );
+}
 
 // ------------------------------------------------------------------ create
 export async function createInvoice(input) {
   const type = input.type;
   if (!PREFIX[type]) throw badRequest('نوع فاتورة غير معروف', 'BAD_INVOICE_TYPE');
+
+  // Opening a new invoice is the natural moment to clear the last ones that
+  // were opened and never used. Failure here must not block the create.
+  await sweepAbandoned().catch(() => {});
 
   const id = newId();
   await run(
@@ -132,9 +259,13 @@ export async function createInvoice(input) {
       id,
       org: orgId(),
       type,
-      number: await nextNumber(type, PREFIX[type]),
-      supplier_id: type === 'PURCHASE' ? input.supplier_id || null : null,
-      customer_id: type === 'SALE' ? input.customer_id || null : null,
+      // No number yet — see 004_number_on_save.sql. The entry screen creates
+      // this row on arrival, so minting here meant every reload consumed a
+      // number and the sequence ran away from the invoices that were actually
+      // kept. postInvoice() mints it at the moment of saving instead.
+      number: null,
+      supplier_id: input.supplier_id || null,
+      customer_id: input.customer_id || null,
       source: input.source || 'USER',
       invoice_date: input.invoice_date || new Date().toISOString().slice(0, 10),
       discount_total: money(input.discount_total),
@@ -159,13 +290,8 @@ export async function updateInvoice(id, patch) {
   if (patch.note !== undefined) assign('note', patch.note?.trim() || null);
   if (patch.discount_total !== undefined) assign('discount_total', money(patch.discount_total));
   if (patch.tax_total !== undefined) assign('tax_total', money(patch.tax_total));
-  // A party is only meaningful on the type that requires it.
-  if (patch.supplier_id !== undefined && invoice.type === 'PURCHASE') {
-    assign('supplier_id', patch.supplier_id || null);
-  }
-  if (patch.customer_id !== undefined && invoice.type === 'SALE') {
-    assign('customer_id', patch.customer_id || null);
-  }
+  if (patch.supplier_id !== undefined) assign('supplier_id', patch.supplier_id || null);
+  if (patch.customer_id !== undefined) assign('customer_id', patch.customer_id || null);
 
   if (fields.length) {
     await run(`UPDATE invoices SET ${fields.join(', ')} WHERE id = @id AND org_id = @org`, params);
@@ -179,13 +305,14 @@ export async function updateInvoice(id, patch) {
  * item — it returns 404 + `item_not_found` so the client can open the inline
  * quick-create modal.
  */
-export async function addLineByBarcode(invoiceId, { barcode, item_id, quantity = 1, unit_price, update_item_price = true, note }) {
+export async function addLineByBarcode(invoiceId, { barcode, item_id, unit_id, quantity = 1, unit_price, update_item_price = true, note }) {
   const invoice = await loadRaw(invoiceId);
   assertDraft(invoice);
 
   let item;
+  let matchedUnitId = null;
   if (item_id) {
-    item = await getItem(item_id);
+    item = await getItem(item_id, { withDetail: true });
   } else {
     const code = String(barcode ?? '').trim();
     if (!code) throw badRequest('الباركود مطلوب', 'BARCODE_REQUIRED');
@@ -195,35 +322,66 @@ export async function addLineByBarcode(invoiceId, { barcode, item_id, quantity =
         item_not_found: true, barcode: code,
       });
     }
+    matchedUnitId = item.matched_unit_id;
   }
+
+  // Explicit unit_id (a client-side selector) wins over whatever the barcode
+  // scan itself resolved; otherwise falls back to the item's base unit (null).
+  const resolvedUnitId = unit_id !== undefined ? unit_id : matchedUnitId;
+  let unit = null;
+  if (resolvedUnitId) {
+    unit = (item.units || []).find((u) => u.id === resolvedUnitId)
+      || await get('SELECT * FROM item_units WHERE id = @id AND item_id = @item_id AND org_id = @org',
+        { id: resolvedUnitId, item_id: item.id, org: orgId() });
+    if (!unit) throw badRequest('وحدة القياس غير صالحة لهذا الصنف', 'UNIT_NOT_FOUND');
+  }
+  const conversionFactor = unit ? Number(unit.conversion_factor) : 1;
 
   const qty = Number(quantity) || 1;
   if (qty <= 0) throw badRequest('الكمية يجب أن تكون أكبر من صفر', 'BAD_QUANTITY');
+  baseQuantity({ quantity: qty, conversion_factor: conversionFactor }); // validate up front
 
-  // Same barcode scanned twice → bump the existing line instead of duplicating.
+  // Same item AND same unit scanned twice → bump the existing line instead of
+  // duplicating; different units of the same item cannot be merged into one
+  // `quantity` column without losing which unit they were in.
   const existing = await get(
-    'SELECT * FROM invoice_lines WHERE invoice_id = ? AND item_id = ? AND org_id = ?',
-    [invoiceId, item.id, orgId()]);
+    `SELECT * FROM invoice_lines WHERE invoice_id = @invoice_id AND item_id = @item_id
+      AND unit_id IS NOT DISTINCT FROM @unit_id AND org_id = @org`,
+    { invoice_id: invoiceId, item_id: item.id, unit_id: resolvedUnitId, org: orgId() });
   if (existing && unit_price === undefined) {
-    await run('UPDATE invoice_lines SET quantity = quantity + ? WHERE id = ? AND org_id = ?',
-      [qty, existing.id, orgId()]);
+    await run('UPDATE invoice_lines SET quantity = quantity + @qty WHERE id = @id AND org_id = @org',
+      { qty, id: existing.id, org: orgId() });
     return { invoice: await getInvoice(invoiceId), line_id: existing.id, merged: true, item };
   }
 
+  const priceSource = unit || item;
   const price = unit_price !== undefined && unit_price !== null
     ? money(unit_price)
-    : money(item[priceColumnOf(invoice.type)]);
+    : money(priceSource[priceColumnOf(invoice.type)]);
 
   const id = newId();
   const { n: sort } = await get(
     `SELECT COALESCE(MAX(sort_order), 0) + 1 AS n FROM invoice_lines
-      WHERE invoice_id = ? AND org_id = ?`, [invoiceId, orgId()]);
+      WHERE invoice_id = @invoice_id AND org_id = @org`, { invoice_id: invoiceId, org: orgId() });
   await run(
-    `INSERT INTO invoice_lines (id, org_id, invoice_id, item_id, barcode_scanned, quantity,
-                                unit_price, update_item_price, note, sort_order)
-     VALUES (?,?,?,?,?,?,?,?,?,?)`,
-    [id, orgId(), invoiceId, item.id, barcode ? String(barcode).trim() : item.barcode, qty, price,
-      update_item_price ? 1 : 0, note?.trim() || null, sort]);
+    `INSERT INTO invoice_lines (id, org_id, invoice_id, item_id, unit_id, conversion_factor,
+                                barcode_scanned, quantity, unit_price, update_item_price, note, sort_order)
+     VALUES (@id, @org, @invoice_id, @item_id, @unit_id, @conversion_factor,
+             @barcode_scanned, @qty, @price, @update_item_price, @note, @sort)`,
+    {
+      id,
+      org: orgId(),
+      invoice_id: invoiceId,
+      item_id: item.id,
+      unit_id: resolvedUnitId,
+      conversion_factor: conversionFactor,
+      barcode_scanned: barcode ? String(barcode).trim() : item.barcode,
+      qty,
+      price,
+      update_item_price: update_item_price ? 1 : 0,
+      note: note?.trim() || null,
+      sort,
+    });
 
   return { invoice: await getInvoice(invoiceId), line_id: id, merged: false, item };
 }
@@ -231,19 +389,46 @@ export async function addLineByBarcode(invoiceId, { barcode, item_id, quantity =
 export async function updateLine(invoiceId, lineId, patch) {
   assertDraft(await loadRaw(invoiceId));
   const line = await get(
-    'SELECT * FROM invoice_lines WHERE id = ? AND invoice_id = ? AND org_id = ?',
-    [lineId, invoiceId, orgId()]);
+    'SELECT * FROM invoice_lines WHERE id = @id AND invoice_id = @invoice_id AND org_id = @org',
+    { id: lineId, invoice_id: invoiceId, org: orgId() });
   if (!line) throw notFound('السطر غير موجود', 'LINE_NOT_FOUND');
 
   const fields = [];
   const params = { id: lineId, org: orgId() };
+  const nextQuantity = patch.quantity !== undefined ? Number(patch.quantity) : line.quantity;
   if (patch.quantity !== undefined) {
-    const q = Number(patch.quantity);
-    if (!Number.isInteger(q) || q <= 0) {
+    if (!Number.isInteger(nextQuantity) || nextQuantity <= 0) {
       throw badRequest('الكمية يجب أن تكون عدداً صحيحاً أكبر من صفر', 'BAD_QUANTITY');
     }
-    fields.push('quantity = @quantity'); params.quantity = q;
+    fields.push('quantity = @quantity'); params.quantity = nextQuantity;
   }
+
+  // Changing unit re-snapshots its conversion factor (and, unless unit_price
+  // is also given in this same call, its price) — a "Box" price and a "Piece"
+  // price are unrelated numbers, so silently keeping the old one is wrong.
+  let nextConversionFactor = line.conversion_factor;
+  if (patch.unit_id !== undefined) {
+    let unit = null;
+    if (patch.unit_id) {
+      unit = await get('SELECT * FROM item_units WHERE id = @id AND item_id = @item_id AND org_id = @org',
+        { id: patch.unit_id, item_id: line.item_id, org: orgId() });
+      if (!unit) throw badRequest('وحدة القياس غير صالحة لهذا الصنف', 'UNIT_NOT_FOUND');
+    }
+    nextConversionFactor = unit ? Number(unit.conversion_factor) : 1;
+    fields.push('unit_id = @unit_id'); params.unit_id = patch.unit_id || null;
+    fields.push('conversion_factor = @conversion_factor'); params.conversion_factor = nextConversionFactor;
+
+    if (patch.unit_price === undefined) {
+      const invoice = await loadRaw(invoiceId);
+      const item = await getItem(line.item_id);
+      const priceSource = unit || item;
+      fields.push('unit_price = @unit_price');
+      params.unit_price = money(priceSource[priceColumnOf(invoice.type)]);
+    }
+  }
+
+  baseQuantity({ quantity: nextQuantity, conversion_factor: nextConversionFactor });
+
   if (patch.unit_price !== undefined) { fields.push('unit_price = @unit_price'); params.unit_price = money(patch.unit_price); }
   if (patch.update_item_price !== undefined) { fields.push('update_item_price = @uip'); params.uip = patch.update_item_price ? 1 : 0; }
   if (patch.note !== undefined) { fields.push('note = @note'); params.note = patch.note?.trim() || null; }
@@ -257,8 +442,8 @@ export async function updateLine(invoiceId, lineId, patch) {
 export async function removeLine(invoiceId, lineId) {
   assertDraft(await loadRaw(invoiceId));
   const res = await run(
-    'DELETE FROM invoice_lines WHERE id = ? AND invoice_id = ? AND org_id = ?',
-    [lineId, invoiceId, orgId()]);
+    'DELETE FROM invoice_lines WHERE id = @id AND invoice_id = @invoice_id AND org_id = @org',
+    { id: lineId, invoice_id: invoiceId, org: orgId() });
   if (!res.changes) throw notFound('السطر غير موجود', 'LINE_NOT_FOUND');
   return getInvoice(invoiceId);
 }
@@ -275,12 +460,6 @@ export async function validateForPost(invoiceId) {
 
   if (invoice.status !== 'DRAFT') problems.push({ code: 'NOT_DRAFT', message: 'الفاتورة ليست مسودة' });
   if (!lines.length) problems.push({ code: 'NO_LINES', message: 'أضف صنفاً واحداً على الأقل' });
-  if (invoice.type === 'SALE' && !invoice.customer_id) {
-    problems.push({ code: 'CUSTOMER_REQUIRED', message: 'اختر العميل' });
-  }
-  if (invoice.type === 'PURCHASE' && !invoice.supplier_id) {
-    problems.push({ code: 'SUPPLIER_REQUIRED', message: 'اختر المورد' });
-  }
 
   if (directionOf(invoice.type) === 'OUT') {
     for (const s of await shortages(lines)) {
@@ -294,19 +473,19 @@ export async function validateForPost(invoiceId) {
   return { ok: problems.length === 0, problems };
 }
 
-/** Aggregate demand per item and compare against the live balance. */
+/** Aggregate demand per item (converted to base-unit quantities) and compare against the live balance. */
 async function shortages(lines) {
   const needed = new Map();
   for (const l of lines) {
     const cur = needed.get(l.item_id)
       || { requested: 0, item_name: l.item_name, line_id: l.id, item_id: l.item_id };
-    cur.requested += l.quantity;
+    cur.requested += baseQuantity(l);
     needed.set(l.item_id, cur);
   }
   const out = [];
   for (const [itemId, agg] of needed) {
-    const row = await get('SELECT quantity FROM items WHERE id = ? AND org_id = ?',
-      [itemId, orgId()]);
+    const row = await get('SELECT quantity FROM items WHERE id = @id AND org_id = @org',
+      { id: itemId, org: orgId() });
     const available = row?.quantity ?? 0;
     if (agg.requested > available) out.push({ ...agg, available });
   }
@@ -340,20 +519,43 @@ export function postInvoice(invoiceId, { referenceType } = {}) {
     const now = nowIso();
 
     for (const line of lines) {
+      const ledgerQty = baseQuantity(line);
       await run(
         `INSERT INTO stock_movements (id, org_id, item_id, type, quantity, invoice_id,
                                       reference_type, note, created_at)
-         VALUES (?,?,?,?,?,?,?,?,?)`,
-        [newId(), orgId(), line.item_id, type, line.quantity, invoiceId, reference,
-          line.note || invoice.note || null, now]);
+         VALUES (@id, @org, @item_id, @type, @qty, @invoice_id, @reference, @note, @now)`,
+        {
+          id: newId(),
+          org: orgId(),
+          item_id: line.item_id,
+          type,
+          qty: ledgerQty,
+          invoice_id: invoiceId,
+          reference,
+          note: line.note || invoice.note || null,
+          now,
+        });
       if (line.update_item_price) {
-        await run(`UPDATE items SET ${priceCol} = ?, updated_at = ? WHERE id = ? AND org_id = ?`,
-          [money(line.unit_price), now, line.item_id, orgId()]);
+        // A non-base-unit line propagates to that unit's own price, never the
+        // base item's — a carton price and a piece price are unrelated numbers.
+        if (line.unit_id) {
+          await run(`UPDATE item_units SET ${priceCol} = @price, updated_at = @now WHERE id = @id AND org_id = @org`,
+            { price: money(line.unit_price), now, id: line.unit_id, org: orgId() });
+        } else {
+          await run(`UPDATE items SET ${priceCol} = @price, updated_at = @now WHERE id = @id AND org_id = @org`,
+            { price: money(line.unit_price), now, id: line.item_id, org: orgId() });
+        }
       }
     }
 
-    await run("UPDATE invoices SET status = 'POSTED', posted_at = ? WHERE id = ? AND org_id = ?",
-      [now, invoiceId, orgId()]);
+    // The number is minted here, inside the posting transaction, so the
+    // sequence only ever advances for invoices that were actually saved and
+    // the result has no gaps. Re-posting is impossible (validateForPost
+    // rejects anything not DRAFT), so this cannot mint twice for one invoice.
+    const number = invoice.number || await nextNumber(invoice.type, PREFIX[invoice.type]);
+    await run(
+      "UPDATE invoices SET status = 'POSTED', number = @number, posted_at = @now WHERE id = @id AND org_id = @org",
+      { number, now, id: invoiceId, org: orgId() });
     return getInvoice(invoiceId);
   });
 }
@@ -364,8 +566,8 @@ export async function cancelInvoice(invoiceId) {
     throw unprocessable(
       'لا يمكن إلغاء فاتورة مرحّلة — أنشئ فاتورة عكسية لتصحيح الأثر', 'INVOICE_POSTED');
   }
-  await run("UPDATE invoices SET status = 'CANCELLED' WHERE id = ? AND org_id = ?",
-    [invoiceId, orgId()]);
+  await run("UPDATE invoices SET status = 'CANCELLED' WHERE id = @id AND org_id = @org",
+    { id: invoiceId, org: orgId() });
   return getInvoice(invoiceId);
 }
 
@@ -375,7 +577,7 @@ export async function deleteInvoice(invoiceId) {
   if (invoice.stock_count_id) {
     throw conflict('لا يمكن حذف فاتورة ناتجة عن جلسة جرد', 'INVOICE_FROM_STOCK_COUNT');
   }
-  await run('DELETE FROM invoices WHERE id = ? AND org_id = ?', [invoiceId, orgId()]);
+  await run('DELETE FROM invoices WHERE id = @id AND org_id = @org', { id: invoiceId, org: orgId() });
   return { ok: true };
 }
 
@@ -424,8 +626,8 @@ export async function listMovements({ item_id, type, reference_type, date_from, 
   if (type) { where.push('m.type = @type'); params.type = type; }
   if (reference_type) { where.push('m.reference_type = @reference_type'); params.reference_type = reference_type; }
   // created_at is ISO-8601 text, so the calendar day is its first 10 characters.
-  if (date_from) { where.push('left(m.created_at, 10) >= @date_from'); params.date_from = date_from; }
-  if (date_to) { where.push('left(m.created_at, 10) <= @date_to'); params.date_to = date_to; }
+  if (date_from) { where.push('LEFT(m.created_at, 10) >= @date_from'); params.date_from = date_from; }
+  if (date_to) { where.push('LEFT(m.created_at, 10) <= @date_to'); params.date_to = date_to; }
   const clause = `WHERE ${where.join(' AND ')}`;
 
   const { n: total } = await get(`SELECT COUNT(*) n FROM stock_movements m ${clause}`, params);
@@ -436,7 +638,7 @@ export async function listMovements({ item_id, type, reference_type, date_from, 
        JOIN items i ON i.id = m.item_id
        LEFT JOIN invoices v ON v.id = m.invoice_id
        ${clause}
-      ORDER BY m.created_at DESC, m.seq DESC LIMIT @limit OFFSET @offset`,
+      ORDER BY m.created_at DESC, m.seq DESC OFFSET @offset ROWS FETCH NEXT @limit ROWS ONLY`,
     { ...params, limit, offset: (page - 1) * limit },
   );
 

@@ -2,7 +2,7 @@ import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import i18n from '@/i18n';
 import {
-  ArrowDownLeft, ArrowUpRight, FileText, ShoppingCart, Receipt, PackagePlus,
+  ArrowDownLeft, ArrowUpRight, FileText, PackagePlus, XCircle, AlertTriangle, CheckCircle2,
   PackageMinus, Bot, ClipboardList, FileSpreadsheet, Zap,
 } from 'lucide-react';
 import { Badge } from '@/components/ui';
@@ -31,16 +31,6 @@ export const INVOICE_TYPES: Record<InvoiceType, {
     get label() { return i18n.t('invoiceType.STOCK_OUT'); },
     get short() { return i18n.t('invoiceType.short.STOCK_OUT'); },
     tone: 'danger', icon: PackageMinus, direction: 'OUT',
-  },
-  PURCHASE: {
-    get label() { return i18n.t('invoiceType.PURCHASE'); },
-    get short() { return i18n.t('invoiceType.short.PURCHASE'); },
-    tone: 'brand', icon: ShoppingCart, direction: 'IN',
-  },
-  SALE: {
-    get label() { return i18n.t('invoiceType.SALE'); },
-    get short() { return i18n.t('invoiceType.short.SALE'); },
-    tone: 'purple', icon: Receipt, direction: 'OUT',
   },
 };
 
@@ -97,17 +87,60 @@ export function SourceBadge({ source }: { source: InvoiceSource }) {
 
 /* ------------------------------------------------------------- quantities */
 /**
- * Stock quantity, colour-coded: at-or-below zero is red, at-or-below the
- * low-stock threshold is amber, anything else reads as normal.
+ * Stock level, as status rather than as a number that happens to be coloured.
+ *
+ * Colour never carries the meaning on its own here: each state pairs a hue
+ * with its own icon *and* a word. That is what keeps it readable for the
+ * ~8% of men with red/green colour blindness, in a printout, and on a phone
+ * held at arm's length under warehouse lighting — all normal conditions for
+ * this app, none of which colour alone survives.
+ *
+ * The count stays the most prominent element; the label sits under it, quiet.
  */
+const STOCK_STATE = {
+  out: {
+    icon: XCircle,
+    label: 'نفد',
+    text: 'text-stock-out-text dark:text-red-400',
+  },
+  low: {
+    icon: AlertTriangle,
+    label: 'منخفض',
+    text: 'text-stock-low-text dark:text-accent-400',
+  },
+  in: {
+    icon: CheckCircle2,
+    label: 'متوفر',
+    text: 'text-stock-in-text dark:text-green-400',
+  },
+} as const;
+
 export function QuantityCell({
-  quantity, threshold, className,
-}: { quantity: number; threshold?: number; className?: string }) {
-  const tone =
-    quantity <= 0 ? 'text-rose-600 dark:text-rose-400'
-      : threshold !== undefined && quantity <= threshold ? 'text-amber-600 dark:text-amber-400'
-        : 'text-ink';
-  return <span className={cn('nums font-bold', tone, className)}>{fmtInt(quantity)}</span>;
+  quantity, threshold, className, showLabel = true, showIcon = true,
+}: {
+  quantity: number; threshold?: number; className?: string;
+  showLabel?: boolean; showIcon?: boolean;
+}) {
+  const state = quantity <= 0 ? 'out'
+    : (threshold !== undefined && quantity <= threshold) ? 'low'
+      : 'in';
+  const { icon: Icon, label, text } = STOCK_STATE[state];
+
+  return (
+    <span className={cn('inline-flex flex-col items-start gap-0.5', className)}>
+      <span className={cn('nums inline-flex items-center gap-1 font-bold', text)}>
+        {showIcon && <Icon className="size-3.5 shrink-0" aria-hidden />}
+        {fmtInt(quantity)}
+        {/* With the icon and word hidden, the state would otherwise be carried
+            by colour alone. The number itself says "none left" at a glance,
+            but "low" does not, so it keeps a screen-reader-only word. */}
+        {!showLabel && !showIcon && state !== 'in' && <span className="sr-only"> — {label}</span>}
+      </span>
+      {showLabel && (
+        <span className={cn('text-[10px] font-semibold leading-none', text)}>{label}</span>
+      )}
+    </span>
+  );
 }
 
 export function MovementBadge({ type }: { type: MovementType }) {
@@ -124,7 +157,7 @@ export function VarianceCell({ variance }: { variance: number | null }) {
   if (variance === null) return <span className="text-subtle">—</span>;
   const tone =
     variance > 0 ? 'text-emerald-600 dark:text-emerald-400'
-      : variance < 0 ? 'text-rose-600 dark:text-rose-400'
+      : variance < 0 ? 'text-accent-600 dark:text-accent-400'
         : 'text-subtle';
   return <span className={cn('nums font-bold', tone)}>{fmtSigned(variance)}</span>;
 }
@@ -151,7 +184,10 @@ export function InvoiceLink({ id, number }: { id: string; number: string | null 
 }
 
 /** Monospaced barcode chip. */
-export function BarcodeChip({ code, className }: { code: string; className?: string }) {
+export function BarcodeChip({ code, className }: { code: string | null; className?: string }) {
+  if (!code) {
+    return <span className={cn('text-[11px] text-subtle', className)}>بدون باركود</span>;
+  }
   return (
     <span className={cn(
       'nums inline-block rounded bg-surface-3 px-1.5 py-0.5 font-mono text-[11px] tracking-tight text-muted',

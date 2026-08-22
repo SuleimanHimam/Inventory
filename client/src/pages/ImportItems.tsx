@@ -200,18 +200,18 @@ export default function ImportItems() {
                   {preview.rows.map((row) => (
                     <tr
                       key={row.row_number}
-                      className={cn(!row.valid && 'bg-rose-500/6', row.valid && row.duplicate && 'bg-amber-500/6')}
+                      className={cn(!row.valid && 'bg-accent-500/6', row.valid && row.duplicate && 'bg-accent-500/6')}
                     >
                       <td className="nums text-center text-xs text-subtle">{row.row_number}</td>
-                      <td className="max-w-[16rem] truncate font-medium">{row.name || <span className="text-rose-500">—</span>}</td>
+                      <td className="max-w-[16rem] truncate font-medium">{row.name || <span className="text-accent-600 dark:text-accent-400">—</span>}</td>
                       <td className="text-xs text-muted">{row.category || '—'}</td>
-                      <td className="nums font-mono text-xs">{row.barcode || <span className="text-rose-500">—</span>}</td>
+                      <td className="nums font-mono text-xs">{row.barcode || <span className="text-accent-600 dark:text-accent-400">—</span>}</td>
                       <td className="nums text-center text-xs">{fmtCurrency(row.purchase_price)}</td>
                       <td className="nums text-center text-xs">{fmtCurrency(row.sale_price)}</td>
                       <td className="nums text-center text-xs">{fmtInt(row.opening_quantity)}</td>
                       <td>
                         {!row.valid ? (
-                          <span className="text-xs font-medium text-rose-600 dark:text-rose-400">
+                          <span className="text-xs font-medium text-accent-600 dark:text-accent-400">
                             {row.errors.join('؛ ')}
                           </span>
                         ) : row.duplicate ? (
@@ -263,7 +263,7 @@ export default function ImportItems() {
               <Stat label="أصناف محدّثة" value={fmtInt(result.updated_count)} />
               <Stat label="صفوف متخطاة" value={fmtInt(result.skipped_count)} />
               <Stat label="صفوف مرفوضة" value={fmtInt(result.rejected_count)}
-                tone={result.rejected_count ? 'text-rose-600 dark:text-rose-400' : undefined} />
+                tone={result.rejected_count ? 'text-accent-600 dark:text-accent-400' : undefined} />
             </div>
 
             {result.opening_invoice && (
@@ -333,8 +333,8 @@ function Steps({ step }: { step: Step }) {
 const SUMMARY_TONES = {
   brand: 'bg-brand-500/12 text-brand-600 dark:text-brand-400',
   success: 'bg-emerald-500/12 text-emerald-600 dark:text-emerald-400',
-  warning: 'bg-amber-500/12 text-amber-600 dark:text-amber-400',
-  danger: 'bg-rose-500/12 text-rose-600 dark:text-rose-400',
+  warning: 'bg-accent-500/12 text-accent-600 dark:text-accent-400',
+  danger: 'bg-accent-500/12 text-accent-600 dark:text-accent-400',
 };
 
 function SummaryCard({

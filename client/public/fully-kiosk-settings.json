@@ -1,0 +1,10 @@
+{
+  "startUrl": "http://178.130.176.223",
+  "startURL": "http://178.130.176.223",
+  "showStatusBar": false,
+  "showNavigationBar": false,
+  "showActionBar": false,
+  "showAddressBar": false,
+  "showToolbar": false,
+  "enableFullscreen": true
+}

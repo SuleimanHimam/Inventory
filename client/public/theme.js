@@ -8,7 +8,6 @@
 (function () {
   try {
     var t = localStorage.getItem('inv.theme');
-    if (t === 'dark' || (!t && matchMedia('(prefers-color-scheme: dark)').matches))
-      document.documentElement.classList.add('dark');
+    if (t === 'dark') document.documentElement.classList.add('dark');
   } catch (e) { /* private mode or storage disabled — fall back to light */ }
 })();

@@ -1,5 +1,14 @@
 # النشر — Deployment
 
+> **This document describes the Railway + Postgres path, which the code no
+> longer supports.** The database layer migrated from PostgreSQL to SQL
+> Server (`server/src/db/index.js` now uses the `mssql` driver exclusively —
+> `pg` is gone). Everything below that assumes `DATABASE_URL`/Postgres is
+> historical, kept for the parts of the Railway/Vercel process (the frontend
+> half, CORS, health-check reading) that are still accurate. For the current,
+> live deployment path, see [`deploy/windows/README.md`](deploy/windows/README.md),
+> which runs the API and SQL Server together on a self-hosted Windows Server.
+
 Two services, one app:
 
 | Piece | Service | What it runs |

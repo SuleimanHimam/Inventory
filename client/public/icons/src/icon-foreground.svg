@@ -1,0 +1,93 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+  <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#14B8A6"/>
+    <stop offset="1" stop-color="#0D9488"/>
+  </linearGradient>
+
+  <!-- Light sits top-left, so the lid is brightest, the left face catches a
+       little of it, and the right face falls away into shade. Three clearly
+       separated values are what sell the volume. -->
+  <linearGradient id="gLid" x1="0.1" y1="0" x2="0.75" y2="1">
+    <stop offset="0" stop-color="#FFFDF8"/>
+    <stop offset="1" stop-color="#F3EDDF"/>
+  </linearGradient>
+  <linearGradient id="gLeft" x1="0.15" y1="0" x2="0.6" y2="1">
+    <stop offset="0" stop-color="#F0E7D5"/>
+    <stop offset="1" stop-color="#D9CCB1"/>
+  </linearGradient>
+  <linearGradient id="gRight" x1="0" y1="0" x2="0.4" y2="1">
+    <stop offset="0" stop-color="#E0D2B7"/>
+    <stop offset="1" stop-color="#C8B693"/>
+  </linearGradient>
+  <linearGradient id="gTag" x1="0" y1="0" x2="0.3" y2="1">
+    <stop offset="0" stop-color="#FBBF24"/>
+    <stop offset="0.55" stop-color="#F59E0B"/>
+    <stop offset="1" stop-color="#D97C06"/>
+  </linearGradient>
+
+  <clipPath id="clipLid"><polygon points="512,261.84000000000003 759.8,385.74 512,509.64 264.20000000000005,385.74"/></clipPath>
+
+  <filter id="contact" x="-60%" y="-200%" width="220%" height="500%">
+    <feGaussianBlur stdDeviation="26"/>
+  </filter>
+  <filter id="contactTight" x="-60%" y="-300%" width="220%" height="700%">
+    <feGaussianBlur stdDeviation="9"/>
+  </filter>
+  
+  <!-- Cardboard tooth. Clipped to the crate, kept faint: at icon sizes this
+       should register as matte material, never as visible noise. -->
+  <filter id="grain" x="0%" y="0%" width="100%" height="100%">
+    <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="4" seed="11" result="n"/>
+    <feColorMatrix in="n" type="matrix" result="g"
+      values="0 0 0 0 0.42  0 0 0 0 0.38  0 0 0 0 0.31  0 0 0 0.13 0"/>
+    <feComposite in="g" in2="SourceGraphic" operator="in" result="gc"/>
+    <feMerge><feMergeNode in="SourceGraphic"/><feMergeNode in="gc"/></feMerge>
+  </filter>
+
+  </defs>
+  <g  transform="translate(0,0) scale(1)">
+    
+  <g transform="translate(170.66666666666669,170.66666666666669) scale(0.6666666666666666)">
+  
+  <ellipse cx="534" cy="779.3399999999999" rx="248" ry="40"
+           fill="#04413E" opacity="0.34" filter="url(#contact)"/>
+  <ellipse cx="524" cy="767.3399999999999" rx="196" ry="17"
+           fill="#04413E" opacity="0.30" filter="url(#contactTight)"/>
+
+  <g filter="url(#grain)">
+    <polygon points="512,509.64 759.8,385.74 759.8,639.44 512,763.3399999999999" fill="url(#gRight)"/>
+    <polygon points="264.20000000000005,385.74 512,509.64 512,763.3399999999999 264.20000000000005,639.44" fill="url(#gLeft)"/>
+    <polygon points="512,261.84000000000003 759.8,385.74 512,509.64 264.20000000000005,385.74"   fill="url(#gLid)"/>
+  </g>
+
+  <!-- The join where the two lid flaps meet. This is what separates "carton"
+       from "generic 3D cube", so it carries a real occlusion line down one
+       side rather than being a flat tint: the near flap sits fractionally
+       proud of the far one and casts into the gap. Clipped to the lid so the
+       ends stop cleanly on the diamond edges. Neutral, not amber — the tag is
+       the single accent and a second amber element would split the eye. -->
+  <g clip-path="url(#clipLid)">
+    <rect x="497" y="231.84000000000003" width="30" height="307.79999999999995"
+          fill="#D5C8AD" opacity="0.60"/>
+    <rect x="497" y="231.84000000000003" width="9" height="307.79999999999995"
+          fill="#8A7458" opacity="0.34"/>
+  </g>
+
+  <!-- Ambient occlusion in the inner corner, where the two faces and the lid
+       meet and least light reaches. -->
+  <polygon points="512,509.64 759.8,385.74 759.8,639.44 512,763.3399999999999" fill="#8A7458" opacity="0.07"/>
+
+  <polygon points="313.76000000000005,498.52 447.572,565.4259999999999 447.572,643.4259999999999 313.76000000000005,576.52" fill="url(#gTag)"/>
+
+  <!-- Edge highlights: the two lid ridges facing the light, and the near
+       vertical corner. Thin and low-opacity — they read as a catch of light,
+       not as an outline. -->
+  <path d="M264.20000000000005,385.74 L512,261.84000000000003 L759.8,385.74" fill="none"
+        stroke="#FFF8E8" stroke-opacity="0.30" stroke-width="2.5" stroke-linejoin="round"/>
+  <path d="M512,509.64 L512,763.3399999999999" fill="none"
+        stroke="#FFFBF0" stroke-opacity="0.38" stroke-width="2.5"/>
+  </g>
+
+  </g>
+</svg>

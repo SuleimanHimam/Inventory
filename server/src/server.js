@@ -6,11 +6,13 @@
  * gone. The host (Railway) sets PORT, the app binds 0.0.0.0, and that is all.
  */
 import { createApp } from './app.js';
-import { pool, checkOrgContextReachesPolicies } from './db/index.js';
+import { close } from './db/index.js';
 import { migrate } from './db/migrate.js';
 import { AUTH_MODE, AUTH_DISABLED, authConfigError } from './lib/auth.js';
 import { STORAGE_DRIVER, storageConfigError } from './lib/storage.js';
 import { markReady, markFailed } from './lib/readiness.js';
+import { startScheduler, stopScheduler } from './lib/backupScheduler.js';
+import { closeAdminPool } from './lib/backup.js';
 
 const port = Number(process.env.PORT ?? 4317);
 // 0.0.0.0 by default: a container's port mapping cannot reach a loopback bind.
@@ -66,11 +68,10 @@ try {
   if (process.env.SKIP_MIGRATIONS !== '1') {
     await migrate();
   }
-  // Warns (loudly) if the organisation context is not reaching the RLS
-  // policies, which would silently disable the database-level half of tenant
-  // isolation. Not an error: application-level org scoping still holds.
-  await checkOrgContextReachesPolicies();
   markReady();
+  // Only once the schema is confirmed: a scheduler that fires against a
+  // half-migrated database backs up something nobody wants to restore.
+  startScheduler();
 } catch (err) {
   markFailed(err);
   console.error(
@@ -83,8 +84,10 @@ try {
 
 const shutdown = (signal) => async () => {
   console.log(`\n[server] received ${signal}, shutting down`);
+  stopScheduler();
   server.close(async () => {
-    await pool.end().catch(() => {});
+    await close().catch(() => {});
+    await closeAdminPool();
     process.exit(0);
   });
   setTimeout(() => process.exit(0), 5000).unref();

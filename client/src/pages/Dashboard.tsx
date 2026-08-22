@@ -3,40 +3,52 @@ import {
   Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from 'recharts';
 import {
-  Package, Boxes, TriangleAlert, PackageX, ArrowDownLeft, ArrowUpRight, Wallet,
-  ArrowLeft, ClipboardList, FileText, Plus, TrendingUp,
+  Package, Boxes, PackageX, ArrowDownLeft, ArrowUpRight, Wallet,
+  ArrowLeft, ClipboardList, FileText, TrendingUp, TriangleAlert,
 } from 'lucide-react';
 import { Card, PageHeader, Skeleton, EmptyState, Button } from '@/components/ui';
 import { useDashboard, useMovements } from '@/hooks';
 import { fmtInt, fmtCurrency, fmtRelative, fmtDateShort } from '@/lib/format';
 import { MovementBadge, ItemLink, InvoiceLink } from '@/components/domain';
 import { usePrefs } from '@/store/prefs';
+import { usePermissions } from '@/lib/permissions';
 import { cn } from '@/lib/cn';
+
+/** Stock in reads teal (the brand/"good, arriving"), stock out reads coral.
+ *  Recharts needs literal colour values, not CSS custom properties. */
+const CHART = { in: '#0e6b64', out: '#f2634c' };
 
 export default function Dashboard() {
   const { data, isLoading } = useDashboard();
   const { data: recent } = useMovements({ page: 1, limit: 8 });
+  const { canSeePrices } = usePermissions();
   const theme = usePrefs((s) => s.theme);
+  const axis = theme === 'dark'
+    ? { grid: '#2a3531', tick: '#9fa8a2', tooltipBg: '#1a221e' }
+    : { grid: '#e2e5e9', tick: '#5a6068', tooltipBg: '#ffffff' };
 
   return (
     <>
-      <PageHeader
-        title="لوحة المعلومات"
-        subtitle="نظرة سريعة على حالة المخزون وحركته"
-        actions={
-          <>
-            <Link to="/invoices/new?type=SALE">
-              <Button variant="primary" icon={<Plus className="size-4" />}>فاتورة بيع</Button>
-            </Link>
+      {/* On phone this is the first screen after opening the app — the KPI
+          row right below already says where you are, so the title/subtitle
+          and the "بدء جرد" shortcut (also reachable from stock-counts) just
+          cost a row of scroll for no new information. */}
+      <div className="hidden sm:block">
+        <PageHeader
+          title="لوحة المعلومات"
+          subtitle="نظرة سريعة على حالة المخزون وحركته"
+          actions={
             <Link to="/stock-counts">
               <Button icon={<ClipboardList className="size-4" />}>بدء جرد</Button>
             </Link>
-          </>
-        }
-      />
+          }
+        />
+      </div>
 
-      {/* KPI row */}
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+      {/* KPI row. Extra top margin on phone only — the PageHeader above (with
+          its own spacing) is hidden there, so without this the cards would
+          sit flush against the top of the screen. */}
+      <div className="stagger mt-4 grid grid-cols-2 gap-4 sm:mt-0 lg:grid-cols-4">
         <KpiCard
           loading={isLoading}
           icon={<Package className="size-5" />}
@@ -52,17 +64,10 @@ export default function Dashboard() {
           tone="info"
           label="إجمالي الوحدات"
           value={fmtInt(data?.total_units)}
-          hint={`قيمة المخزون ${fmtCurrency(data?.stock_value)}`}
+          hint={canSeePrices
+            ? `قيمة المخزون ${fmtCurrency(data?.stock_value)}`
+            : `عبر ${fmtInt(data?.total_items)} صنف`}
           to="/items"
-        />
-        <KpiCard
-          loading={isLoading}
-          icon={<TriangleAlert className="size-5" />}
-          tone="warning"
-          label="أصناف تحت الحد"
-          value={fmtInt(data?.low_stock_count)}
-          hint={`الحد الافتراضي ${fmtInt(data?.threshold)}`}
-          to="/reports/low-stock"
         />
         <KpiCard
           loading={isLoading}
@@ -73,6 +78,30 @@ export default function Dashboard() {
           hint="بحاجة إلى إعادة طلب"
           to="/reports/low-stock"
         />
+        {/* The fourth slot is financial for a manager and operational for
+            everyone else — an empty cell would leave a hole in the 4-column
+            grid, and a blanked-out card would advertise what it is hiding. */}
+        {canSeePrices ? (
+          <KpiCard
+            loading={isLoading}
+            icon={<TrendingUp className="size-5" />}
+            tone="success"
+            label="الربح المتوقع"
+            value={fmtCurrency(data?.stock_profit)}
+            hint="بأسعار البيع الحالية للمخزون بأكمله"
+            to="/items"
+          />
+        ) : (
+          <KpiCard
+            loading={isLoading}
+            icon={<TriangleAlert className="size-5" />}
+            tone="warning"
+            label="نواقص المخزون"
+            value={fmtInt(data?.low_stock_count)}
+            hint="أصناف بلغت حد النقص"
+            to="/reports/low-stock"
+          />
+        )}
       </div>
 
       {/* Today + chart */}
@@ -93,46 +122,48 @@ export default function Dashboard() {
                 <AreaChart data={data?.trend ?? []} margin={{ top: 4, right: 8, left: 8, bottom: 0 }}>
                   <defs>
                     <linearGradient id="inGrad" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#10b981" stopOpacity={0.35} />
-                      <stop offset="100%" stopColor="#10b981" stopOpacity={0} />
+                      <stop offset="0%" stopColor={CHART.in} stopOpacity={0.42} />
+                      <stop offset="100%" stopColor={CHART.in} stopOpacity={0} />
                     </linearGradient>
                     <linearGradient id="outGrad" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#f43f5e" stopOpacity={0.3} />
-                      <stop offset="100%" stopColor="#f43f5e" stopOpacity={0} />
+                      <stop offset="0%" stopColor={CHART.out} stopOpacity={0.34} />
+                      <stop offset="100%" stopColor={CHART.out} stopOpacity={0} />
                     </linearGradient>
                   </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke={theme === 'dark' ? '#263149' : '#e4e8f0'} vertical={false} />
+                  <CartesianGrid strokeDasharray="3 3" stroke={axis.grid} vertical={false} />
                   <XAxis
                     dataKey="day"
                     tickFormatter={(d) => fmtDateShort(d).slice(0, 5)}
-                    tick={{ fontSize: 11, fill: theme === 'dark' ? '#97a3b8' : '#64748b' }}
+                    tick={{ fontSize: 11, fill: axis.tick }}
                     axisLine={false}
                     tickLine={false}
                     reversed
                   />
                   <YAxis
                     orientation="right"
-                    tick={{ fontSize: 11, fill: theme === 'dark' ? '#97a3b8' : '#64748b' }}
+                    tick={{ fontSize: 11, fill: axis.tick }}
                     axisLine={false}
                     tickLine={false}
                     width={40}
                   />
                   <Tooltip
                     contentStyle={{
-                      background: theme === 'dark' ? '#161e30' : '#fff',
-                      border: `1px solid ${theme === 'dark' ? '#263149' : '#e4e8f0'}`,
-                      borderRadius: 12,
+                      background: axis.tooltipBg,
+                      border: `1px solid ${axis.grid}`,
+                      borderRadius: 14,
                       fontSize: 12,
                       direction: 'rtl',
                       fontFamily: 'inherit',
-                      boxShadow: '0 8px 24px -12px rgba(15,23,42,0.25)',
+                      boxShadow: '0 10px 28px -14px rgba(20,26,23,0.35)',
                     }}
                     labelFormatter={(d) => fmtDateShort(String(d))}
                     formatter={(value: number, key: string) =>
                       [fmtInt(value), key === 'in_qty' ? 'وارد' : 'صادر']}
                   />
-                  <Area type="monotone" dataKey="in_qty" stroke="#10b981" strokeWidth={2} fill="url(#inGrad)" />
-                  <Area type="monotone" dataKey="out_qty" stroke="#f43f5e" strokeWidth={2} fill="url(#outGrad)" />
+                  <Area type="monotone" dataKey="in_qty" stroke={CHART.in} strokeWidth={2.5}
+                    fill="url(#inGrad)" animationDuration={650} />
+                  <Area type="monotone" dataKey="out_qty" stroke={CHART.out} strokeWidth={2.5}
+                    fill="url(#outGrad)" animationDuration={650} />
                 </AreaChart>
               </ResponsiveContainer>
             )}
@@ -145,19 +176,19 @@ export default function Dashboard() {
             <div className="mt-4 space-y-3">
               <TodayRow
                 icon={<ArrowDownLeft className="size-4" />}
-                tone="text-emerald-500 bg-emerald-500/12"
+                tone="text-brand-700 dark:text-brand-300 bg-gradient-to-br from-brand-400/25 to-brand-500/10"
                 label="وارد"
                 value={fmtInt(data?.today.in_qty)}
               />
               <TodayRow
                 icon={<ArrowUpRight className="size-4" />}
-                tone="text-rose-500 bg-rose-500/12"
+                tone="text-accent-600 dark:text-accent-300 bg-gradient-to-br from-accent-400/25 to-accent-500/10"
                 label="صادر"
                 value={fmtInt(data?.today.out_qty)}
               />
               <TodayRow
                 icon={<Wallet className="size-4" />}
-                tone="text-brand-500 bg-brand-500/12"
+                tone="text-sky-700 dark:text-sky-300 bg-gradient-to-br from-sky-400/25 to-sky-500/10"
                 label="عدد الحركات"
                 value={fmtInt(data?.today.movements)}
               />
@@ -178,7 +209,7 @@ export default function Dashboard() {
                       </div>
                       <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-surface-3">
                         <div
-                          className={cn('h-full rounded-full', index === 0 ? 'bg-brand-600' : 'bg-brand-400/70')}
+                          className={cn('h-full rounded-full', RANK_BARS[index % RANK_BARS.length])}
                           style={{ width: `${Math.max(6, (item.moved / max) * 100)}%` }}
                         />
                       </div>
@@ -207,7 +238,7 @@ export default function Dashboard() {
 
         {recent?.data.length ? (
           <div className="overflow-x-auto">
-            <table className="data-table">
+            <table className="data-table stacked">
               <thead>
                 <tr>
                   <th>الصنف</th>
@@ -220,13 +251,13 @@ export default function Dashboard() {
               <tbody>
                 {recent.data.map((movement) => (
                   <tr key={movement.id}>
-                    <td>
+                    <td data-primary>
                       <ItemLink id={movement.item_id} name={movement.item_name} />
                     </td>
-                    <td><MovementBadge type={movement.type} /></td>
-                    <td className="nums font-bold">{fmtInt(movement.quantity)}</td>
-                    <td><InvoiceLink id={movement.invoice_id!} number={movement.invoice_number} /></td>
-                    <td className="whitespace-nowrap text-xs text-muted">{fmtRelative(movement.created_at)}</td>
+                    <td data-label="النوع"><MovementBadge type={movement.type} /></td>
+                    <td data-label="الكمية" className="nums font-bold">{fmtInt(movement.quantity)}</td>
+                    <td data-label="المستند"><InvoiceLink id={movement.invoice_id!} number={movement.invoice_number} /></td>
+                    <td data-label="الوقت" className="whitespace-nowrap text-xs text-muted">{fmtRelative(movement.created_at)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -249,11 +280,28 @@ export default function Dashboard() {
   );
 }
 
+/** One shade per rank (TOP 5 query) — no red/rose, since a "most moved"
+ * ranking isn't a danger signal and shouldn't read like one. */
+const RANK_BARS = [
+  'bg-gradient-to-l from-brand-500 to-brand-400',
+  'bg-gradient-to-l from-sky-500 to-sky-400',
+  'bg-gradient-to-l from-lime-500 to-lime-400',
+  'bg-gradient-to-l from-accent-500 to-accent-400',
+  'bg-gradient-to-l from-accent-500 to-accent-400',
+];
+
+/*
+ * KPI identities. Each card owns a hue so the row is scannable by colour
+ * before it's read: teal = the catalogue, sky = volume on hand, coral =
+ * something needs attention, lime = money. Light mode uses the 700 steps
+ * (the 600s fail AA on the cream page); dark mode uses the bright 300/400s.
+ */
 const TONES = {
-  brand: 'bg-brand-500/12 text-brand-600 dark:text-brand-400',
-  info: 'bg-sky-500/12 text-sky-600 dark:text-sky-400',
-  warning: 'bg-amber-500/12 text-amber-600 dark:text-amber-400',
-  danger: 'bg-rose-500/12 text-rose-600 dark:text-rose-400',
+  brand: 'from-brand-400/25 to-brand-500/10 text-brand-700 dark:text-brand-300',
+  info: 'from-sky-400/25 to-sky-500/10 text-sky-700 dark:text-sky-300',
+  warning: 'from-accent-400/30 to-accent-500/10 text-accent-700 dark:text-accent-300',
+  danger: 'from-accent-400/25 to-accent-500/10 text-accent-600 dark:text-accent-300',
+  success: 'from-lime-400/25 to-lime-500/10 text-lime-800 dark:text-lime-300',
 };
 
 function KpiCard({
@@ -263,10 +311,14 @@ function KpiCard({
   tone: keyof typeof TONES; to: string; loading?: boolean;
 }) {
   return (
-    <Link to={to} className="card group p-4 transition hover:-translate-y-0.5 hover:shadow-md">
+    <Link to={to} className="card card-interactive group block p-4">
       <div className="flex items-start justify-between gap-2">
-        <span className={cn('grid size-10 place-items-center rounded-xl', TONES[tone])}>{icon}</span>
-        <ArrowLeft className="size-4 text-subtle opacity-0 transition group-hover:opacity-100" />
+        <span className={cn(
+          'grid size-11 place-items-center rounded-2xl bg-gradient-to-br shadow-sm', TONES[tone],
+        )}>
+          {icon}
+        </span>
+        <ArrowLeft className="size-4 text-subtle opacity-0 transition-opacity group-hover:opacity-100" />
       </div>
       <p className="mt-3 text-xs font-medium text-muted">{label}</p>
       {loading ? (

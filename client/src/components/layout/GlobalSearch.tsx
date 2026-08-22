@@ -8,6 +8,7 @@ import {
 import { useItemSearch } from '@/hooks';
 import { cn } from '@/lib/cn';
 import { fmtInt, fmtCurrency } from '@/lib/format';
+import { usePermissions } from '@/lib/permissions';
 import { Badge } from '@/components/ui';
 
 /** Static destinations offered when the query is empty or matches a page name. */
@@ -17,8 +18,8 @@ const COMMANDS = [
   { label: 'صنف جديد', to: '/items?new=1', icon: Plus, keywords: 'اضافة صنف جديد new item' },
   { label: 'التصنيفات', to: '/categories', icon: Tags, keywords: 'categories' },
   { label: 'الفواتير', to: '/invoices', icon: FileText, keywords: 'invoices فاتورة' },
-  { label: 'فاتورة بيع جديدة', to: '/invoices/new?type=SALE', icon: Plus, keywords: 'بيع sale جديدة' },
-  { label: 'فاتورة شراء جديدة', to: '/invoices/new?type=PURCHASE', icon: Plus, keywords: 'شراء purchase جديدة' },
+  { label: 'فاتورة إخراج جديدة', to: '/invoices/new?type=STOCK_OUT', icon: Plus, keywords: 'بيع sale اخراج out جديدة' },
+  { label: 'فاتورة إدخال جديدة', to: '/invoices/new?type=STOCK_IN', icon: Plus, keywords: 'شراء purchase ادخال in جديدة' },
   { label: 'الجرد', to: '/stock-counts', icon: ClipboardList, keywords: 'stocktaking جرد' },
   { label: 'العملاء', to: '/customers', icon: Users, keywords: 'customers' },
   { label: 'الموردون', to: '/suppliers', icon: Truck, keywords: 'suppliers' },
@@ -35,6 +36,7 @@ const MATCH_LABEL: Record<string, string> = {
 export type GlobalSearchHandle = { open: () => void };
 
 export const GlobalSearch = forwardRef<GlobalSearchHandle>(function GlobalSearch(_props, ref) {
+  const { canSeePrices } = usePermissions();
   const [open, setOpen] = useState(false);
   const [term, setTerm] = useState('');
   const [cursor, setCursor] = useState(0);
@@ -118,7 +120,7 @@ export const GlobalSearch = forwardRef<GlobalSearchHandle>(function GlobalSearch
 
       {open && createPortal(
         <div className="fixed inset-0 z-[60] flex items-start justify-center p-4 pt-[10vh] no-print">
-          <div className="fixed inset-0 bg-slate-950/50 backdrop-blur-[2px] animate-fade-in"
+          <div className="fixed inset-0 bg-[#1c1f1d]/50 backdrop-blur-[2px] animate-fade-in"
             onClick={() => setOpen(false)} aria-hidden />
 
           <div className="card animate-rise relative z-10 w-full max-w-2xl overflow-hidden p-0">
@@ -169,11 +171,13 @@ export const GlobalSearch = forwardRef<GlobalSearchHandle>(function GlobalSearch
                       </div>
                       <div className="shrink-0 text-end">
                         <p className={cn('nums text-sm font-bold',
-                          item.quantity <= 0 ? 'text-rose-500'
-                            : item.is_low_stock ? 'text-amber-500' : 'text-ink')}>
+                          item.quantity <= 0 ? 'text-accent-600 dark:text-accent-400'
+                            : item.is_low_stock ? 'text-accent-500' : 'text-ink')}>
                           {fmtInt(item.quantity)}
                         </p>
-                        <p className="nums text-[11px] text-subtle">{fmtCurrency(item.sale_price)}</p>
+                        {canSeePrices && (
+                          <p className="nums text-[11px] text-subtle">{fmtCurrency(item.sale_price)}</p>
+                        )}
                       </div>
                     </Row>
                   ))}

@@ -1,11 +1,13 @@
 import {
   useMutation, useQuery, useQueryClient, keepPreviousData, type UseQueryOptions,
 } from '@tanstack/react-query';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 import { api } from '@/lib/api';
+import { subscribeInstallPrompt, getCanInstall, promptInstall } from '@/lib/installPrompt';
 import type {
-  Category, DashboardStats, ImportPreview, ImportResult, Invoice, Item, ItemImage,
-  Movement, Paginated, Party, PostProblem, Settings, StockCount,
+  BackupConfig, BackupSet, BackupStatus, BrowseResult, Category, DashboardStats, ImportPreview, ImportResult,
+  Invoice, Item, ItemImage, ItemUnit, InvoiceSummary, Movement, OrgUser, Paginated, Party,
+  PostProblem, RestoreResult, Settings, StockCount,
 } from '@/lib/types';
 
 /** Central query-key registry — keeps invalidation honest. */
@@ -24,6 +26,8 @@ export const keys = {
   invoiceValidation: (id: string) => ['invoice-validate', id] as const,
   stockCounts: (params?: unknown) => ['stock-counts', params] as const,
   stockCount: (id: string) => ['stock-count', id] as const,
+  users: ['users'] as const,
+  backup: ['backup'] as const,
 };
 
 export type PartyKind = 'customers' | 'suppliers';
@@ -46,13 +50,24 @@ export function useDebounced<T>(value: T, delay = 250) {
   return debounced;
 }
 
+/** Native "install app" prompt — a real desktop/home-screen icon, not a file download. */
+export function useInstallPrompt() {
+  const canInstall = useSyncExternalStore(subscribeInstallPrompt, getCanInstall, () => false);
+  return { canInstall, promptInstall };
+}
+
 /* ---------------------------------------------------------------- generic */
 type ListParams = Record<string, string | number | boolean | undefined>;
 const listOptions = { placeholderData: keepPreviousData } as const;
 
 /* ------------------------------------------------------------- dashboard */
-export const useDashboard = () =>
-  useQuery({ queryKey: keys.dashboard, queryFn: () => api.get<DashboardStats>('/dashboard') });
+/**
+ * `enabled` exists because a clerk is refused `/dashboard` outright. The status
+ * bar and both navs read these stats, so without the gate every screen that
+ * role opens fired a request that came back 403 and logged a console error.
+ */
+export const useDashboard = (enabled = true) =>
+  useQuery({ queryKey: keys.dashboard, queryFn: () => api.get<DashboardStats>('/dashboard'), enabled });
 
 export const useSettings = (options?: Partial<UseQueryOptions<Settings>>) =>
   useQuery({ queryKey: keys.settings, queryFn: () => api.get<Settings>('/settings'), ...options });
@@ -67,6 +82,100 @@ export function useUpdateSettings() {
       qc.invalidateQueries({ queryKey: keys.dashboard });
     },
   });
+}
+
+/* ------------------------------------------------------------------ users */
+type UserList = { data: OrgUser[]; can_create: boolean };
+
+/** Manager-only; the endpoint 403s for anyone else, so the caller gates the query. */
+export const useUsers = (enabled = true) =>
+  useQuery({
+    queryKey: keys.users,
+    queryFn: () => api.get<UserList>('/users'),
+    enabled,
+  });
+
+export function useUserMutations() {
+  const qc = useQueryClient();
+  const done = () => qc.invalidateQueries({ queryKey: keys.users });
+  return {
+    create: useMutation({
+      mutationFn: (body: { username: string; password: string; role: OrgUser['role'] }) =>
+        api.post<OrgUser>('/users', body),
+      onSuccess: done,
+    }),
+    update: useMutation({
+      mutationFn: ({ id, ...body }: {
+        id: string; role?: OrgUser['role']; password?: string; username?: string;
+      }) => api.patch<OrgUser>(`/users/${id}`, body),
+      onSuccess: done,
+    }),
+    remove: useMutation({
+      mutationFn: (id: string) => api.delete(`/users/${id}`),
+      onSuccess: done,
+    }),
+  };
+}
+
+/* ----------------------------------------------------------------- backup */
+/**
+ * Manager-only, like `useUsers` — the endpoint 403s for anyone else, so the
+ * caller gates the query rather than firing one that cannot succeed.
+ *
+ * `refetchInterval` is deliberately absent: a set list changes when someone on
+ * this screen changes it, or once a night. Polling would spend a request a
+ * minute to notice the latter a little sooner.
+ */
+export const useBackup = (enabled = true) =>
+  useQuery({ queryKey: keys.backup, queryFn: () => api.get<BackupStatus>('/backup'), enabled });
+
+/**
+ * One level of the server's folder tree, for the copy-destination picker.
+ *
+ * `path: null` asks for the drive list. Not cached beyond the session default
+ * and never retried: a folder that is missing or unreachable should say so at
+ * once rather than after three attempts, and the message is the useful part.
+ */
+export const useBrowse = (path: string | null, enabled = true) =>
+  useQuery({
+    queryKey: ['backup-browse', path],
+    queryFn: () => api.get<BrowseResult>('/backup/browse', path ? { path } : undefined),
+    enabled,
+    retry: false,
+    staleTime: 0,
+  });
+
+export function useBackupMutations() {
+  const qc = useQueryClient();
+  const done = () => qc.invalidateQueries({ queryKey: keys.backup });
+
+  return {
+    create: useMutation({ mutationFn: () => api.post<BackupSet>('/backup'), onSuccess: done }),
+    import: useMutation({
+      mutationFn: (file: File) => api.upload<BackupSet>('/backup/import', file),
+      onSuccess: done,
+    }),
+    remove: useMutation({
+      mutationFn: (name: string) => api.delete(`/backup/${encodeURIComponent(name)}`),
+      onSuccess: done,
+    }),
+    saveConfig: useMutation({
+      mutationFn: (patch: Partial<BackupConfig>) =>
+        api.patch<{ config: BackupConfig }>('/backup/config', patch),
+      onSuccess: done,
+    }),
+    restore: useMutation({
+      mutationFn: (name: string) =>
+        api.post<RestoreResult>(`/backup/${encodeURIComponent(name)}/restore`, { confirm: true }),
+      /*
+       * Everything cached describes a database that no longer exists — the
+       * restore replaced it. Clearing rather than invalidating is the point:
+       * invalidation would keep serving the old rows until each refetch lands,
+       * which is precisely the window in which someone acts on stale stock.
+       */
+      onSuccess: () => qc.clear(),
+    }),
+  };
 }
 
 /* ------------------------------------------------------------- categories */
@@ -163,12 +272,21 @@ export function useItemMutations() {
       mutationFn: ({ id, sid }: { id: string; sid: string }) => api.delete(`/items/${id}/subbarcodes/${sid}`),
       onSuccess: done,
     }),
-    /** Quick IN/OUT from the stock-movement modal. */
-    move: useMutation({
-      mutationFn: ({ id, ...body }: { id: string; type: 'IN' | 'OUT'; quantity: number; note?: string }) =>
-        api.post<{ invoice: Invoice; item: Item }>(`/items/${id}/movements`, body),
+    addUnit: useMutation({
+      mutationFn: ({ id, ...body }: { id: string } & Partial<ItemUnit>) =>
+        api.post<ItemUnit>(`/items/${id}/units`, body),
       onSuccess: done,
     }),
+    updateUnit: useMutation({
+      mutationFn: ({ id, uid, ...body }: { id: string; uid: string } & Partial<ItemUnit>) =>
+        api.patch<ItemUnit>(`/items/${id}/units/${uid}`, body),
+      onSuccess: done,
+    }),
+    removeUnit: useMutation({
+      mutationFn: ({ id, uid }: { id: string; uid: string }) => api.delete(`/items/${id}/units/${uid}`),
+      onSuccess: done,
+    }),
+    /** Quick IN/OUT from the stock-movement modal. */
   };
 }
 
@@ -212,8 +330,13 @@ export function useDuplicateName(kind: PartyKind, name: string, excludeId?: stri
 }
 
 /* --------------------------------------------------------------- invoices */
+/** The list response carries a `summary` block alongside the usual envelope. */
 export const useInvoices = (params: ListParams) =>
-  useQuery({ queryKey: keys.invoices(params), queryFn: () => api.get<Paginated<Invoice>>('/invoices', params), ...listOptions });
+  useQuery({
+    queryKey: keys.invoices(params),
+    queryFn: () => api.get<Paginated<Invoice> & { summary: InvoiceSummary }>('/invoices', params),
+    ...listOptions,
+  });
 
 export const useInvoice = (id: string | undefined) =>
   useQuery({ queryKey: keys.invoice(id!), queryFn: () => api.get<Invoice>(`/invoices/${id}`), enabled: !!id });
@@ -245,12 +368,12 @@ export function useInvoiceMutations(invoiceId?: string) {
       onSuccess: refresh,
     }),
     addLine: useMutation({
-      mutationFn: ({ id, ...body }: { id: string; barcode?: string; item_id?: string; quantity?: number; unit_price?: number }) =>
+      mutationFn: ({ id, ...body }: { id: string; barcode?: string; item_id?: string; unit_id?: string; quantity?: number; unit_price?: number }) =>
         api.post<{ invoice: Invoice; line_id: string; merged: boolean; item: Item }>(`/invoices/${id}/lines`, body),
       onSuccess: (result) => refresh(result.invoice),
     }),
     updateLine: useMutation({
-      mutationFn: ({ id, lineId, ...body }: { id: string; lineId: string; quantity?: number; unit_price?: number; update_item_price?: boolean }) =>
+      mutationFn: ({ id, lineId, ...body }: { id: string; lineId: string; quantity?: number; unit_id?: string | null; unit_price?: number; update_item_price?: boolean }) =>
         api.patch<Invoice>(`/invoices/${id}/lines/${lineId}`, body),
       onSuccess: refresh,
     }),

@@ -13,7 +13,11 @@ import invoicesRoutes from './routes/invoices.routes.js';
 import stockCountsRoutes from './routes/stockCounts.routes.js';
 import importRoutes from './routes/importItems.routes.js';
 import metaRoutes from './routes/meta.routes.js';
+import authRoutes from './routes/auth.routes.js';
+import usersRoutes from './routes/users.routes.js';
+import backupRoutes from './routes/backup.routes.js';
 import { partiesRouter } from './routes/parties.routes.js';
+import { redactMoney, stripMoneyFromBody, requireManager } from './lib/roles.js';
 
 /**
  * Allowed browser origins. A hosted API must not answer `*`: the frontend is a
@@ -93,12 +97,44 @@ export function createApp() {
 
   const api = express.Router();
 
-  // Everything below this line requires a verified token and runs inside its
-  // organisation's database context.
-  api.use(authenticate, orgContext);
+  // Register/login have to work before there is a token to check, so this is
+  // mounted ahead of the `authenticate` gate below. It guards itself: every
+  // handler 503s unless AUTH_MODE=local (see auth.routes.js).
+  api.use('/auth', authRoutes);
 
+  // Everything below this line requires a verified token.
+  api.use(authenticate);
+
+  /*
+   * Backup and restore sit between the two halves of the auth chain on
+   * purpose. `orgContext` opens one transaction on the inventory database and
+   * holds it open for the whole request — and a restore evicts every session
+   * on that database, which would include the one serving the request. So
+   * these handlers get `req.auth` (hence `requireManager`) but no ambient
+   * transaction; they reach SQL Server through their own `master`-bound pool.
+   * See lib/backup.js.
+   */
+  api.use('/backup', requireManager, backupRoutes);
+
+  // Everything below this line additionally runs inside its organisation's
+  // database context.
+  api.use(orgContext);
+
+  /*
+   * Role filters, mounted here rather than per-route on purpose: everything
+   * below is covered, including routes added later. `redactMoney` strips prices
+   * from responses for a role that may not see them; `stripMoneyFromBody` drops
+   * them from requests, so the same role cannot set what it cannot read. See
+   * lib/roles.js for why this is a filter and not a second column list.
+   */
+  api.use(redactMoney, stripMoneyFromBody);
+
+  api.use('/users', usersRoutes);
+
+  // Bulk import both reads and writes prices — its Excel template has the two
+  // price columns in it — so it belongs to the role that is allowed to see them.
   // Mounted before `/items` so `/items/import/*` is not captured by `/items/:id`.
-  api.use('/items/import', importRoutes);
+  api.use('/items/import', requireManager, importRoutes);
   api.use('/items', itemsRoutes);
   api.use('/categories', categoriesRoutes);
   api.use('/customers', partiesRouter('customers'));

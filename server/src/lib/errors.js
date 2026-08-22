@@ -23,46 +23,55 @@ export const unprocessable = (msg, code, details) => new AppError(422, msg, code
 export const unavailable = (msg, code, details) => new AppError(503, msg, code, details);
 
 /**
- * Translate raw Postgres failures into meaningful API errors.
+ * Translate raw SQL Server failures into meaningful API errors.
  *
- * Note the difference from the SQLite build: SQLite named the offending
- * `table.column` in the message, Postgres names the *constraint* and puts the
- * SQLSTATE in `err.code` — so the patterns below match index names, which is
- * why migrations/001_core.sql keeps the original `ux_…` names.
+ * mssql/Tedious gives no `.constraint` field the way `pg` did — the numeric
+ * SQL Server error number lands in `err.number` (not `err.code`, which is
+ * always the generic `'EREQUEST'`), and the offending index/constraint name
+ * has to be parsed out of `err.message` instead. 2601 is a duplicate key in a
+ * unique *index* (what this schema mostly uses, via `CREATE UNIQUE INDEX`);
+ * 2627 is the equivalent for a named `UNIQUE`/`PRIMARY KEY` *constraint*. 547
+ * covers both FOREIGN KEY and CHECK violations, disambiguated by the
+ * constraint-type phrase SQL Server puts in the message text. The custom
+ * BARCODE_TAKEN/LEDGER_IMMUTABLE messages are `THROW`n from triggers as plain
+ * text, so matching on `message` for those keeps working unchanged.
  */
 export function mapDbError(err) {
   if (err instanceof AppError) return err;
 
   const message = String(err?.message || '');
-  const constraint = err?.constraint || '';
-  const sqlstate = err?.code || '';
+  const number = err?.number;
 
-  // Raised by trg_barcode_unique(), or hit directly on the per-org unique index.
+  // Raised by the barcode-uniqueness triggers (cross-table), or hit directly
+  // on one of the three tables' own unique index (same-table duplicate).
   if (message.includes('BARCODE_TAKEN')
-    || constraint === 'ux_items_barcode' || constraint === 'ux_sub_barcodes_barcode') {
+    || (number === 2601 && /ux_(items|sub_barcodes|item_units)_barcode/.test(message))) {
     return conflict('هذا الباركود مستخدم بالفعل لصنف آخر', 'BARCODE_TAKEN');
-  }
-  if (constraint === 'ux_categories_name') {
-    return conflict('يوجد تصنيف بنفس الاسم', 'CATEGORY_NAME_TAKEN');
   }
   if (message.includes('LEDGER_IMMUTABLE')) {
     return unprocessable('سجل الحركات غير قابل للتعديل أو الحذف', 'LEDGER_IMMUTABLE');
   }
-  if (sqlstate === '23503') { // foreign_key_violation
-    return conflict('لا يمكن إتمام العملية بسبب ارتباط السجل بسجلات أخرى', 'FK_CONSTRAINT');
+  if (number === 2601 && /ux_categories_name/.test(message)) {
+    return conflict('يوجد تصنيف بنفس الاسم', 'CATEGORY_NAME_TAKEN');
   }
-  if (sqlstate === '23505') { // unique_violation
+  if (number === 547) {
+    if (/FOREIGN KEY constraint/i.test(message)) {
+      return conflict('لا يمكن إتمام العملية بسبب ارتباط السجل بسجلات أخرى', 'FK_CONSTRAINT');
+    }
+    // A CHECK violation reaching here means application-level validation
+    // missed something — a bug on our side, not a user error — so it is
+    // deliberately left to surface as a 500 with the original message logged.
+  }
+  if (number === 2601 || number === 2627) {
     return conflict('القيمة مستخدمة بالفعل', 'DUPLICATE_VALUE');
   }
-  // RLS rejecting a write is a tenancy bug on our side, not a user error, so it
-  // is deliberately left to surface as a 500 with the original message logged.
   return err;
 }
 
 /**
  * Run a database write, converting constraint failures into domain errors at
  * the service boundary so no caller — HTTP, importer or seed — ever sees a
- * raw Postgres error.
+ * raw SQL Server error.
  */
 export async function guard(fn) {
   try {

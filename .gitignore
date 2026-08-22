@@ -1,6 +1,8 @@
 node_modules/
 dist/
 build/
+secrets/
+backups/
 
 # The retired Electron shell and its installers (~470 MB). Kept on disk only
 # because this working copy had no version control when it was retired — see
@@ -8,7 +10,10 @@ build/
 # GitHub's 100 MB per-file limit.
 legacy-desktop/
 
-# Local uploads and scratch data (product photos live in Supabase Storage when hosted)
+# Local uploads and scratch data. Product photos are business data, not source:
+# they live on the server's disk and inside the SQL backups. `data/` is where the
+# self-hosted deployment writes them; `server/data/` was the path before that.
+data/
 server/data/
 server/.tmp/
 
@@ -34,3 +39,10 @@ Thumbs.db
 # Vendored agent skills (installed via `npx skills add`) — regenerate, do not edit
 .agents/
 .claude/skills/
+
+# Deploy rollback copies of client/dist. Ignored so the Tailwind scanner
+# does not read stale bundles and resurrect dead utility classes from them.
+dist.backup-*/
+
+# Ad-hoc data backups (draft invoices, exports) — never commit business data
+backups/

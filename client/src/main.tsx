@@ -22,6 +22,22 @@ const queryClient = new QueryClient({
   },
 });
 
+/**
+ * A tab left open across a deploy is still holding chunk hashes that this
+ * build no longer serves (`npm run build` wipes `dist` and renames
+ * everything) — the next lazy-loaded route then fails with "Failed to fetch
+ * dynamically imported module". Vite fires this event for exactly that case;
+ * one reload fetches the current build. Guarded against looping if the
+ * network itself is down, and cleared again a few seconds after a clean
+ * start so a *later* deploy's preload error can still trigger a reload.
+ */
+window.addEventListener('vite:preloadError', () => {
+  if (sessionStorage.getItem('reloaded-after-preload-error')) return;
+  sessionStorage.setItem('reloaded-after-preload-error', '1');
+  window.location.reload();
+});
+setTimeout(() => sessionStorage.removeItem('reloaded-after-preload-error'), 10_000);
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>

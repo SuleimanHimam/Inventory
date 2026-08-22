@@ -128,7 +128,7 @@ export default function Categories() {
                         <Pencil className="size-3.5" />
                       </Button>
                       <Button
-                        size="icon" variant="ghost" className="size-8 hover:text-rose-500" title="حذف"
+                        size="icon" variant="ghost" className="size-8 hover:text-accent-600 dark:hover:text-accent-400" title="حذف"
                         onClick={() => setDeleteTarget(category)}
                       >
                         <Trash2 className="size-3.5" />

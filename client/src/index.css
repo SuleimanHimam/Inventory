@@ -3,33 +3,70 @@
 /* Dark mode is driven by a class on <html>, toggled by the theme switch. */
 @custom-variant dark (&:where(.dark, .dark *));
 
-/* ---------------------------------------------------------------- tokens */
+/*
+ * ---------------------------------------------------------------- tokens
+ *
+ * White, all the way through. Every light-mode surface is a step on one
+ * neutral ramp — page, cards, table headers, inputs, chips. The page is a
+ * light white and cards are pure white, so a card still separates from the
+ * ground by a shadow and a step of luminance rather than by being a
+ * different material.
+ *
+ * This replaced a warm cream ramp. The structure of that ramp is kept
+ * deliberately: the five surface steps still exist and still differ by about
+ * the same luminance intervals, because tables, chips and inset panels all
+ * depend on being able to sit one step off their parent. Only the hue and
+ * the top of the range moved. Anything reintroducing cream here will show up
+ * as a warm patch against neutral neighbours, so change the whole ramp or
+ * none of it.
+ *
+ * Every colour here was contrast-checked against the surface it actually
+ * sits on. The rule that falls out, and that must survive any edit: text
+ * uses the 700 step of a palette, not the 500/600 mid-tones. That rule was
+ * set on the darker cream ground and is now conservative rather than tight —
+ * lightening the ground raised the contrast of everything sitting on it, so
+ * no existing text step regressed in this change. Dark mode is untouched and
+ * still inverts it: the 300/400 steps all clear 6:1 there.
+ *
+ * Anything added later has to clear 4.5:1 against the surface it lands on,
+ * and the one to check is `--surface-3` (the darkest fill that carries
+ * text), not the page.
+ */
 :root {
-  --page: #f4f6fb;
+  /* Light white ground, pure white cards. The gap between these two is what
+     gives a card its edge on a page with no border. */
+  --page: #f4f5f7;
   --surface: #ffffff;
-  --surface-2: #f8fafc;
-  --surface-3: #eef2f9;
-  --border: #e4e8f0;
-  --border-strong: #cbd5e1;
-  --text: #0f172a;
-  --text-muted: #64748b;
-  --text-subtle: #94a3b8;
-  --ring: #6366f1;
-  --shadow-color: 220 40% 40%;
+  --surface-2: #f0f2f4;
+  --surface-3: #e6e9ec;
+  --border: #e2e5e9;
+  --border-strong: #c4c9cf;
+  --text: #16181c;
+  /* Muted is body-level secondary text and has to hold AA on `--surface-3`
+     too (badges, kbd chips, the mobile-nav neutral tone), which is what sets
+     its value: 5.2:1 there, 6.3:1 on white. Subtle is the floor of the two
+     and lands at exactly 4.5:1 on `--surface-3` — it has no room left, so
+     lighten it only alongside `--surface-3` itself. */
+  --text-muted: #5a6068;
+  --text-subtle: #63696f;
+  --ring: #0d9488;
+  /* Neutral, very slightly cool — a warm brown-black shadow reads as a cream
+     stain against white surfaces. */
+  --shadow-color: 220 12% 10%;
 }
 
 .dark {
-  --page: #080c18;
-  --surface: #111828;
-  --surface-2: #161e30;
-  --surface-3: #1d2740;
-  --border: #263149;
-  --border-strong: #35415e;
-  --text: #e9edf7;
-  --text-muted: #97a3b8;
-  --text-subtle: #6b7a92;
-  --ring: #818cf8;
-  --shadow-color: 225 60% 3%;
+  --page: #121815;
+  --surface: #17201c;
+  --surface-2: #1d2723;
+  --surface-3: #26322c;
+  --border: #2e3a34;
+  --border-strong: #445048;
+  --text: #ece9e4;
+  --text-muted: #a8a29e;
+  --text-subtle: #857f79;
+  --ring: #2dd4bf;
+  --shadow-color: 150 30% 3%;
 }
 
 @theme inline {
@@ -47,39 +84,174 @@
 }
 
 @theme {
-  /* Brand — indigo/violet, confident but calm for long working sessions. */
-  --color-brand-50: #eef2ff;
-  --color-brand-100: #e0e7ff;
-  --color-brand-200: #c7d2fe;
-  --color-brand-300: #a5b4fc;
-  --color-brand-400: #818cf8;
-  --color-brand-500: #6366f1;
-  --color-brand-600: #4f46e5;
-  --color-brand-700: #4338ca;
-  --color-brand-800: #3730a3;
-  --color-brand-900: #312e81;
+  /*
+   * Brand — teal. #0D9488 is the identity colour and is used wherever nothing
+   * sits *on* it: icon tiles, tints, borders, chart strokes.
+   *
+   * It is NOT the button/link step. White text on #0D9488 measures 3.74:1 and
+   * it reads well under AA as text on the cream page. So `600` carries both
+   * jobs instead, and hover goes one step darker from there. Same palette,
+   * one step shifted, so the contrast requirement and the colour both
+   * survive.
+   *
+   * 600 was the spec's #0F766E until the cream ramp came down; that now
+   * lands at 4.32:1 as text on `--surface-2`, so it went one hair darker.
+   * It clears 6.35:1 carrying white and 4.75:1 as text on the darkest
+   * surface it is used on.
+   */
+  --color-brand-50: #f0fdfa;
+  --color-brand-100: #ccfbf1;
+  --color-brand-200: #99f6e4;
+  --color-brand-300: #5eead4;
+  --color-brand-400: #2dd4bf;
+  --color-brand-500: #0d9488;
+  --color-brand-600: #0e6b64;
+  --color-brand-700: #115e59;
+  --color-brand-800: #134e4a;
+  --color-brand-900: #0f3f3c;
+
+  /*
+   * Accent — red. The CTA colour.
+   *
+   * This was amber, and the swap was made deliberately with its consequence
+   * understood: red is now BOTH the main call-to-action and the destructive
+   * colour, so a save button and a delete button no longer differ by hue.
+   * Anything that guards against mis-taps here has to come from wording,
+   * placement and confirmation dialogs instead — see ConfirmDialog, which
+   * every destructive action already routes through.
+   *
+   * 600 is the step that carries white text and is also used *as* text in
+   * ~50 places, so it has to clear AA in both directions at once. On the
+   * cream ramp it does: 5.55:1 carrying white, 4.63:1 as text on `--page`.
+   * (Tailwind's own #dc2626 manages only 4.29:1 as text there — hence the
+   * darker value; 400 is the dark-mode counterpart.)
+   */
+  --color-accent-50: #fef2f2;
+  --color-accent-100: #fee2e2;
+  --color-accent-200: #fecaca;
+  --color-accent-300: #fca5a5;
+  --color-accent-400: #f87171;
+  --color-accent-500: #ef4444;
+  --color-accent-600: #cc1f1f;
+  --color-accent-700: #b91c1c;
+  --color-accent-800: #991b1b;
+  --color-accent-900: #7f1d1d;
+  --color-accent-950: #450a0a;
+
+  /*
+   * Stock status. Each has a *fill* step (badge tint, dot, bar) and a *text*
+   * step — the fill hues are the spec's exact values; the text steps are the
+   * nearest darker sibling that clears AA on cream, since the spec's own
+   * greens/rose land at 3.08 and 4.39.
+   *
+   * Never used alone: every status pairs the colour with an icon and a word
+   * (see `StockStatus` in components/domain.tsx), so it survives being read
+   * by someone colour-blind, or printed, or glanced at in bad warehouse
+   * light.
+   */
+  --color-stock-in: #16a34a;
+  /* #15803d cleared AA on the old near-white ground but not on this one —
+     darkened the minimum amount that clears it again. */
+  --color-stock-in-text: #177038;
+  /* Low stock is red rather than amber now. It therefore shares a hue with
+     out-of-stock, so the icon and the word are what separate the two states
+     — which is exactly why QuantityCell never renders colour on its own. */
+  --color-stock-low: #ef4444;
+  --color-stock-low-text: #cc1f1f;
+  --color-stock-out: #dc2626;
+  --color-stock-out-text: #cc1f1f;
+  --color-stock-expired: #e11d48;
+  --color-stock-expired-text: #be123c;
+  --color-stock-pending: #2563eb;
+  --color-stock-pending-text: #1d4ed8;
 
   --animate-fade-in: fade-in 0.18s ease-out;
   --animate-rise: rise 0.22s cubic-bezier(0.16, 1, 0.3, 1);
   --animate-toast-in: toast-in 0.26s cubic-bezier(0.16, 1, 0.3, 1);
   --animate-flash: flash 0.7s ease-out;
   --animate-shimmer: shimmer 1.4s ease-in-out infinite;
+  /* Screen entrance: soft slide + fade, on the ease-out curve so it settles
+     rather than stopping dead. */
+  --animate-page-in: page-in 0.3s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+  --animate-pop-in: pop-in 0.34s cubic-bezier(0.34, 1.4, 0.64, 1) backwards;
+  --animate-check: check-draw 0.45s cubic-bezier(0.65, 0, 0.35, 1) forwards;
+
+  /* Decelerating, no overshoot — motion arrives and stops. A spring curve
+     would read as playful; this is a ledger. Shared by the field labels. */
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
 @keyframes fade-in { from { opacity: 0 } to { opacity: 1 } }
 @keyframes rise { from { opacity: 0; transform: translateY(8px) scale(0.985) } to { opacity: 1; transform: none } }
 @keyframes toast-in { from { opacity: 0; transform: translateX(-24px) } to { opacity: 1; transform: none } }
 @keyframes flash {
-  0%   { background-color: color-mix(in oklab, var(--color-emerald-400) 45%, transparent) }
+  0%   { background-color: color-mix(in oklab, var(--color-stock-in) 40%, transparent) }
   100% { background-color: transparent }
 }
 @keyframes shimmer { 0%, 100% { opacity: 0.45 } 50% { opacity: 0.8 } }
+@keyframes page-in { from { opacity: 0; transform: translateY(10px) } to { opacity: 1; transform: none } }
+@keyframes pop-in { from { opacity: 0; transform: translateY(12px) scale(0.97) } to { opacity: 1; transform: none } }
+@keyframes check-draw { from { stroke-dashoffset: 24 } to { stroke-dashoffset: 0 } }
+@keyframes success-pulse {
+  0%   { box-shadow: 0 0 0 0 color-mix(in oklab, var(--color-stock-in) 55%, transparent) }
+  100% { box-shadow: 0 0 0 14px transparent }
+}
+
+/*
+ * Staggered reveal. Direct children of `.stagger` fade up in sequence at the
+ * 50ms cadence the design calls for.
+ *
+ * The depth is capped at 12 rather than run open-ended: these lists are stock
+ * tables that can be hundreds of rows long, and an un-capped stagger would
+ * leave the last row arriving several seconds after the first. Past the cap
+ * everything shares the final delay, so a long list still feels animated at
+ * the top without the tail dragging.
+ */
+.stagger > * { animation: var(--animate-pop-in); }
+.stagger > :nth-child(1)  { animation-delay: 0.00s }
+.stagger > :nth-child(2)  { animation-delay: 0.05s }
+.stagger > :nth-child(3)  { animation-delay: 0.10s }
+.stagger > :nth-child(4)  { animation-delay: 0.15s }
+.stagger > :nth-child(5)  { animation-delay: 0.20s }
+.stagger > :nth-child(6)  { animation-delay: 0.25s }
+.stagger > :nth-child(7)  { animation-delay: 0.30s }
+.stagger > :nth-child(8)  { animation-delay: 0.35s }
+.stagger > :nth-child(9)  { animation-delay: 0.40s }
+.stagger > :nth-child(10) { animation-delay: 0.45s }
+.stagger > :nth-child(11) { animation-delay: 0.50s }
+.stagger > :nth-child(n+12) { animation-delay: 0.55s }
+
+/* Whole-screen entrance, applied once per route by the page shell. */
+.page-enter { animation: var(--animate-page-in); }
+
+/* A saved/posted confirmation: one calm green pulse. Deliberately not
+   confetti — this fires on every save, and in a warehouse that is hundreds
+   of times a day; a celebration that repeats that often becomes noise. */
+.success-pulse { animation: success-pulse 0.6s ease-out; }
+
+/*
+ * Motion here is decoration, never information — so when the OS asks for
+ * reduced motion, all of it collapses to near-instant rather than being
+ * merely shortened. Transitions are kept alive at 0.01ms rather than set to
+ * `none` so that JS transition-end listeners still fire.
+ */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
 
 /* ------------------------------------------------------------------ base */
 @layer base {
   * { border-color: var(--border); }
 
-  html { color-scheme: light; }
+  html {
+    color-scheme: light;
+    scroll-behavior: smooth;
+  }
   html.dark { color-scheme: dark; }
 
   body {
@@ -89,6 +261,20 @@
     font-feature-settings: 'ss01';
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
+  }
+
+  /*
+   * Phones read this UI at arm's length, not head-down at a desk — every size
+   * in the app is a Tailwind rem utility, so scaling the root bumps text
+   * (and, as a side effect, rem-based padding/tap targets) together in one
+   * place instead of touching every component.
+   */
+  @media (max-width: 639.98px) {
+    html { font-size: 18px; }
+    body { font-weight: 600; }
+    /* Raise the floor on lighter text without flattening the app's own bold
+       (numbers, headers) down to the same weight as everything else. */
+    .font-normal, .font-medium { font-weight: 600 !important; }
   }
 
   /* Tabular figures keep numeric columns aligned in RTL tables. */
@@ -120,13 +306,90 @@
 
 /* ------------------------------------------------------------ components */
 @layer components {
+  /*
+   * White card on a cream page: the depth comes from the surface/page
+   * contrast plus a soft, colour-tinted shadow (green-grey rather than
+   * neutral black, so it reads as warm light rather than dirt), and a
+   * hairline top highlight. 1rem/16px sits mid-range of the 12–20px the
+   * design calls for — enough to feel soft, not so much that dense tables
+   * start looking like pill buttons.
+   */
+  /*
+   * Thick, warm shadows are the signature of this system: a white card should
+   * read as a paper card physically lifted off the cream desk, not as a
+   * rectangle with a hairline.
+   *
+   * The tint is brown-black (28,25,23) rather than the usual blue-black —
+   * against a warm cream ground a cool shadow reads as grey dirt, while a
+   * warm one reads as light.
+   */
   .card {
     background-color: var(--surface);
     border: 1px solid var(--border);
     border-radius: 1rem;
-    box-shadow: 0 1px 2px hsl(var(--shadow-color) / 0.06),
-                0 8px 24px -12px hsl(var(--shadow-color) / 0.14);
+    box-shadow: 0 8px 24px rgb(28 25 23 / 0.12),
+                0 2px 8px rgb(28 25 23 / 0.08);
   }
+  /* Dark mode has no cream ground for a shadow to fall on, so depth comes
+     from a lighter surface plus a top highlight; keeping the light theme's
+     heavy drop here would just muddy the panel. */
+  .dark .card {
+    box-shadow: 0 8px 24px rgb(0 0 0 / 0.45),
+                0 2px 8px rgb(0 0 0 / 0.3),
+                inset 0 1px 0 rgb(255 255 255 / 0.05);
+  }
+
+  /* Modals and popovers sit a full level higher than a card. */
+  .elevated {
+    box-shadow: 0 16px 40px rgb(28 25 23 / 0.18),
+                0 4px 12px rgb(28 25 23 / 0.10);
+  }
+  .dark .elevated {
+    box-shadow: 0 16px 40px rgb(0 0 0 / 0.6),
+                0 4px 12px rgb(0 0 0 / 0.4),
+                inset 0 1px 0 rgb(255 255 255 / 0.05);
+  }
+
+  /*
+   * Coloured button shadows — teal light spilling out from under a teal
+   * button — which is what makes them read as lifted rather than painted on.
+   *
+   * Defined here rather than as Tailwind arbitrary values (`shadow-[0_4px…]`):
+   * the commas inside `rgba()` make the arbitrary-value parser drop the
+   * declaration silently, so those classes compiled to nothing at all. This
+   * layer emits exactly what is written.
+   */
+  .shadow-btn-primary { box-shadow: 0 4px 12px rgb(13 148 136 / 0.25); }
+  .shadow-btn-primary:hover:not(:disabled) { box-shadow: 0 6px 16px rgb(13 148 136 / 0.32); }
+  .shadow-btn-accent { box-shadow: 0 4px 12px rgb(204 31 31 / 0.25); }
+  .shadow-btn-accent:hover:not(:disabled) { box-shadow: 0 6px 16px rgb(204 31 31 / 0.32); }
+  .shadow-btn-danger { box-shadow: 0 4px 12px rgb(204 31 31 / 0.25); }
+  .shadow-btn-danger:hover:not(:disabled) { box-shadow: 0 6px 16px rgb(204 31 31 / 0.32); }
+  .shadow-btn-success { box-shadow: 0 4px 12px rgb(22 163 74 / 0.25); }
+  .shadow-btn-success:hover:not(:disabled) { box-shadow: 0 6px 16px rgb(22 163 74 / 0.32); }
+  .shadow-btn-neutral { box-shadow: 0 2px 6px rgb(28 25 23 / 0.06); }
+  .shadow-btn-neutral:hover:not(:disabled) { box-shadow: 0 4px 10px rgb(28 25 23 / 0.10); }
+  .shadow-btn-primary:disabled,
+  .shadow-btn-accent:disabled,
+  .shadow-btn-danger:disabled,
+  .shadow-btn-success:disabled { box-shadow: none; }
+
+  /* An interactive card lifts toward the pointer and presses back in on tap,
+     so nothing interactive ever feels dead. */
+  .card-interactive {
+    transition: transform 0.2s ease-out, box-shadow 0.2s ease-out;
+  }
+  .card-interactive:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 16px 40px rgb(28 25 23 / 0.18),
+                0 4px 12px rgb(28 25 23 / 0.10);
+  }
+  .dark .card-interactive:hover {
+    box-shadow: 0 16px 40px rgb(0 0 0 / 0.6),
+                0 4px 12px rgb(0 0 0 / 0.4),
+                inset 0 1px 0 rgb(255 255 255 / 0.05);
+  }
+  .card-interactive:active { transform: translateY(0) scale(0.99); }
 
   .field {
     width: 100%;
@@ -136,6 +399,7 @@
     padding: 0.5rem 0.75rem;
     font-size: 0.875rem;
     color: var(--text);
+    text-overflow: ellipsis;
     transition: border-color 0.15s, box-shadow 0.15s, background-color 0.15s;
   }
   .field::placeholder { color: var(--text-subtle); }
@@ -149,6 +413,232 @@
   .field[aria-invalid='true'] {
     border-color: var(--color-rose-500);
     box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-rose-500) 18%, transparent);
+  }
+
+  /* ---------------------------------------------- floating field labels */
+  /*
+   * Every labelled control in the app puts its label *inside* the control,
+   * rising out of the way on focus or once there is a value. Driven entirely
+   * from `Field` (see components/ui), so all call sites get it without change.
+   *
+   * Direction: the app runs dir="rtl". Offsets here are logical so they mirror
+   * for free. The one hole is `transform-origin`, which has no logical form —
+   * patched with :dir() below.
+   */
+  .fld__box {
+    position: relative;
+    display: block;
+  }
+
+  /* Taller block padding reserves the lane the label rises into. Reserved
+     statically, so the rise never displaces the value — that is what keeps
+     the motion layout-free. Scoped to .fld__box on purpose: `.field` is also
+     worn by SearchInput and the pickers, which have no label to make room for
+     and must keep their compact height. */
+  .fld__box .field {
+    padding-block: 1.3rem 0.4rem;
+    line-height: 1.25rem;
+  }
+
+  /* The placeholder is hidden until focus, so it never collides with the
+     resting label. It still has to *exist* — :placeholder-shown is the
+     "is empty" test, and an input with no placeholder attribute never
+     matches it, which would strand the label raised over an empty field.
+     Input/Textarea therefore default it to a single space. */
+  .fld__box .field::placeholder {
+    color: transparent;
+    transition: color 150ms var(--ease-out);
+  }
+  .fld__box .field:focus::placeholder { color: var(--text-subtle); }
+
+  .fld__text {
+    position: absolute;
+    inset-inline-start: 0.75rem;
+    inset-block-start: 1.3rem; /* aligned with the control's own first line */
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+    color: var(--text-subtle);
+    pointer-events: none;
+    white-space: nowrap;
+
+    /* The only physical value here, and unavoidable: transform-origin has no
+       logical keyword set. At the default (50%) the label would shrink toward
+       its own centre and drift off the field's leading edge; it has to anchor
+       to the edge the text starts at. :dir() flips it with no hardcoded
+       assumption about the active language. */
+    --fld-origin: 0%;
+    transform-origin: var(--fld-origin) 50%;
+
+    /* transform + colour only. Animating font-size or inset-block-start would
+       reflow the line box every frame and drag the value's text with it. */
+    transition:
+      transform 180ms var(--ease-out),
+      color 180ms var(--ease-out);
+  }
+
+  :dir(rtl) .fld__text { --fld-origin: 100%; }
+
+  /*
+   * Raised state. :focus-within is listed first and matters most: once the
+   * control has focus the label is up and stays up for the whole editing
+   * session, so no keystroke can change what this selector matches —
+   * including the one that empties the field again. Keying only off
+   * :placeholder-shown is the classic bug, where the label drops and re-rises
+   * every time the value passes through empty, i.e. it animates while
+   * someone is backspacing. Nothing here moves while typing.
+   */
+  .fld__box:focus-within .fld__text,
+  .fld__box:has(.field:not(:placeholder-shown)) .fld__text,
+  /* Controls that never look empty, so the label can never rest over them:
+     a select always shows an option, and date/time/file inputs always render
+     their own format text. */
+  .fld__box:has(select.field) .fld__text,
+  .fld__box:has(.field[type='date']) .fld__text,
+  .fld__box:has(.field[type='time']) .fld__text,
+  .fld__box:has(.field[type='datetime-local']) .fld__text,
+  .fld__box:has(.field[type='file']) .fld__text {
+    /* 0.8 rather than smaller: at 0.875rem base this lands near 11px, the
+       floor at which Cairo's Arabic diacritics stay resolved. */
+    transform: translateY(-1.05rem) scale(0.8);
+  }
+
+  .fld__box:focus-within .fld__text { color: var(--ring); }
+  .fld__box:has(.field[aria-invalid='true']) .fld__text { color: var(--color-rose-500); }
+
+  /* A Field wrapping something that is not a control at all — the image
+     picker, a bare div — has nothing to float over, so its label sits above
+     in the old style rather than overlapping the content. The label element
+     is markup-ordered *after* its content (so the floating case can position
+     over it), hence the flex column + order to lift it back to the top. */
+  .fld:not(:has(.field)) .fld__box {
+    display: flex;
+    flex-direction: column;
+  }
+  .fld:not(:has(.field)) .fld__text {
+    position: static;
+    order: -1;
+    transform: none;
+    margin-block-end: 0.375rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--text-muted);
+  }
+
+  /*
+   * Items screen: cards or table, chosen by input device rather than by width
+   * alone.
+   *
+   * Width on its own gets tablets wrong in both directions. A 1280-wide tablet
+   * held in landscape is still a tablet — fingers, arm's length, no hover — and
+   * a width-only rule hands it the dense desktop table; drop the breakpoint to
+   * catch it and every small laptop loses the table too. `pointer: fine` asks
+   * the question that actually matters, and a touchscreen laptop with a mouse
+   * attached still reports fine, so it keeps the table as its owner expects.
+   *
+   * Tablets therefore get the card grid at every size, three to a row from the
+   * `sm` breakpoint up.
+   *
+   * Named for the question rather than for one screen: every list page that
+   * wants this treatment uses the same pair (items, users, and whatever comes
+   * next), instead of each growing its own copy of the media query.
+   */
+  /* `display` is set here rather than with Tailwind's `grid`/`hidden`
+     utilities: those live in a later layer and would win over the media query
+     below, leaving the cards and the table both on screen at once. */
+  .device-cards { display: grid; }
+  .device-table { display: none; }
+
+  @media (min-width: 1024px) and (pointer: fine) {
+    .device-cards { display: none; }
+    .device-table { display: table; }
+  }
+
+  /*
+   * List pane: its own scroll area, but only when the window is tall enough
+   * for that to be an improvement.
+   *
+   * A max-height derived from the viewport collapses in a short one. On a
+   * phone held in landscape it resolved to 148px against the pane's own 18rem
+   * floor, so the pane kept its height, `overflow: hidden` clipped it, and the
+   * list showed one sliver of a row with nothing scrollable — rotating the
+   * device effectively broke the screen. Below the height threshold the
+   * constraint is simply dropped and the page scrolls the way it does on a
+   * phone in portrait.
+   *
+   * dvh rather than vh: on mobile `vh` measures against the viewport with the
+   * browser chrome retracted, so it over-reports height at exactly the moment
+   * space is tightest.
+   */
+  .list-pane { min-height: 18rem; }
+
+  @media (min-width: 640px) and (min-height: 700px) {
+    .list-pane {
+      overflow: hidden;
+      max-height: calc(100dvh - 16.5rem);
+      /*
+       * `overflow: hidden` clips what the pane *paints*, but it does not stop
+       * the full height of the table inside it from counting towards the
+       * document's scrollable area. The pane looked right and the list scrolled
+       * correctly inside it, while the page itself grew a second scrollbar over
+       * a thousand pixels long — all of it blank, because everything that
+       * height belonged to was already clipped. Measured on the items screen at
+       * 1440x900: the page scrolled 1381px past the end of the content, at
+       * every window size, on every screen that uses this pane.
+       *
+       * `contain: paint` is the part `overflow: hidden` is missing: it promises
+       * that nothing inside affects layout outside, so the overflow stops
+       * propagating and the document ends where the pane does. `overflow: clip`
+       * was tried first and changes nothing here.
+       *
+       * It adds no new clipping — `overflow: hidden` above already clips the
+       * same box — and it is scoped to this media query, so the phone layout,
+       * where the page is *supposed* to scroll and a fixed-position button
+       * lives outside this pane, is untouched.
+       */
+      contain: paint;
+    }
+  }
+
+  /*
+   * Filter bar, pinned so it stays reachable while a long list scrolls.
+   *
+   * Which element is doing the scrolling changes with the window, and the
+   * offset has to follow. In a tall window the pane above owns the scrolling
+   * and the bar simply sits at its top. In a short one — any phone or tablet
+   * in landscape — the page scrolls instead, and a bare `top: 0` parks the bar
+   * underneath the sticky header, where it is both invisible and unclickable.
+   * `--topnav-h` is measured live by Shell, so this stays right when the
+   * ribbon is collapsed or the device is rotated.
+   */
+  .filter-bar {
+    position: sticky;
+    top: var(--topnav-h, 0px);
+    /* Above the list, below the header that it is clearing. */
+    z-index: 20;
+  }
+
+  @media (min-width: 640px) and (min-height: 700px) {
+    .filter-bar { top: 0; }
+  }
+
+  /*
+   * The list's scroll container. Which element scrolls depends on the window,
+   * and the filter bar's stickiness follows it:
+   *
+   *  - tall window  → this scrolls, and the bar pins to its top
+   *  - short window → this must NOT be a scroll container, or the bar would
+   *                   resolve its stickiness against a box that never scrolls
+   *                   and would simply ride away with the content. Left
+   *                   visible, the page scrolls and the bar pins below the
+   *                   header instead.
+   */
+  .list-scroll { overflow: visible; }
+
+  @media (min-width: 640px) and (min-height: 700px) {
+    .list-scroll { overflow: auto; }
   }
 
   /* Sticky, scroll-aware data table shared by every list screen. */
@@ -172,18 +662,19 @@
   .data-table tbody tr:last-child td { border-bottom: 0; }
 
   /*
-   * Phone layout for list tables.
+   * Phone + tablet layout for list tables.
    *
-   * A six-column table cannot shrink to 380px without becoming unreadable, so
-   * below `sm` each row becomes a card: the header row is dropped and every
-   * cell carries its own label. Driven by data attributes rather than parallel
-   * markup, so a page only annotates its cells and both layouts stay in sync.
+   * A six-column table cannot shrink to phone or tablet width without becoming
+   * unreadable, so below `lg` each row becomes a card: the header row is
+   * dropped and every cell carries its own label. Driven by data attributes
+   * rather than parallel markup, so a page only annotates its cells and both
+   * layouts stay in sync.
    *
    *   data-label="…"  the column name, shown beside the value
    *   data-primary    the identifying cell — rendered as the card's title
    *   data-thumb      an image cell — sits on the title line, not its own row
    */
-  @media (max-width: 639.98px) {
+  @media (max-width: 1023.98px) {
     .data-table.stacked,
     .data-table.stacked tbody { display: block; }
     .data-table.stacked thead { display: none; }
@@ -220,12 +711,186 @@
       color: var(--text-subtle);
     }
 
+    /* The invoice-entry row is a form, not a data row — it opts out of the
+       one-cell-per-line card treatment so the search box and quantity field
+       stay side by side, like a real toolbar. */
+    .data-table.stacked tbody tr.entry-row > td {
+      flex: initial;
+      display: block;
+      padding: 0;
+    }
+    .data-table.stacked tbody tr.entry-row > td::before { content: none; }
+    .data-table.stacked tbody tr.entry-row > td.entry-cell { flex: 1 1 auto; min-width: 0; }
+    /* Narrow: this holds a quantity, which is almost always 1–3 digits. The
+       wider box it used to have pushed the scan field down onto a second
+       row on a small phone, which is the one thing this row must not do —
+       the scanner has to be reachable without scrolling. */
+    .data-table.stacked tbody tr.entry-row > td.qty-cell { flex: 0 0 3.25rem; }
+    /* The whole entry row stays on one line; nothing here may wrap. */
+    .data-table.stacked tbody tr.entry-row { flex-wrap: nowrap; gap: 0 0.375rem; padding: 0.5rem 0.6rem; }
+
     .data-table.stacked tbody td[data-thumb] { flex: 0 0 auto; padding-inline-end: 0.6rem; }
     .data-table.stacked tbody td[data-primary] {
       flex: 1 1 auto;
       font-size: 0.95rem;
       font-weight: 700;
       padding-bottom: 0.35rem;
+    }
+
+    /*
+     * Invoice line rows, on phone and tablet: exactly two rows, never more.
+     *
+     *   1  photo · name (balance + barcode beneath) · quantity · unit
+     *   2  price · line total · update-price toggle · delete
+     *
+     * It used to take five — barcode, name+qty+unit, price, total, and the
+     * toggle+delete pair each claimed a full-width row of their own, so a
+     * three-line invoice filled the screen and the operator scrolled to see
+     * what they had just scanned. Everything below is in service of that
+     * count: the barcode cell is dropped (the chip moves under the name),
+     * price is a fixed narrow field rather than a greedy one, and the total
+     * and both actions share price's row instead of stacking under it.
+     *
+     * `order` only — the desktop table's real column order (matching its
+     * <thead>) never has to move in the markup.
+     */
+    .data-table.stacked tbody tr.line-row > td[data-thumb],
+    .data-table.stacked tbody tr.line-row > td[data-primary],
+    .data-table.stacked tbody tr.line-row > td.line-break,
+    .data-table.stacked tbody tr.line-row > td.line-compact {
+      order: 1;
+    }
+    .data-table.stacked tbody tr.line-row > td[data-primary] { min-width: 0; }
+
+    /* The barcode gets no row of its own here — see the chip rendered inside
+       the name cell in InvoiceForm's LineRow, which is `lg:hidden` and is
+       this cell's stand-in below that width. */
+    .data-table.stacked tbody tr.line-row > td.line-code { display: none; }
+
+    /* An invisible, full-width flex item — the standard trick to force a
+       hard wrap at an exact point, so the money row always starts fresh
+       instead of sometimes sharing (and losing) leftover space next to the
+       item name. It doubles as the divider between the two rows, which is
+       why it carries the dashed border the total used to. */
+    .data-table.stacked tbody tr.line-row > td.line-break {
+      /* Overrides the generic empty-cell collapse rule below — this cell is
+         empty on purpose and must stay a flex participant. */
+      display: block;
+      flex-basis: 100%;
+      height: 0;
+      padding: 0;
+      margin-top: 0.45rem;
+      border: 0;
+      border-top: 1px dashed color-mix(in oklab, var(--border) 80%, transparent);
+    }
+
+    /* Quantity / unit / price: a tiny caption above the field, so they read
+       unambiguously without the desktop-only column headers. Equal thirds of
+       the *whole* row (thanks to the break above), not squeezed against the
+       name, so they reliably stay on one line even on a narrow phone. */
+    .data-table.stacked tbody tr.line-row > td.line-compact {
+      flex: 1 1 0;
+      min-width: 0;
+      flex-direction: column;
+      align-items: stretch;
+      gap: 0.2rem;
+      padding-inline-start: 0.35rem;
+    }
+    .data-table.stacked tbody tr.line-row > td.line-compact::before {
+      content: attr(data-label);
+      text-align: center;
+      font-size: 0.65rem;
+      font-weight: 600;
+      color: var(--text-subtle);
+      /* A caption that wraps makes its cell taller than its neighbours and
+         pushes the row's own height around; one that overflows widens the
+         cell past its basis and costs the row a wrap. Neither is worth a
+         fully-spelled caption on a 3rem field. */
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    /* Quantity, unit and price: narrow preferred widths instead of the
+       equal-thirds split above, so the name and the total (the two elastic
+       cells) claim the rest of their rows.
+     *
+     * `0 1 <width>` and not `0 0 auto`: a cell that cannot shrink has no way
+     * to absorb a narrow viewport except by wrapping, which is precisely the
+     * third row this layout must never grow. Each one may give up to its
+     * `min-width` — enough for the digits it actually holds — before anything
+     * is allowed to move to a new line. */
+    .data-table.stacked tbody tr.line-row > td.line-compact--tight {
+      flex: 0 1 3rem;
+      width: auto;
+      min-width: 2.4rem;
+    }
+    .data-table.stacked tbody tr.line-row > td.line-compact--tight.line-compact--unit {
+      flex-basis: 4rem;
+      min-width: 2.9rem;
+    }
+    /* Wider than quantity/unit: prices carry decimals, and a currency amount
+       clipped mid-digit is worse than a slightly bigger field. */
+    .data-table.stacked tbody tr.line-row > td.line-compact--tight.line-compact--price {
+      flex-basis: 4.5rem;
+      min-width: 3.4rem;
+    }
+    .data-table.stacked tbody tr.line-row > td.line-compact--tight input,
+    .data-table.stacked tbody tr.line-row > td.line-compact--tight select {
+      height: 1.75rem;
+      padding-inline: 0.25rem;
+      font-size: 0.7rem;
+    }
+
+    /* The line total takes whatever the three fixed-width neighbours on its
+       row leave — it's the number an operator scans for, so it gets the
+       slack rather than a fixed width, and stays the loudest thing on the
+       row through weight and colour instead of through size. */
+    .data-table.stacked tbody tr.line-row > td.line-total {
+      order: 1;
+      flex: 1 1 0;
+      min-width: 0;
+      flex-direction: column;
+      align-items: stretch;
+      justify-content: center;
+      gap: 0.2rem;
+      padding-inline: 0.35rem;
+    }
+    .data-table.stacked tbody tr.line-row > td.line-total::before {
+      content: attr(data-label);
+      text-align: center;
+      font-size: 0.65rem;
+      font-weight: 600;
+      color: var(--text-subtle);
+      white-space: nowrap;
+    }
+
+    /* Both actions ride the money row. The toggle keeps its caption (an
+       unlabelled checkbox next to a price would be a guess); the delete
+       button doesn't need one. */
+    .data-table.stacked tbody tr.line-row > td.line-tail {
+      order: 1;
+      flex: 0 0 auto;
+      justify-content: center;
+    }
+    .data-table.stacked tbody tr.line-row > td.line-tail--toggle {
+      flex: 0 1 auto;
+      min-width: 0;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.25rem;
+      padding-inline: 0.15rem;
+    }
+    /* The short caption, not the column heading — see the two data-label
+       attributes on this cell in LineRow. The full "تحديث السعر" is the
+       widest fixed item on this row and is what pushed it to three lines on
+       a 320px phone. */
+    .data-table.stacked tbody tr.line-row > td.line-tail--toggle::before {
+      content: attr(data-label-short);
+      font-size: 0.65rem;
+      font-weight: 600;
+      color: var(--text-subtle);
+      white-space: nowrap;
     }
 
     /* Cells with nothing to say (spacers, empty actions) collapse away. */

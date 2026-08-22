@@ -23,14 +23,16 @@ export default function StockCountDetail() {
   const [confirmSubmit, setConfirmSubmit] = useState(false);
   const [confirmApply, setConfirmApply] = useState(false);
   const [confirmCancel, setConfirmCancel] = useState(false);
-  const [applied, setApplied] = useState<{ number: string; id: string; type: string }[] | null>(null);
+  // These come back already posted, so `number` is always present in practice
+  // — it is typed nullable only because Invoice.number is null before saving.
+  const [applied, setApplied] = useState<{ number: string | null; id: string; type: string }[] | null>(null);
 
   const lines = session?.lines ?? [];
   const filtered = useMemo(() => {
     const term = filter.trim().toLowerCase();
     if (!term) return lines;
     return lines.filter((line) =>
-      line.item_name.toLowerCase().includes(term) || line.item_barcode.includes(term));
+      line.item_name.toLowerCase().includes(term) || (line.item_barcode ?? '').includes(term));
   }, [lines, filter]);
 
   const staleCount = lines.filter((line) => line.is_stale).length;
@@ -179,7 +181,7 @@ export default function StockCountDetail() {
                       <Button size="sm" variant="secondary"
                         icon={invoice.type === 'STOCK_IN'
                           ? <ArrowDownLeft className="size-3.5 text-emerald-500" />
-                          : <ArrowUpRight className="size-3.5 text-rose-500" />}>
+                          : <ArrowUpRight className="size-3.5 text-accent-600 dark:text-accent-400" />}>
                         <span className="nums font-mono">{invoice.number}</span>
                       </Button>
                     </Link>
@@ -224,11 +226,11 @@ export default function StockCountDetail() {
         </Card>
 
         <Card className="p-5">
-          <div className="flex items-center gap-2 text-rose-600 dark:text-rose-400">
+          <div className="flex items-center gap-2 text-accent-600 dark:text-accent-400">
             <ArrowUpRight className="size-4" />
             <h2 className="text-sm font-bold">نقص</h2>
           </div>
-          <p className="nums mt-2 text-3xl font-bold text-rose-600 dark:text-rose-400">
+          <p className="nums mt-2 text-3xl font-bold text-accent-600 dark:text-accent-400">
             {fmtInt(summary.shortage.length)}
           </p>
           <p className="nums mt-1 text-xs text-muted">{fmtInt(summary.shortage_units)} وحدة ← فاتورة إخراج</p>
@@ -236,10 +238,10 @@ export default function StockCountDetail() {
       </div>
 
       {staleCount > 0 && editable && (
-        <div className="mb-4 flex items-start gap-2.5 rounded-xl border border-amber-500/30 bg-amber-500/8 px-4 py-3 text-sm no-print">
-          <TriangleAlert className="mt-0.5 size-4 shrink-0 text-amber-500" />
+        <div className="mb-4 flex items-start gap-2.5 rounded-xl border border-accent-500/30 bg-accent-500/8 px-4 py-3 text-sm no-print">
+          <TriangleAlert className="mt-0.5 size-4 shrink-0 text-accent-500" />
           <div className="flex-1">
-            <p className="font-semibold text-amber-700 dark:text-amber-400">
+            <p className="font-semibold text-accent-700 dark:text-accent-400">
               تغيّرت أرصدة {fmtInt(staleCount)} صنف بعد بدء الجلسة
             </p>
             <p className="mt-0.5 text-xs text-muted">
@@ -258,8 +260,8 @@ export default function StockCountDetail() {
             placeholder="تصفية داخل قائمة الجرد…" className="min-w-56 flex-1 max-w-sm" />
           <div className="flex items-center gap-3 text-[11px] text-muted no-print">
             <Legend className="bg-emerald-500" label="زيادة" />
-            <Legend className="bg-rose-500" label="نقص" />
-            <Legend className="bg-slate-400" label="مطابق" />
+            <Legend className="bg-accent-500" label="نقص" />
+            <Legend className="bg-line-strong" label="مطابق" />
           </div>
         </div>
 
@@ -332,7 +334,7 @@ export default function StockCountDetail() {
               )}
               {summary.shortage.length > 0 && (
                 <li className="flex items-center gap-2">
-                  <ArrowUpRight className="size-3.5 text-rose-500" />
+                  <ArrowUpRight className="size-3.5 text-accent-600 dark:text-accent-400" />
                   فاتورة إخراج بـ {fmtInt(summary.shortage.length)} صنف ({fmtInt(summary.shortage_units)} وحدة)
                 </li>
               )}
@@ -405,7 +407,7 @@ function CountRow({
     line.skipped ? 'opacity-50'
       : variance === null ? ''
         : variance > 0 ? 'bg-emerald-500/6'
-          : variance < 0 ? 'bg-rose-500/6' : '';
+          : variance < 0 ? 'bg-accent-500/6' : '';
 
   return (
     <tr className={rowTone}>
@@ -423,7 +425,7 @@ function CountRow({
       <td data-label="المتوقع" className="nums text-center font-semibold text-muted">
         {fmtInt(line.expected_quantity)}
         {line.is_stale && (
-          <span className="nums block text-[10px] text-amber-500">الآن {fmtInt(line.live_quantity)}</span>
+          <span className="nums block text-[10px] text-accent-500">الآن {fmtInt(line.live_quantity)}</span>
         )}
       </td>
       <td data-label="الكمية الفعلية">

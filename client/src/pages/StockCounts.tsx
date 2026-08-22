@@ -105,9 +105,9 @@ function ItemsOverview() {
   return (
     <>
       {inProgress && (
-        <Card className="mb-4 border-amber-500/30 bg-amber-500/8 p-4">
+        <Card className="mb-4 border-accent-500/30 bg-accent-500/8 p-4">
           <div className="flex flex-wrap items-center gap-3">
-            <ClipboardList className="size-5 shrink-0 text-amber-500" />
+            <ClipboardList className="size-5 shrink-0 text-accent-500" />
             <div className="min-w-0 flex-1">
               <p className="text-sm font-bold">
                 لديك جلسة جرد غير مكتملة —{' '}
@@ -318,7 +318,7 @@ function SessionsHistory() {
                     </td>
                     <td className="nums text-center font-bold">
                       {session.variance_count > 0
-                        ? <span className="text-amber-600 dark:text-amber-400">{fmtInt(session.variance_count)}</span>
+                        ? <span className="text-accent-600 dark:text-accent-400">{fmtInt(session.variance_count)}</span>
                         : <span className="text-subtle">0</span>}
                     </td>
                     <td>

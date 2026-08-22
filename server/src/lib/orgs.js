@@ -39,7 +39,7 @@ export async function resolveOrg({ userId, email, autoProvision = AUTO_PROVISION
   }
 
   const org = await runWithoutOrg(async () => {
-    const created = await get('INSERT INTO orgs (name) VALUES (@name) RETURNING id',
+    const created = await get('INSERT INTO orgs (name) OUTPUT INSERTED.id VALUES (@name)',
       { name: email ? `مؤسسة ${email.split('@')[0]}` : 'مؤسستي' });
     await run(
       `INSERT INTO memberships (id, org_id, user_id, email, role)

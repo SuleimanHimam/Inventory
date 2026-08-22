@@ -1,0 +1,96 @@
+<!doctype html>
+<!--
+  A throwaway page for picking between the three icon marks on the device
+  that will actually display them — a launcher icon looks different on a
+  phone at arm's length than it does at 256px on a monitor.
+
+  Delete this file (and the choice-*.png it points at) once a mark is chosen.
+-->
+<html lang="ar" dir="rtl">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>اختيار أيقونة التطبيق</title>
+    <style>
+      :root { color-scheme: light dark; }
+      body {
+        margin: 0; padding: 24px 16px 48px;
+        font-family: 'Segoe UI', Tahoma, system-ui, sans-serif;
+        background: #f4f5f7; color: #16181c;
+      }
+      @media (prefers-color-scheme: dark) {
+        body { background: #121815; color: #ece9e4; }
+        .card { background: #17201c !important; border-color: #2e3a34 !important; }
+        .small { color: #a8a29e !important; }
+      }
+      h1 { font-size: 18px; margin: 0 0 4px; }
+      .small { font-size: 13px; color: #5a6068; margin: 0 0 24px; line-height: 1.6; }
+      .grid { display: grid; gap: 16px; max-width: 560px; }
+      .card {
+        display: flex; align-items: center; gap: 16px;
+        padding: 14px; border: 1px solid #e2e5e9; border-radius: 14px;
+        background: #fff;
+      }
+      /* Two shapes side by side: the square as a browser shows it, and a
+         circle, which is how most Android launchers actually crop it. */
+      .shots { display: flex; gap: 10px; flex: none; }
+      .shots img { width: 64px; height: 64px; display: block; }
+      .shots .round { border-radius: 50%; }
+      .name { font-size: 15px; font-weight: 700; margin: 0 0 2px; }
+      .why { font-size: 12.5px; line-height: 1.55; margin: 0; color: #5a6068; }
+      @media (prefers-color-scheme: dark) { .why { color: #a8a29e; } }
+      code { font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
+    </style>
+  </head>
+  <body>
+    <h1>اختيار أيقونة التطبيق</h1>
+    <p class="small">
+      ثلاثة تصاميم. المربّع كما يظهر في المتصفح، والدائرة كما يقصّها مشغّل
+      أندرويد غالباً. اختر واحداً وأخبرني بالاسم.
+    </p>
+
+    <div class="grid">
+      <div class="card">
+        <div class="shots">
+          <img src="/icons/choice-stack.png" alt="stack" />
+          <img src="/icons/choice-stack.png" alt="stack, دائري" class="round" />
+        </div>
+        <div>
+          <p class="name">stack — ثلاثة صناديق مرصوصة <span class="small">(الحالي)</span></p>
+          <p class="why">
+            شكل مربّع مضغوط، يحافظ على هيئته عندما يقصّه المشغّل إلى دائرة.
+            <code>stack</code>
+          </p>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="shots">
+          <img src="/icons/choice-row.png" alt="row" />
+          <img src="/icons/choice-row.png" alt="row, دائري" class="round" />
+        </div>
+        <div>
+          <p class="name">row — ثلاثة صناديق على رفّ</p>
+          <p class="why">
+            يقرأ كـ«مخزون» أكثر من كونه طرداً واحداً، لكن الصندوقين الجانبيين
+            يفقدان أطرافهما في القصّ الدائري. <code>row</code>
+          </p>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="shots">
+          <img src="/icons/choice-carton.png" alt="carton" />
+          <img src="/icons/choice-carton.png" alt="carton, دائري" class="round" />
+        </div>
+        <div>
+          <p class="name">carton — صندوق واحد</p>
+          <p class="why">
+            الأوضح على الإطلاق في الأحجام الصغيرة جداً، لأنه شكل واحد فقط.
+            <code>carton</code>
+          </p>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import multer from 'multer';
 import { z } from 'zod';
+import { runInOrg } from '../db/index.js';
 import { wrap, parse } from '../lib/http.js';
 import { badRequest } from '../lib/errors.js';
 import * as imports from '../services/import.service.js';
@@ -35,9 +36,14 @@ router.get('/template', wrap(async (_req, res) => {
   res.send(Buffer.from(buffer));
 }));
 
+// Same fix as items.routes.js's image upload: multer's async multipart parsing
+// does not reliably carry the AsyncLocalStorage org context, so it is
+// re-established explicitly from req.auth.orgId (set synchronously, before
+// multer ran) rather than relying on the ambient context still being intact.
 router.post('/preview', upload.single('file'), wrap(async (req, res) => {
   if (!req.file) throw badRequest('لم يتم رفع أي ملف', 'NO_FILE');
-  res.json(await imports.previewImport(req.file.buffer, req.file.originalname));
+  const org = req.auth.orgId;
+  res.json(await runInOrg(org, () => imports.previewImport(req.file.buffer, req.file.originalname)));
 }));
 
 router.post('/commit', wrap(async (req, res) => {

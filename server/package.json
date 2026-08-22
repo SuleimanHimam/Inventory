@@ -14,15 +14,20 @@
     "doctor": "node --env-file-if-exists=.env src/db/doctor.js",
     "doctor:prod": "node --env-file=.env.prod src/db/doctor.js",
     "seed": "node --env-file-if-exists=.env src/db/seed.js",
-    "test": "node --env-file-if-exists=.env --test --test-concurrency=1 test/api.test.js"
+    "test": "node --env-file-if-exists=.env --test --test-concurrency=1 test/api.test.js test/roles.test.js",
+    "test:roles": "node --test test/roles.test.js"
   },
   "dependencies": {
+    "archiver": "^5.3.2",
     "cors": "^2.8.5",
     "exceljs": "^4.4.0",
     "express": "^4.21.2",
     "jose": "^5.9.6",
+    "mssql": "^12.7.0",
     "multer": "^2.2.0",
     "pg": "^8.13.1",
+    "sharp": "^0.35.3",
+    "unzipper": "^0.10.14",
     "zod": "^3.24.1"
   }
 }

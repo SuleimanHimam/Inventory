@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 620 380" role="img" aria-label="Himam Developing Solutions">
+  <!-- HD wordmark: geometric, uniform stroke -->
+  <g fill="#1786AB">
+    <rect x="30"  y="60"  width="34" height="200" />
+    <rect x="30"  y="143" width="150" height="34" />
+    <rect x="146" y="60"  width="34" height="200" />
+    <path d="M212 60 h60 a94 100 0 0 1 0 200 h-60 z
+             M246 94 v132 h26 a66 66 0 0 0 0 -132 z" fill-rule="evenodd" />
+  </g>
+
+  <!-- Badge: rounded square, purple ground, teal wedge, white slash between -->
+  <defs>
+    <clipPath id="badge">
+      <rect x="392" y="60" width="200" height="200" rx="16" />
+    </clipPath>
+  </defs>
+  <g clip-path="url(#badge)">
+    <rect x="392" y="60" width="200" height="200" fill="#7B1E5C" />
+    <!-- white slash: leans left as it descends -->
+    <polygon points="536,40 578,40 486,280 444,280" fill="#fff" />
+    <!-- teal: everything to the right of the slash -->
+    <polygon points="578,40 620,40 620,280 486,280" fill="#1786AB" />
+  </g>
+
+  <!-- </> — kept clear of the slash so they read as brackets, not a diamond -->
+  <g fill="none" stroke="#fff" stroke-width="22" stroke-linecap="butt" stroke-linejoin="miter">
+    <polyline points="487,110 445,160 487,210" />
+    <polyline points="533,110 575,160 533,210" />
+  </g>
+
+  <text x="310" y="342" text-anchor="middle" fill="#8C8C8C"
+        font-family="'Segoe UI', system-ui, sans-serif" font-size="29" letter-spacing="3.6">
+    Himam Developing Solutions
+  </text>
+</svg>

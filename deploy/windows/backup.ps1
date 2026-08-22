@@ -8,10 +8,20 @@
   you a catalogue of broken images -- and an uploads folder without the database
   is a pile of UUIDs no one can identify.
 
+  Runs as SYSTEM (see Register-ScheduledTask below), so authentication cannot
+  be interactive: it connects to SQL Server via Windows Authentication as
+  NT AUTHORITY\SYSTEM, which is granted db_backupoperator on the database --
+  see provision-mssql.sql. No password is needed or stored, unlike the
+  .pgpass file the Postgres build relied on for the same reason.
+
+  BACKUP DATABASE runs *inside* the SQL Server service process, not in this
+  script, so $BackupRoot must be writable by the SQL Server service account
+  (NT AUTHORITY\NETWORK SERVICE, per the install script), not just by SYSTEM.
+
   Register it as a 02:00 task:
 
     $action  = New-ScheduledTaskAction -Execute 'powershell.exe' `
-                 -Argument '-NoProfile -File C:\inventory\deploy\windows\backup.ps1'
+                 -Argument '-NoProfile -File D:\Inventory\deploy\windows\backup.ps1'
     $trigger = New-ScheduledTaskTrigger -Daily -At 2am
     Register-ScheduledTask -TaskName 'Inventory backup' -Action $action `
       -Trigger $trigger -RunLevel Highest -User 'SYSTEM'
@@ -22,43 +32,54 @@
 #>
 [CmdletBinding()]
 param(
-  [string] $BackupRoot = 'C:\inventory\backups',
-  [string] $UploadsDir = 'C:\inventory\data\uploads',
-  [string] $Database   = 'inventory',
-  [string] $DbUser     = 'postgres',
-  [int]    $KeepDays   = 30
+  [string] $BackupRoot     = 'D:\Inventory\backups',
+  [string] $UploadsDir     = 'D:\Inventory\data\uploads',
+  [string] $Database       = 'inventory',
+  [string] $ServerInstance = '127.0.0.1\INVENTORY',
+  [int]    $KeepDays       = 30
 )
 
 $ErrorActionPreference = 'Stop'
-$stamp = Get-Date -Format 'yyyy-MM-dd_HHmm'
-$dest  = Join-Path $BackupRoot $stamp
-New-Item -ItemType Directory -Path $dest -Force | Out-Null
+New-Item -ItemType Directory -Path $BackupRoot -Force | Out-Null
+Start-Transcript -Path (Join-Path $BackupRoot 'backup.log') -Append | Out-Null
 
-# pg_dump must match the server's major version; the Postgres bin directory is
-# not on PATH by default.
-$pgDump = (Get-Command pg_dump -ErrorAction SilentlyContinue).Source
-if (-not $pgDump) {
-  $candidate = Get-ChildItem 'C:\Program Files\PostgreSQL\*\bin\pg_dump.exe' -ErrorAction SilentlyContinue |
-    Sort-Object FullName -Descending | Select-Object -First 1
-  if (-not $candidate) { throw 'pg_dump not found. Add PostgreSQL\bin to PATH.' }
-  $pgDump = $candidate.FullName
+try {
+  if (-not (Get-Command Invoke-Sqlcmd -ErrorAction SilentlyContinue)) {
+    Import-Module SqlServer -ErrorAction SilentlyContinue
+  }
+  if (-not (Get-Command Invoke-Sqlcmd -ErrorAction SilentlyContinue)) {
+    Import-Module SQLPS -DisableNameChecking -ErrorAction Stop
+  }
+
+  $stamp = Get-Date -Format 'yyyy-MM-dd_HHmm'
+  $dest  = Join-Path $BackupRoot $stamp
+  New-Item -ItemType Directory -Path $dest -Force | Out-Null
+
+  # COMPRESSION halves the file for the same reason -Fc did for pg_dump;
+  # CHECKSUM catches a corrupt backup at RESTORE time instead of at 3am on the
+  # day you actually need it.
+  $bakFile = Join-Path $dest 'database.bak'
+  $query = "BACKUP DATABASE [$Database] TO DISK = N'$bakFile' WITH COMPRESSION, CHECKSUM, INIT;"
+  Invoke-Sqlcmd -ServerInstance $ServerInstance -Query $query -QueryTimeout 0
+  if (-not (Test-Path $bakFile)) { throw 'BACKUP DATABASE did not produce a file -- check the SQL Server error log.' }
+
+  if (Test-Path $UploadsDir) {
+    Compress-Archive -Path (Join-Path $UploadsDir '*') `
+      -DestinationPath (Join-Path $dest 'uploads.zip') -ErrorAction SilentlyContinue
+  }
+
+  # Prune old sets. Restoring is never tested by writing a backup script, so:
+  #   RESTORE DATABASE inventory_restore_test FROM DISK = 'database.bak'
+  #     WITH MOVE 'inventory' TO 'D:\SQLData\inventory_restore_test.mdf',
+  #          MOVE 'inventory_log' TO 'D:\SQLData\inventory_restore_test_log.ldf';
+  # is worth running once, before you need it -- the logical file names after
+  # MOVE come from: RESTORE FILELISTONLY FROM DISK = 'database.bak';
+  Get-ChildItem $BackupRoot -Directory |
+    Where-Object { $_.LastWriteTime -lt (Get-Date).AddDays(-$KeepDays) } |
+    Remove-Item -Recurse -Force
+
+  $size = '{0:N1} MB' -f ((Get-ChildItem $dest -Recurse | Measure-Object Length -Sum).Sum / 1MB)
+  Write-Host "[backup] $dest -- $size"
+} finally {
+  Stop-Transcript | Out-Null
 }
-
-# -Fc is the custom format: compressed, and restorable selectively with pg_restore.
-& $pgDump -U $DbUser -Fc -f (Join-Path $dest 'database.dump') $Database
-if ($LASTEXITCODE -ne 0) { throw "pg_dump failed with exit code $LASTEXITCODE" }
-
-if (Test-Path $UploadsDir) {
-  Compress-Archive -Path (Join-Path $UploadsDir '*') `
-    -DestinationPath (Join-Path $dest 'uploads.zip') -ErrorAction SilentlyContinue
-}
-
-# Prune old sets. Restoring is never tested by writing a backup script, so:
-#   pg_restore -U postgres -d inventory_restore_test --clean database.dump
-# is worth running once, before you need it.
-Get-ChildItem $BackupRoot -Directory |
-  Where-Object { $_.LastWriteTime -lt (Get-Date).AddDays(-$KeepDays) } |
-  Remove-Item -Recurse -Force
-
-$size = '{0:N1} MB' -f ((Get-ChildItem $dest -Recurse | Measure-Object Length -Sum).Sum / 1MB)
-Write-Host "[backup] $dest -- $size"

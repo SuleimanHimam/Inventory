@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Loader2, Search, PackageSearch } from 'lucide-react';
+import { Loader2, Search, PackageSearch, Plus, ImageOff, SlidersHorizontal } from 'lucide-react';
 import {
   Badge, Button, Modal, Pagination, SearchInput, Select, TableSkeleton,
 } from '@/components/ui';
-import { Thumb } from '@/components/ImagePicker';
+import { Thumb, useThumbFallback } from '@/components/ImagePicker';
 import { useCategories, useDebounced, useItems } from '@/hooks';
 import { fmtCurrency, fmtInt } from '@/lib/format';
 import { cn } from '@/lib/cn';
+import { usePermissions } from '@/lib/permissions';
 import type { Item } from '@/lib/types';
 
 /**
@@ -28,7 +29,7 @@ export function ItemBrowserModal({
 }: {
   open: boolean;
   onClose: () => void;
-  onPick: (item: Item) => void;
+  onPick: (item: Item, quantity: number) => void;
   priceKind?: 'sale' | 'purchase';
 }) {
   const [search, setSearch] = useState('');
@@ -36,6 +37,8 @@ export function ItemBrowserModal({
   const [onlyLow, setOnlyLow] = useState(false);
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(25);
+  /** Phone only — collapsed by default so the grid starts right under the search box. */
+  const [filtersOpen, setFiltersOpen] = useState(false);
 
   const { data: categories } = useCategories();
   const debounced = useDebounced(search, 250);
@@ -55,88 +58,81 @@ export function ItemBrowserModal({
   // Start clean each time it is opened, so a stale filter never hides an item.
   useEffect(() => {
     if (!open) return;
-    setSearch(''); setCategoryId(''); setOnlyLow(false); setPage(1);
+    setSearch(''); setCategoryId(''); setOnlyLow(false); setPage(1); setFiltersOpen(false);
   }, [open]);
 
   const rows = data?.data ?? [];
 
-  const pick = (item: Item) => { onPick(item); onClose(); };
+  const pick = (item: Item, quantity: number) => { onPick(item, quantity); onClose(); };
 
   return (
     <Modal
       open={open}
       onClose={onClose}
-      size="xl"
+      size="full"
       title="بحث عن صنف"
       description="اختر الصنف بالنقر عليه ليُضاف إلى الفاتورة بالكمية المحدّدة"
     >
       <div className="-mx-5 -my-4">
-        <div className="flex flex-wrap items-center gap-2.5 border-b border-line px-5 py-3">
-          <SearchInput
-            value={search}
-            onValueChange={setSearch}
-            placeholder="ابحث بالاسم أو الباركود…"
-            className="min-w-56 flex-1"
-          />
-          <Select
-            value={categoryId}
-            onChange={(e) => setCategoryId(e.target.value)}
-            className="h-9 w-auto min-w-40 py-0 text-xs"
-            aria-label="التصنيف"
-          >
-            <option value="">كل التصنيفات</option>
-            {categories?.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </Select>
-          <Button
-            variant={onlyLow ? 'primary' : 'ghost'}
-            onClick={() => setOnlyLow((v) => !v)}
-          >
-            النواقص فقط
-          </Button>
+        {/* Sticky within the modal's own scroll region, not a separate one —
+            a second nested scrollbar is exactly what "full screen" should
+            avoid. On phone the category/low-stock filters start collapsed —
+            behind the toggle button — so the grid opens right under the
+            search box instead of below a tall filter bar. */}
+        <div className="sticky top-0 z-10 border-b border-line bg-surface">
+          <div className="flex flex-wrap items-center gap-2.5 px-5 py-3">
+            <SearchInput
+              value={search}
+              onValueChange={setSearch}
+              placeholder="ابحث بالاسم أو الباركود…"
+              className="min-w-0 flex-1 sm:min-w-56"
+            />
+            <Button
+              variant={filtersOpen || categoryId || onlyLow ? 'primary' : 'secondary'}
+              size="icon"
+              className="sm:hidden"
+              onClick={() => setFiltersOpen((v) => !v)}
+              aria-label="تصفية"
+              aria-expanded={filtersOpen}
+            >
+              <SlidersHorizontal className="size-4" />
+            </Button>
+            <div className={cn(
+              'flex w-full flex-wrap items-center gap-2.5 sm:w-auto sm:contents',
+              !filtersOpen && 'hidden sm:contents',
+            )}>
+              <Select
+                value={categoryId}
+                onChange={(e) => setCategoryId(e.target.value)}
+                className="h-9 w-auto min-w-40 flex-1 py-0 text-xs sm:flex-none"
+                aria-label="التصنيف"
+              >
+                <option value="">كل التصنيفات</option>
+                {categories?.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </Select>
+              <Button
+                variant={onlyLow ? 'primary' : 'ghost'}
+                onClick={() => setOnlyLow((v) => !v)}
+              >
+                النواقص فقط
+              </Button>
+            </div>
+          </div>
         </div>
 
-        <div className="max-h-[52vh] overflow-y-auto">
+        <div className="p-4">
           {isLoading ? (
             <TableSkeleton rows={8} cols={5} />
           ) : rows.length === 0 ? (
-            <p className="px-5 py-12 text-center text-sm text-muted">
+            <p className="px-1 py-12 text-center text-sm text-muted">
               لا توجد أصناف مطابقة
             </p>
           ) : (
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th className="w-px" />
-                  <th>اسم المادة</th>
-                  <th className="w-44">رمز المادة</th>
-                  <th className="w-36">التصنيف</th>
-                  <th className="w-24 text-center">الرصيد</th>
-                  <th className="w-28 text-center">
-                    {priceKind === 'purchase' ? 'سعر الشراء' : 'سعر البيع'}
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((item) => (
-                  <tr
-                    key={item.id}
-                    onClick={() => pick(item)}
-                    className="cursor-pointer transition hover:bg-brand-500/8"
-                  >
-                    <td className="pe-0"><Thumb url={item.image_url} alt={item.name} /></td>
-                    <td className="text-sm font-medium">{item.name}</td>
-                    <td className="nums font-mono text-xs text-muted">{item.barcode}</td>
-                    <td className="text-xs text-muted">{item.category_name ?? '—'}</td>
-                    <td className="text-center">
-                      <QuantityCell item={item} />
-                    </td>
-                    <td className="nums text-center text-xs">
-                      {fmtCurrency(priceKind === 'purchase' ? item.purchase_price : item.sale_price)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+              {rows.map((item) => (
+                <PickerCard key={item.id} item={item} priceKind={priceKind} onAdd={(qty) => pick(item, qty)} />
+              ))}
+            </div>
           )}
         </div>
 
@@ -344,9 +340,103 @@ export function ItemListDropdown({
 function QuantityCell({ item }: { item: Item }) {
   if (item.quantity <= 0) return <Badge tone="danger">نفد</Badge>;
   return (
-    <span className={cn('nums text-sm font-bold', item.is_low_stock && 'text-amber-600 dark:text-amber-400')}>
+    <span className={cn('nums text-sm font-bold', item.is_low_stock && 'text-accent-600 dark:text-accent-400')}>
       {fmtInt(item.quantity)}
     </span>
+  );
+}
+
+/**
+ * A photo-first product card with its own quantity field — unlike the old
+ * click-the-row-to-add-one table, the operator sets how many of *this* item
+ * before adding, so a 5-piece pick doesn't need a second trip to the line to
+ * fix the quantity.
+ */
+function PickerCard({
+  item, priceKind, onAdd,
+}: {
+  item: Item;
+  priceKind: 'sale' | 'purchase';
+  onAdd: (quantity: number) => void;
+}) {
+  const { canSeePrices, canSeeSalePrice } = usePermissions();
+  // A clerk reads a sale price but never a purchase price — `canSeePrices`
+  // covers a manager either way, `canSeeSalePrice` only widens the sale side.
+  const canSeeThisPrice = priceKind === 'sale' ? canSeeSalePrice : canSeePrices;
+  const [quantity, setQuantity] = useState('1');
+
+  const add = () => onAdd(Math.max(1, Number(quantity) || 1));
+  const img = useThumbFallback(item.image_url);
+
+  return (
+    <div className="card flex flex-col overflow-hidden">
+      <div className="aspect-square w-full overflow-hidden bg-surface-2">
+        {item.image_url ? (
+          // Thumbnail, not the original — this grid can show dozens of items
+          // at once and the originals are multi-megabyte camera photos.
+          <img
+            src={img.src}
+            onError={img.onError}
+            alt={item.name}
+            loading="lazy"
+            decoding="async"
+            className="size-full object-cover"
+          />
+        ) : (
+          <div className="grid size-full place-items-center"><ImageOff className="size-8 text-subtle" /></div>
+        )}
+      </div>
+      <div className="flex flex-1 flex-col p-2.5">
+        <p className="line-clamp-2 text-sm font-bold text-ink">{item.name}</p>
+        {item.category_name ? (
+          <Badge tone="brand" className="mt-1 self-start">{item.category_name}</Badge>
+        ) : (
+          <span className="mt-1 text-[11px] text-subtle">بدون تصنيف</span>
+        )}
+        <div className="mt-1.5 flex items-center justify-between gap-2">
+          {/* Price for a manager, or a clerk on a sale price; the barcode is
+              what staff (and a clerk on a purchase price) pick by instead. */}
+          {canSeeThisPrice ? (
+            <span className="nums text-sm font-bold text-brand-600 dark:text-brand-400">
+              {fmtCurrency(priceKind === 'purchase' ? item.purchase_price : item.sale_price)}
+            </span>
+          ) : (
+            <span className="nums truncate text-[11px] text-subtle" title={item.barcode ?? ''}>
+              {item.barcode ?? '—'}
+            </span>
+          )}
+          <QuantityCell item={item} />
+        </div>
+        {/* Pinned to the card's own bottom edge (mt-auto), not the screen's —
+            every card in a grid row is stretched to equal height, so this
+            lands flush no matter how many lines the name above took. On
+            phone the button drops its label and shrinks to just "+", so the
+            quantity field gets the room instead. */}
+        <div className="mt-auto flex items-center gap-1.5 pt-2">
+          <input
+            type="number"
+            min="1"
+            step="1"
+            inputMode="numeric"
+            value={quantity}
+            onChange={(e) => setQuantity(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); add(); } }}
+            aria-label={`الكمية — ${item.name}`}
+            className="field h-8 flex-1 shrink-0 py-0 text-center text-xs sm:w-14 sm:flex-none"
+          />
+          <Button
+            size="sm"
+            variant="primary"
+            className="w-9 shrink-0 px-0 sm:w-auto sm:flex-1 sm:px-3"
+            icon={<Plus className="size-3.5" />}
+            onClick={add}
+            aria-label={`إضافة — ${item.name}`}
+          >
+            <span className="hidden sm:inline">إضافة</span>
+          </Button>
+        </div>
+      </div>
+    </div>
   );
 }
 

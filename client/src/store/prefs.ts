@@ -22,7 +22,7 @@ const applyTheme = (theme: Theme) => {
 const storedTheme = (): Theme => {
   const saved = localStorage.getItem('inv.theme');
   if (saved === 'dark' || saved === 'light') return saved;
-  return matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  return 'light';
 };
 
 export const usePrefs = create<PrefsState>((set, get) => ({

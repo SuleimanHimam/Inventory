@@ -1,9 +1,19 @@
 # نظام إدارة المخزون — Inventory Management System
 
 Multi-user inventory management with an Arabic-first, right-to-left interface,
-hosted on **Vercel** (frontend) and **Railway** (API + Postgres).
+self-hosted on Windows Server (API + SQL Server, behind Caddy for TLS) — see
+[`deploy/windows/README.md`](deploy/windows/README.md).
 
-Version 6.0 · React + TypeScript · Node/Express · PostgreSQL
+Version 6.0 · React + TypeScript · Node/Express · SQL Server
+
+> **Migrated from PostgreSQL.** The database layer moved from Postgres (with
+> Row-Level-Security tenant isolation) to SQL Server, to consolidate onto the
+> database engine already running on the host server. Tenant isolation is
+> application-level only now — every service query carries an explicit
+> `org_id` predicate; see `server/src/db/index.js`'s file header for why the
+> RLS equivalent was dropped rather than ported. `DEPLOYMENT.md`'s
+> Railway/Vercel/Postgres instructions describe a path the code no longer
+> supports.
 
 > **The hosted deployment currently runs with `AUTH_MODE=none` — it has no
 > login.** Supabase Auth was dropped along with the Supabase database, and
@@ -22,9 +32,10 @@ Version 6.0 · React + TypeScript · Node/Express · PostgreSQL
 
 ```bash
 npm run setup          # install server + client dependencies
-npm run db:up          # local Postgres 15 in Docker (host port 5433)
-cp server/.env.example server/.env
-npm run migrate        # apply server/migrations
+npm run db:up          # local SQL Server 2022 in Docker (host port 14330)
+sqlcmd -S 127.0.0.1,14330 -U sa -P 'DevPassw0rd!' -i server/provision-mssql.sql
+cp server/.env.example server/.env   # fill in DB_PASSWORD (app_api's, from provision-mssql.sql)
+npm run migrate        # apply server/migrations-mssql
 npm run seed           # load realistic Arabic sample data (optional)
 npm run dev            # API on :4317, UI on :5173
 ```
@@ -42,33 +53,35 @@ To exercise the real login flow locally, put `SUPABASE_URL` +
 
 ### Deploying
 
-See **[DEPLOYMENT.md](DEPLOYMENT.md)** for the Railway → Vercel walkthrough,
-including how to make the Row Level Security policies actually effective, and an
-honest list of what this setup costs you (no authentication, photos wiped on
-every deploy, and backups you have to arrange yourself).
+See **[`deploy/windows/README.md`](deploy/windows/README.md)** for the current,
+supported path: a self-hosted Windows Server running the API and SQL Server
+together behind Caddy for TLS. (`DEPLOYMENT.md`'s Railway/Vercel walkthrough
+predates the SQL Server migration and no longer applies to the database half.)
 
 ### Tests
 
 ```bash
 npm run db:up
-cd server && npm test          # reads TEST_DATABASE_URL, falls back to DATABASE_URL
+cd server && DB_SERVER=127.0.0.1,14330 TEST_DB_NAME=inventory_test DB_USER=app_api DB_PASSWORD='…' npm test
 ```
 
-The 19 end-to-end business-rule tests carried over from the SQLite build —
-barcode uniqueness, the negative-stock guard, ledger immutability, invoice
-posting and price propagation, and the full stocktaking lifecycle including
-transactional rollback — plus two new ones covering tenant isolation and
+31 end-to-end business-rule tests: barcode uniqueness across primary/sub/unit
+barcodes, the negative-stock guard, ledger immutability, invoice posting and
+price propagation, units of measure and conversion factors, the full
+stocktaking lifecycle including transactional rollback, tenant isolation, and
 per-organisation settings. Each run creates its own organisation and drops it
-afterwards, so the suite is safe against any database, including a throwaway
-Railway or Docker one.
+afterwards, so the suite is safe against any database — `TEST_DB_NAME` lets it
+target a separate database from the one `npm run dev` uses.
 
 ---
 
 ## Architecture
 
 ```
-server/            Express API + PostgreSQL
-  migrations/        001_core.sql (schema + PL/pgSQL triggers), 002_rls.sql
+server/            Express API + SQL Server
+  migrations/        historical — the PostgreSQL-era schema (001-007), superseded
+  migrations-mssql/  001_core.sql (schema + triggers), 002_triggers.sql
+  provision-mssql.sql  one-time setup: database, app_api login, its grants
   src/db/            pool, query helpers, transactions, org context, migrate, seed
   src/lib/           auth (JWT + org resolution), errors, storage, http
   src/services/      business logic — the single source of truth for rules
@@ -183,10 +196,11 @@ tests:
   a service layer of hand-written SQL; a query builder would add a layer without
   removing one. The `@name` bind-parameter style of the SQLite build is kept, so
   the SQL reads as it did before the port.
-- **`POST /items/:id/movements` creates an invoice.** §3.4 requires every
-  movement to have an `invoice_id`, while §6.4 keeps a direct movement endpoint.
-  The endpoint is kept and satisfies the invariant by posting a one-line
-  document, marked `reference_type = MANUAL`.
+- **`POST /items/:id/movements` is gone.** §6.4 asked for a direct movement
+  endpoint; it existed, satisfied §3.4's "every movement has an `invoice_id`"
+  by posting a one-line document, and has now been removed at the owner's
+  request along with the item-card button that was its only caller. Stock
+  changes through one user-facing path: build an invoice, post it.
 - **Extras beyond the spec, all additive:** a per-organisation `settings` table
   (low-stock threshold, currency, digit system, import limits), a
   `GET /invoices/:id/validate` endpoint that powers the Post button's inline "why

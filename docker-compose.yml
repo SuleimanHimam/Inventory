@@ -1,29 +1,32 @@
-# Local Postgres for development and for `npm test`.
+# Local SQL Server for development and for `npm test`.
 #
-# Matches the major version Supabase runs, so a migration that applies here
-# applies there. Nothing else in the stack runs in Docker — the API and the
-# frontend run straight from npm.
+# Nothing else in the stack runs in Docker — the API and the frontend run
+# straight from npm.
 #
 #   docker compose up -d db
-#   DATABASE_URL=postgres://inventory:inventory@127.0.0.1:5433/inventory?sslmode=disable
+#   DB_SERVER=127.0.0.1,14330  DB_NAME=inventory  DB_USER=sa  DB_PASSWORD=DevPassw0rd!
+#
+# Then, once (creates the app_api login/database inside the container):
+#   sqlcmd -S 127.0.0.1,14330 -U sa -P 'DevPassw0rd!' -i server/provision-mssql.sql
 services:
   db:
-    image: postgres:15-alpine
+    image: mcr.microsoft.com/mssql/server:2022-latest
     container_name: inventory-db
     environment:
-      POSTGRES_USER: inventory
-      POSTGRES_PASSWORD: inventory
-      POSTGRES_DB: inventory
+      ACCEPT_EULA: 'Y'
+      MSSQL_SA_PASSWORD: 'DevPassw0rd!'
+      MSSQL_PID: 'Developer'
     ports:
-      # 5433 on the host, so an already-installed local Postgres keeps 5432.
-      - '5433:5432'
+      # 14330 on the host, so an already-installed local SQL Server default
+      # instance keeps 1433.
+      - '14330:1433'
     volumes:
-      - inventory-pgdata:/var/lib/postgresql/data
+      - inventory-mssqldata:/var/opt/mssql
     healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U inventory -d inventory']
+      test: ['CMD-SHELL', '/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$$MSSQL_SA_PASSWORD" -C -Q "SELECT 1" || exit 1']
       interval: 5s
       timeout: 5s
       retries: 10
 
 volumes:
-  inventory-pgdata:
+  inventory-mssqldata:

@@ -26,8 +26,8 @@ param(
   # Where Caddy and its Caddyfile live.
   [string] $CaddyExe = 'C:\caddy\caddy.exe',
   [string] $Caddyfile = 'C:\caddy\Caddyfile',
-  # The Postgres service name -- `Get-Service postgresql*` if unsure.
-  [string] $PostgresService = 'postgresql-x64-16'
+  # The SQL Server instance's service name -- `Get-Service MSSQL$*` if unsure.
+  [string] $SqlServerService = 'MSSQL$INVENTORY'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -86,11 +86,11 @@ if (-not (Test-Path (Join-Path $serverDir '.env'))) {
 & $nssm set inventory-api AppRotateBytes 10485760
 
 # Do not start before the database is accepting connections.
-if (Get-Service -Name $PostgresService -ErrorAction SilentlyContinue) {
-  & $nssm set inventory-api DependOnService $PostgresService
+if (Get-Service -Name $SqlServerService -ErrorAction SilentlyContinue) {
+  & $nssm set inventory-api DependOnService $SqlServerService
 } else {
-  Write-Warning "Postgres service '$PostgresService' not found -- skipping the dependency."
-  Write-Warning "Find the real name with: Get-Service postgresql*"
+  Write-Warning "SQL Server service '$SqlServerService' not found -- skipping the dependency."
+  Write-Warning 'Find the real name with: Get-Service MSSQL$*'
 }
 
 # ---------------------------------------------------------------- Caddy (TLS)

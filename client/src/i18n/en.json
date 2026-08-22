@@ -73,17 +73,13 @@
   "invoiceType": {
     "STOCK_IN": "Stock in",
     "STOCK_OUT": "Stock out",
-    "PURCHASE": "Purchase invoice",
-    "SALE": "Sale invoice",
     "short": {
       "STOCK_IN": "In",
-      "STOCK_OUT": "Out",
-      "PURCHASE": "Purchase",
-      "SALE": "Sale"
+      "STOCK_OUT": "Out"
     }
   },
   "invoiceStatus": {
-    "DRAFT": "Draft",
+    "DRAFT": "Unsaved",
     "POSTED": "Posted",
     "CANCELLED": "Cancelled"
   },
@@ -129,5 +125,12 @@
   "theme": {
     "dark": "Dark mode",
     "light": "Light mode"
+  },
+  "idle": {
+    "warningTitle": "You're about to be signed out",
+    "warningMessage": "You will be logged out in {{seconds}} seconds due to inactivity.",
+    "stayLoggedIn": "Stay logged in",
+    "loggedOutTitle": "Signed out",
+    "loggedOutMessage": "You were logged out due to inactivity"
   }
 }

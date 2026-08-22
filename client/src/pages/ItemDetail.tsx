@@ -1,35 +1,40 @@
 import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import {
-  ArrowLeftRight, Pencil, Plus, Trash2, Barcode, ArrowRight, Package, History,
-  Image as ImageIcon,
+  Pencil, Plus, Trash2, Barcode, ArrowRight, Package, History,
+  Image as ImageIcon, Ruler, StickyNote,
 } from 'lucide-react';
 import { ImageGallery } from '@/components/ImagePicker';
 import {
   Button, Card, PageHeader, Badge, Skeleton, EmptyState, Stat, ConfirmDialog, Pagination,
 } from '@/components/ui';
-import { ItemFormModal, StockMovementModal, SubBarcodeModal } from '@/components/ItemFormModal';
+import { ItemFormModal, SubBarcodeModal, ItemUnitModal } from '@/components/ItemFormModal';
 import {
   BarcodeChip, InvoiceLink, MovementBadge, QuantityCell, REFERENCE_LABEL,
 } from '@/components/domain';
 import { useItem, useItemMutations, useMovements } from '@/hooks';
-import { fmtCurrency, fmtDateTime, fmtInt } from '@/lib/format';
+import { fmtCurrency, fmtDateTime, fmtInt, fmtMoney } from '@/lib/format';
 import { toast, toastError } from '@/store/toast';
 import { cn } from '@/lib/cn';
+import { usePermissions } from '@/lib/permissions';
+import type { ItemUnit } from '@/lib/types';
 
 export default function ItemDetail() {
   const { id } = useParams<{ id: string }>();
   const { data: item, isLoading } = useItem(id);
   const [page, setPage] = useState(1);
   const { data: movements } = useMovements({ item_id: id, page, limit: 15 });
-  const { removeSubBarcode, removeImage, setPrimaryImage } = useItemMutations();
+  const { removeSubBarcode, removeImage, setPrimaryImage, removeUnit } = useItemMutations();
+  const { canSeePrices } = usePermissions();
 
   const [showEdit, setShowEdit] = useState(false);
-  const [showMove, setShowMove] = useState(false);
   const [showSub, setShowSub] = useState(false);
   const [subTarget, setSubTarget] = useState<{ id: string; barcode: string } | null>(null);
   /** Deleting a photo unlinks the file, so it is confirmed rather than instant. */
   const [imageToDelete, setImageToDelete] = useState<string | null>(null);
+  const [showUnit, setShowUnit] = useState(false);
+  const [editingUnit, setEditingUnit] = useState<ItemUnit | null>(null);
+  const [unitToDelete, setUnitToDelete] = useState<ItemUnit | null>(null);
   const images = item?.images ?? [];
 
   if (isLoading) {
@@ -57,8 +62,11 @@ export default function ItemDetail() {
     );
   }
 
-  const margin = item.sale_price - item.purchase_price;
-  const marginPct = item.purchase_price > 0 ? (margin / item.purchase_price) * 100 : 0;
+  // Both are absent for a staff role, and the block that renders them is
+  // hidden for that role — `?? 0` here only keeps the arithmetic total.
+  const purchase = item.purchase_price ?? 0;
+  const margin = (item.sale_price ?? 0) - purchase;
+  const marginPct = purchase > 0 ? (margin / purchase) * 100 : 0;
 
   const deleteSub = async () => {
     if (!subTarget) return;
@@ -82,6 +90,17 @@ export default function ItemDetail() {
     }
   };
 
+  const deleteUnit = async () => {
+    if (!unitToDelete) return;
+    try {
+      await removeUnit.mutateAsync({ id: item.id, uid: unitToDelete.id });
+      toast.success('تم حذف الوحدة');
+      setUnitToDelete(null);
+    } catch (error) {
+      toastError(error, 'تعذّر حذف الوحدة');
+    }
+  };
+
   return (
     <>
       <PageHeader
@@ -101,9 +120,6 @@ export default function ItemDetail() {
         }
         actions={
           <>
-            <Button icon={<ArrowLeftRight className="size-4" />} onClick={() => setShowMove(true)}>
-              حركة مخزون
-            </Button>
             <Button variant="primary" icon={<Pencil className="size-4" />} onClick={() => setShowEdit(true)}>
               تعديل
             </Button>
@@ -137,7 +153,9 @@ export default function ItemDetail() {
 
         {/* Summary */}
         <Card className="p-5 lg:col-span-2">
-          <div className="grid grid-cols-2 gap-5 sm:grid-cols-4">
+          {/* Three price cells for a manager, none for anyone else — so the
+              row collapses from four columns to one rather than leaving gaps. */}
+          <div className={cn('grid gap-5', canSeePrices ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-1')}>
             <div>
               <p className="text-[11px] font-medium text-subtle">الرصيد الحالي</p>
               <p className="mt-1 text-3xl font-bold leading-none">
@@ -148,20 +166,33 @@ export default function ItemDetail() {
                 {item.low_stock_threshold === null && ' (عام)'}
               </p>
             </div>
-            <Stat label="سعر الشراء" value={fmtCurrency(item.purchase_price)} />
-            <Stat label="سعر البيع" value={fmtCurrency(item.sale_price)} />
-            <Stat
-              label="هامش الربح"
-              value={`${fmtCurrency(margin)}${item.purchase_price > 0 ? ` (${marginPct.toFixed(0)}٪)` : ''}`}
-              tone={margin > 0 ? 'text-emerald-600 dark:text-emerald-400' : margin < 0 ? 'text-rose-500' : undefined}
-            />
+            {canSeePrices && (
+              <>
+                <Stat label="سعر الشراء" value={fmtCurrency(item.purchase_price)} />
+                <Stat label="سعر البيع" value={fmtCurrency(item.sale_price)} />
+                <Stat
+                  label="هامش الربح"
+                  value={`${fmtCurrency(margin)}${purchase > 0 ? ` (${marginPct.toFixed(0)}٪)` : ''}`}
+                  tone={margin > 0 ? 'text-emerald-600 dark:text-emerald-400' : margin < 0 ? 'text-accent-600 dark:text-accent-400' : undefined}
+                />
+              </>
+            )}
           </div>
 
           <div className="mt-5 grid grid-cols-3 gap-3 border-t border-line pt-4">
             <MiniStat label="إجمالي الوارد" value={fmtInt(item.stats?.total_in)} tone="text-emerald-600 dark:text-emerald-400" />
-            <MiniStat label="إجمالي الصادر" value={fmtInt(item.stats?.total_out)} tone="text-rose-600 dark:text-rose-400" />
+            <MiniStat label="إجمالي الصادر" value={fmtInt(item.stats?.total_out)} tone="text-accent-600 dark:text-accent-400" />
             <MiniStat label="عدد الحركات" value={fmtInt(item.stats?.movement_count)} />
           </div>
+
+          {item.notes && (
+            <div className="mt-4 border-t border-line pt-4">
+              <p className="mb-1.5 flex items-center gap-1.5 text-[11px] font-medium text-subtle">
+                <StickyNote className="size-3.5" /> ملاحظة
+              </p>
+              <p className="whitespace-pre-wrap text-sm leading-relaxed text-ink">{item.notes}</p>
+            </div>
+          )}
         </Card>
 
         {/* Sub-barcodes */}
@@ -186,7 +217,7 @@ export default function ItemDetail() {
                   <button
                     type="button"
                     onClick={() => setSubTarget({ id: sub.id, barcode: sub.barcode })}
-                    className="rounded p-1.5 text-subtle opacity-0 transition hover:bg-rose-500/10 hover:text-rose-500 group-hover:opacity-100"
+                    className="rounded p-1.5 text-subtle opacity-0 transition hover:bg-accent-500/10 hover:text-accent-600 dark:hover:text-accent-400 group-hover:opacity-100"
                     aria-label="حذف"
                   >
                     <Trash2 className="size-3.5" />
@@ -201,6 +232,84 @@ export default function ItemDetail() {
           )}
         </Card>
       </div>
+
+      {/* Units of measure */}
+      <Card className="mt-4 overflow-hidden">
+        <div className="flex items-center justify-between border-b border-line px-5 py-3.5">
+          <h2 className="flex items-center gap-2 text-sm font-bold">
+            <Ruler className="size-4 text-subtle" /> وحدات القياس
+          </h2>
+          <Button size="sm" variant="subtle" icon={<Plus className="size-3.5" />}
+            onClick={() => { setEditingUnit(null); setShowUnit(true); }}>
+            إضافة وحدة
+          </Button>
+        </div>
+
+        {item.units?.length ? (
+          <div className="overflow-x-auto">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>الاسم</th>
+                  <th>الباركود</th>
+                  <th className="text-center">عامل التحويل</th>
+                  {canSeePrices && <th className="text-center">سعر الشراء</th>}
+                  {canSeePrices && <th className="text-center">سعر البيع</th>}
+                  <th className="text-center">الوزن</th>
+                  <th className="text-center">الحجم</th>
+                  <th aria-label="إجراءات" />
+                </tr>
+              </thead>
+              <tbody>
+                {item.units.map((unit) => {
+                  const cbm = unit.cbm_m3
+                    ?? (unit.length_cm && unit.width_cm && unit.height_cm
+                      ? (unit.length_cm * unit.width_cm * unit.height_cm) / 1_000_000 : null);
+                  return (
+                    <tr key={unit.id}>
+                      <td className="font-medium">{unit.name}</td>
+                      <td className="nums font-mono text-xs">{unit.barcode}</td>
+                      <td className="nums text-center">= {fmtMoney(unit.conversion_factor)} {item.name}</td>
+                      {canSeePrices && <td className="nums text-center">{fmtCurrency(unit.purchase_price)}</td>}
+                      {canSeePrices && <td className="nums text-center">{fmtCurrency(unit.sale_price)}</td>}
+                      <td className="nums text-center text-xs text-muted">
+                        {unit.weight_kg !== null ? `${unit.weight_kg} كغم` : '—'}
+                      </td>
+                      <td className="nums text-center text-xs text-muted">
+                        {cbm !== null ? `${cbm.toFixed(3)} م³` : '—'}
+                      </td>
+                      <td>
+                        <div className="flex items-center justify-end gap-1">
+                          <button
+                            type="button"
+                            onClick={() => { setEditingUnit(unit); setShowUnit(true); }}
+                            className="rounded p-1.5 text-subtle transition hover:bg-surface-2 hover:text-fg"
+                            aria-label="تعديل"
+                          >
+                            <Pencil className="size-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setUnitToDelete(unit)}
+                            className="rounded p-1.5 text-subtle transition hover:bg-accent-500/10 hover:text-accent-600 dark:hover:text-accent-400"
+                            aria-label="حذف"
+                          >
+                            <Trash2 className="size-3.5" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="px-5 py-8 text-center text-xs leading-relaxed text-muted">
+            لا توجد وحدات قياس بديلة.<br />أضف وحدات مثل «كرتونة» أو «علبة» لبيعها أو شرائها بسعر وباركود خاص بها.
+          </p>
+        )}
+      </Card>
 
       {/* Movement history */}
       <Card className="mt-4 overflow-hidden">
@@ -231,7 +340,7 @@ export default function ItemDetail() {
                       <td className="whitespace-nowrap text-xs text-muted">{fmtDateTime(movement.created_at)}</td>
                       <td><MovementBadge type={movement.type} /></td>
                       <td className={cn('nums text-center font-bold',
-                        movement.type === 'IN' ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400')}>
+                        movement.type === 'IN' ? 'text-emerald-600 dark:text-emerald-400' : 'text-accent-600 dark:text-accent-400')}>
                         {movement.type === 'IN' ? '+' : '−'}{fmtInt(movement.quantity)}
                       </td>
                       <td className="text-xs text-muted">{REFERENCE_LABEL[movement.reference_type]}</td>
@@ -256,15 +365,33 @@ export default function ItemDetail() {
           <EmptyState
             icon={<History className="size-6" />}
             title="لا توجد حركات على هذا الصنف"
-            message="سجّل أول حركة إدخال لبدء تتبّع الرصيد."
-            action={<Button variant="primary" onClick={() => setShowMove(true)}>تسجيل حركة</Button>}
+            message="أنشئ فاتورة إدخال لبدء تتبّع الرصيد — كل حركة مخزون تمر عبر فاتورة."
+            action={(
+              <Link to="/invoices/new?type=STOCK_IN">
+                <Button variant="primary">إنشاء فاتورة إدخال</Button>
+              </Link>
+            )}
           />
         )}
       </Card>
 
       <ItemFormModal open={showEdit} onClose={() => setShowEdit(false)} item={item} />
-      <StockMovementModal open={showMove} onClose={() => setShowMove(false)} item={item} />
       <SubBarcodeModal open={showSub} onClose={() => setShowSub(false)} itemId={item.id} />
+      <ItemUnitModal
+        open={showUnit}
+        onClose={() => { setShowUnit(false); setEditingUnit(null); }}
+        itemId={item.id}
+        unit={editingUnit}
+      />
+      <ConfirmDialog
+        open={!!unitToDelete}
+        onClose={() => setUnitToDelete(null)}
+        onConfirm={deleteUnit}
+        loading={removeUnit.isPending}
+        title="حذف وحدة القياس"
+        confirmLabel="حذف"
+        message={<>سيتم حذف الوحدة <strong>{unitToDelete?.name}</strong>. لن يمكن حذفها إن كانت مستخدمة في فاتورة.</>}
+      />
       <ConfirmDialog
         open={!!subTarget}
         onClose={() => setSubTarget(null)}

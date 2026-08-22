@@ -73,17 +73,13 @@
   "invoiceType": {
     "STOCK_IN": "إدخال مخزون",
     "STOCK_OUT": "إخراج مخزون",
-    "PURCHASE": "فاتورة شراء",
-    "SALE": "فاتورة بيع",
     "short": {
       "STOCK_IN": "إدخال",
-      "STOCK_OUT": "إخراج",
-      "PURCHASE": "شراء",
-      "SALE": "بيع"
+      "STOCK_OUT": "إخراج"
     }
   },
   "invoiceStatus": {
-    "DRAFT": "مسودة",
+    "DRAFT": "غير محفوظة",
     "POSTED": "مرحّلة",
     "CANCELLED": "ملغاة"
   },
@@ -129,5 +125,12 @@
   "theme": {
     "dark": "الوضع الداكن",
     "light": "الوضع الفاتح"
+  },
+  "idle": {
+    "warningTitle": "سيتم تسجيل خروجك قريباً",
+    "warningMessage": "سيتم تسجيل خروجك تلقائياً بعد {{seconds}} ثانية بسبب عدم النشاط.",
+    "stayLoggedIn": "متابعة الجلسة",
+    "loggedOutTitle": "تم تسجيل الخروج",
+    "loggedOutMessage": "تم تسجيل خروجك تلقائياً بسبب عدم النشاط"
   }
 }

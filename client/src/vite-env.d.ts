@@ -12,6 +12,16 @@ interface ImportMetaEnv {
   readonly VITE_SUPABASE_URL?: string;
   /** Supabase anon/public key. */
   readonly VITE_SUPABASE_ANON_KEY?: string;
+  /**
+   * 'local' switches the login screen to this API's own email + password
+   * accounts (server AUTH_MODE=local) instead of Supabase. Any other value,
+   * or unset, keeps the Supabase path above.
+   */
+  readonly VITE_AUTH_MODE?: string;
+  /** Minutes of inactivity before the idle-logout warning shows. Default 15. */
+  readonly VITE_IDLE_TIMEOUT_MINUTES?: string;
+  /** Seconds the idle-logout warning's countdown runs before signing out. Default 60. */
+  readonly VITE_IDLE_WARNING_SECONDS?: string;
 }
 
 interface ImportMeta {

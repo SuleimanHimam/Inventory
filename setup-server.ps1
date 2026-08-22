@@ -21,7 +21,12 @@
   used instead.
 
 .PARAMETER DbPassword
-  Password for the application's database login. Generated if omitted.
+  Password for the application's database login (app_api). Generated if
+  omitted -- but the login itself has to already exist: run
+  server\provision-mssql.sql once, as sa, before this script (see
+  deploy\windows\README.md step 1). This script does not install or
+  provision SQL Server itself -- that is a heavier, more environment-specific
+  step than a generic setup script should attempt silently.
 
 .PARAMETER SupabaseUrl
   Enables login. Without it the API runs with AUTH_MODE=none, which serves
@@ -48,10 +53,10 @@
 param(
   [string] $AppRoot = '',
   [string] $Domain = '',
+  [string] $DbServer = '127.0.0.1\INVENTORY',
   [string] $DbName = 'inventory',
-  [string] $DbUser = 'inventory_app',
+  [string] $DbUser = 'app_api',
   [string] $DbPassword = '',
-  [string] $PostgresSuperUser = 'postgres',
   [string] $SupabaseUrl = '',
   [switch] $InstallPrereqs,
   [switch] $InstallServices,
@@ -108,7 +113,10 @@ if ($InstallPrereqs) {
   if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
     throw 'winget not available. Install the prerequisites by hand -- see deploy\windows\README.md'
   }
-  foreach ($pkg in 'OpenJS.NodeJS.LTS', 'PostgreSQL.PostgreSQL.16', 'Git.Git') {
+  # SQL Server itself is deliberately not in this list -- see deploy\windows\README.md
+  # for the unattended-install command. It needs a named instance and a
+  # provisioning script (provision-mssql.sql), not a silent package install.
+  foreach ($pkg in 'OpenJS.NodeJS.LTS', 'Git.Git') {
     Info "winget install $pkg"
     winget install --id $pkg --silent --accept-package-agreements --accept-source-agreements 2>&1 |
       Out-Null
@@ -130,30 +138,22 @@ if ($nodeMajor -lt 20 -or ($nodeMajor -eq 20 -and $nodeMinor -lt 12)) {
 }
 Ok "Node.js $nodeVersion"
 
-$psql = Find-Exe 'psql' @('C:\Program Files\PostgreSQL\*\bin\psql.exe')
-if (-not $psql) {
-  throw 'psql not found. Install PostgreSQL 15 or newer, or re-run with -InstallPrereqs.'
+$sqlcmd = Find-Exe 'sqlcmd' @('C:\Program Files\Microsoft SQL Server\Client SDK\ODBC\*\Tools\Binn\sqlcmd.exe')
+if (-not $sqlcmd) {
+  throw 'sqlcmd not found. Install the SQL Server command-line tools, or SQL Server itself -- see deploy\windows\README.md.'
 }
-$pgBin = Split-Path $psql
-if ($env:Path -notlike "*$pgBin*") {
-  $env:Path = "$env:Path;$pgBin"
-  if (Test-Admin) {
-    [Environment]::SetEnvironmentVariable(
-      'Path', [Environment]::GetEnvironmentVariable('Path', 'Machine') + ";$pgBin", 'Machine')
-    Info "added $pgBin to the machine PATH"
-  }
-}
-Ok "psql at $pgBin"
+Ok "sqlcmd at $sqlcmd"
 
-$pgService = Get-Service postgresql* -ErrorAction SilentlyContinue | Select-Object -First 1
-if (-not $pgService) {
-  Warn 'No postgresql service found -- is the server running elsewhere?'
-} elseif ($pgService.Status -ne 'Running') {
-  Info "starting $($pgService.Name)"
-  Start-Service $pgService.Name
-  Ok "$($pgService.Name) started"
+$instanceName = ($DbServer -split '\\')[-1]
+$sqlService = Get-Service "MSSQL`$$instanceName" -ErrorAction SilentlyContinue
+if (-not $sqlService) {
+  throw "SQL Server service 'MSSQL`$$instanceName' not found. Provision the INVENTORY instance first -- see deploy\windows\README.md."
+} elseif ($sqlService.Status -ne 'Running') {
+  Info "starting $($sqlService.Name)"
+  Start-Service $sqlService.Name
+  Ok "$($sqlService.Name) started"
 } else {
-  Ok "$($pgService.Name) running"
+  Ok "$($sqlService.Name) running"
 }
 
 # ---------------------------------------------------------------- 2. the code
@@ -194,51 +194,21 @@ try {
 # ---------------------------------------------------------------- 4. database
 Step 'Database'
 
+# Provisioning the database and the app_api login is a separate, manual step
+# (server\provision-mssql.sql, run once as sa) rather than something this
+# script does silently -- unlike a Postgres CREATE DATABASE/CREATE ROLE, it
+# involves a collation choice worth spot-checking against real data first,
+# and this script has no good way to prompt for or validate an sa password.
 if (-not $DbPassword) {
-  $bytes = [byte[]]::new(24)
-  [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
-  $DbPassword = [Convert]::ToBase64String($bytes) -replace '[^a-zA-Z0-9]', ''
-  Info 'generated a database password (written to server\.env)'
+  throw "-DbPassword is required. Run server\provision-mssql.sql as sa first (see deploy\windows\README.md step 1), then pass the app_api password you set there."
 }
 
-Info "connecting as $PostgresSuperUser -- you may be prompted for its password"
-
-$exists = & $psql -U $PostgresSuperUser -h 127.0.0.1 -tAc `
-  "SELECT 1 FROM pg_database WHERE datname='$DbName'" 2>&1
+Info "checking the '$instanceName' instance is reachable as app_api"
+& $sqlcmd -S $DbServer -U $DbUser -P $DbPassword -d $DbName -Q "SELECT 1" -C -h -1 2>&1 | Out-Null
 if ($LASTEXITCODE -ne 0) {
-  throw "Could not reach PostgreSQL as '$PostgresSuperUser'. Check the password, or that the service is running."
+  throw "Could not connect to $DbServer as '$DbUser'. Check DbPassword, and that provision-mssql.sql has been run."
 }
-
-if ($exists -match '1') {
-  Ok "database '$DbName' already exists"
-} else {
-  & $psql -U $PostgresSuperUser -h 127.0.0.1 -c "CREATE DATABASE $DbName" | Out-Null
-  if ($LASTEXITCODE -ne 0) { throw 'CREATE DATABASE failed' }
-  Ok "database '$DbName' created"
-}
-
-# A dedicated login, not the superuser. This matters beyond tidiness: a
-# superuser bypasses every Row Level Security policy, which is the database
-# half of tenant isolation. Ownership of the schema is kept here so migrations
-# can run as this role too.
-$roleSql = @"
-DO `$`$
-BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '$DbUser') THEN
-    CREATE ROLE $DbUser LOGIN PASSWORD '$DbPassword';
-  ELSE
-    ALTER ROLE $DbUser WITH LOGIN PASSWORD '$DbPassword';
-  END IF;
-END
-`$`$;
-GRANT ALL ON DATABASE $DbName TO $DbUser;
-"@
-$roleSql | & $psql -U $PostgresSuperUser -h 127.0.0.1 -d $DbName -q 2>&1 | Out-Null
-if ($LASTEXITCODE -ne 0) { throw "Could not create the '$DbUser' role" }
-& $psql -U $PostgresSuperUser -h 127.0.0.1 -d $DbName -q -c "GRANT ALL ON SCHEMA public TO $DbUser" | Out-Null
-Ok "role '$DbUser' ready"
-
-$connString = "postgresql://${DbUser}:${DbPassword}@127.0.0.1:5432/$DbName"
+Ok "database '$DbName' reachable as '$DbUser'"
 
 # ---------------------------------------------------------------- 5. config
 Step 'Configuration'
@@ -263,7 +233,11 @@ $envLines = @(
   $(if ($Domain) { 'HOST=127.0.0.1' } else { 'HOST=0.0.0.0' }),
   'PORT=4317',
   '',
-  "DATABASE_URL=$connString",
+  "DB_SERVER=$DbServer",
+  "DB_NAME=$DbName",
+  "DB_USER=$DbUser",
+  "DB_PASSWORD=$DbPassword",
+  'DB_ENCRYPT=false',
   '',
   "AUTH_MODE=$authMode"
 )

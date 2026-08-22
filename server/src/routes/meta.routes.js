@@ -1,13 +1,14 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { wrap, parse, pageQuery, paginated } from '../lib/http.js';
+import { requireManager, requireNotClerk } from '../lib/roles.js';
 import { getSettings, setSettings } from '../db/index.js';
 import { dashboardStats } from '../services/items.service.js';
 import { listMovements } from '../services/invoices.service.js';
 
 const router = Router();
 
-router.get('/dashboard', wrap(async (_req, res) => res.json(await dashboardStats())));
+router.get('/dashboard', requireNotClerk, wrap(async (_req, res) => res.json(await dashboardStats())));
 
 /** Who am I, and which organisation am I in — drives the account menu. */
 router.get('/me', wrap((req, res) => res.json({
@@ -29,9 +30,11 @@ router.get('/movements', wrap(async (req, res) => {
   res.json(paginated(rows, total, q));
 }));
 
+// Readable by everyone — currency and digit system drive number formatting on
+// every screen. Writable by a manager only, one line below.
 router.get('/settings', wrap(async (_req, res) => res.json(await getSettings())));
 
-router.patch('/settings', wrap(async (req, res) => {
+router.patch('/settings', requireManager, wrap(async (req, res) => {
   const body = parse(
     z.object({
       low_stock_threshold: z.coerce.number().int().min(0).optional(),

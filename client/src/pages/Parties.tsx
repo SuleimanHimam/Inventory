@@ -12,6 +12,7 @@ import {
   useDebounced, useDuplicateName, useParties, useParty, usePartyMutations, type PartyKind,
 } from '@/hooks';
 import { fmtCurrency, fmtDateShort, fmtInt } from '@/lib/format';
+import { usePermissions } from '@/lib/permissions';
 import { toast, toastError } from '@/store/toast';
 import type { Party } from '@/lib/types';
 
@@ -155,7 +156,7 @@ export default function Parties({ kind }: { kind: PartyKind }) {
                         <Button
                           size="icon" variant="ghost"
                           title={party.is_active ? 'أرشفة' : 'إعادة تنشيط'}
-                          className={party.is_active ? 'hover:text-amber-500' : 'hover:text-emerald-500'}
+                          className={party.is_active ? 'hover:text-accent-500' : 'hover:text-emerald-500'}
                           onClick={() => setArchiveTarget(party)}
                         >
                           {party.is_active ? <Archive className="size-4" /> : <ArchiveRestore className="size-4" />}
@@ -286,8 +287,8 @@ function PartyFormModal({
 
         {/* Duplicate names are allowed, but the user is warned. */}
         {duplicate && (
-          <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/8 px-3 py-2.5 text-xs">
-            <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-amber-500" />
+          <div className="flex items-start gap-2 rounded-lg border border-accent-500/30 bg-accent-500/8 px-3 py-2.5 text-xs">
+            <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-accent-500" />
             <span className="text-muted">
               يوجد سجل بنفس الاسم «{duplicate.name}». يمكنك المتابعة، لكن تأكد أنك لا تنشئ تكراراً.
             </span>
@@ -334,6 +335,7 @@ function PartyDetailModal({
   kind, id, onClose,
 }: { kind: PartyKind; id: string | null; onClose: () => void }) {
   const { data: party } = useParty(kind, id ?? undefined);
+  const { canSeePrices } = usePermissions();
   const config = CONFIG[kind];
 
   return (
@@ -351,7 +353,9 @@ function PartyDetailModal({
         <div className="space-y-5">
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
             <Stat label="عدد الفواتير" value={fmtInt(party.stats?.invoice_count)} />
-            <Stat label="إجمالي التعاملات" value={fmtCurrency(party.stats?.total_value)} />
+            {canSeePrices && (
+              <Stat label="إجمالي التعاملات" value={fmtCurrency(party.stats?.total_value)} />
+            )}
             <Stat label="آخر فاتورة" value={party.stats?.last_invoice_date
               ? fmtDateShort(party.stats.last_invoice_date) : '—'} />
             <Stat label="الرقم الضريبي" value={party.tax_number || '—'} />
@@ -383,7 +387,7 @@ function PartyDetailModal({
                       <th>الرقم</th>
                       <th>النوع</th>
                       <th>التاريخ</th>
-                      <th className="text-center">الإجمالي</th>
+                      {canSeePrices && <th className="text-center">الإجمالي</th>}
                       <th>الحالة</th>
                     </tr>
                   </thead>
@@ -398,7 +402,9 @@ function PartyDetailModal({
                         </td>
                         <td><InvoiceTypeBadge type={invoice.type} withIcon={false} /></td>
                         <td className="nums text-xs text-muted">{fmtDateShort(invoice.invoice_date)}</td>
-                        <td className="nums text-center font-semibold">{fmtCurrency(invoice.total)}</td>
+                        {canSeePrices && (
+                          <td className="nums text-center font-semibold">{fmtCurrency(invoice.total)}</td>
+                        )}
                         <td><InvoiceStatusBadge status={invoice.status} /></td>
                       </tr>
                     ))}

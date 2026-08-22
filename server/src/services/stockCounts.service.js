@@ -17,7 +17,7 @@ const SELECT_SESSION = `
     LEFT JOIN items i ON i.id = s.item_id`;
 
 const loadRaw = async (id) => {
-  const row = await get('SELECT * FROM stock_counts WHERE id = ? AND org_id = ?', [id, orgId()]);
+  const row = await get('SELECT * FROM stock_counts WHERE id = @id AND org_id = @org', { id, org: orgId() });
   if (!row) throw notFound('جلسة الجرد غير موجودة', 'STOCK_COUNT_NOT_FOUND');
   return row;
 };
@@ -27,14 +27,14 @@ export async function listStockCounts({ status, page, limit }) {
   const params = status ? { status, org: orgId() } : { org: orgId() };
   const { n: total } = await get(`SELECT COUNT(*) n FROM stock_counts s ${where}`, params);
   const rows = (await all(
-    `${SELECT_SESSION} ${where} ORDER BY s.created_at DESC LIMIT @limit OFFSET @offset`,
+    `${SELECT_SESSION} ${where} ORDER BY s.created_at DESC OFFSET @offset ROWS FETCH NEXT @limit ROWS ONLY`,
     { ...params, limit, offset: (page - 1) * limit },
   )).map(publicRow);
 
   for (const r of rows) {
     r.invoices = await all(
-      'SELECT id, number, type, status FROM invoices WHERE stock_count_id = ? AND org_id = ?',
-      [r.id, orgId()]);
+      'SELECT id, number, type, status FROM invoices WHERE stock_count_id = @id AND org_id = @org',
+      { id: r.id, org: orgId() });
   }
   return { rows, total };
 }
@@ -46,8 +46,8 @@ export async function getStockCount(id, { withLines = true } = {}) {
   const session = publicRow(row);
   if (withLines) session.lines = await getCountLines(id, row.created_at);
   session.invoices = await all(
-    'SELECT id, number, type, status FROM invoices WHERE stock_count_id = ? AND org_id = ?',
-    [id, orgId()]);
+    'SELECT id, number, type, status FROM invoices WHERE stock_count_id = @id AND org_id = @org',
+    { id, org: orgId() });
   session.summary = await summarise(id);
   return session;
 }
@@ -58,22 +58,22 @@ export async function getStockCount(id, { withLines = true } = {}) {
  */
 export async function getCountLines(stockCountId, sessionCreatedAt) {
   const createdAt = sessionCreatedAt
-    ?? (await get('SELECT created_at FROM stock_counts WHERE id = ? AND org_id = ?',
-      [stockCountId, orgId()]))?.created_at;
+    ?? (await get('SELECT created_at FROM stock_counts WHERE id = @id AND org_id = @org',
+      { id: stockCountId, org: orgId() }))?.created_at;
 
   const rows = await all(
     `SELECT l.*, i.name AS item_name, i.barcode AS item_barcode, i.quantity AS live_quantity,
             c.name AS category_name,
             CASE WHEN l.counted_quantity IS NULL THEN NULL
                  ELSE l.counted_quantity - l.expected_quantity END AS variance,
-            EXISTS (SELECT 1 FROM stock_movements m
+            CASE WHEN EXISTS (SELECT 1 FROM stock_movements m
                      WHERE m.item_id = l.item_id AND m.org_id = @org
-                       AND m.created_at > @createdAt) AS is_stale
+                       AND m.created_at > @createdAt) THEN 1 ELSE 0 END AS is_stale
        FROM stock_count_lines l
        JOIN items i ON i.id = l.item_id
        LEFT JOIN categories c ON c.id = i.category_id
       WHERE l.stock_count_id = @id AND l.org_id = @org
-      ORDER BY lower(i.name)`,
+      ORDER BY i.name`,
     { id: stockCountId, createdAt, org: orgId() });
 
   return rows.map((l) => ({ ...publicRow(l), skipped: !!l.skipped, is_stale: !!l.is_stale }));
@@ -109,29 +109,38 @@ export function createStockCount({ scope, category_id, item_id, created_by }) {
     await run(
       `INSERT INTO stock_counts (id, org_id, number, scope, category_id, item_id, status,
                                  created_by, created_at)
-       VALUES (?,?,?,?,?,?, 'OPEN', ?, ?)`,
-      [id, orgId(), await nextNumber('STOCK_COUNT', 'SC'), scope,
-        scope === 'CATEGORY' ? category_id : null,
-        scope === 'ITEM' ? item_id : null,
-        created_by || 'المستخدم', nowIso()]);
+       VALUES (@id, @org, @number, @scope, @category_id, @item_id, 'OPEN', @created_by, @created_at)`,
+      {
+        id,
+        org: orgId(),
+        number: await nextNumber('STOCK_COUNT', 'SC'),
+        scope,
+        category_id: scope === 'CATEGORY' ? category_id : null,
+        item_id: scope === 'ITEM' ? item_id : null,
+        created_by: created_by || 'المستخدم',
+        created_at: nowIso(),
+      });
 
     const items = scope === 'ALL'
-      ? await all('SELECT id, quantity FROM items WHERE deleted_at IS NULL AND org_id = ?',
-        [orgId()])
+      ? await all('SELECT id, quantity FROM items WHERE deleted_at IS NULL AND org_id = @org',
+        { org: orgId() })
       : scope === 'CATEGORY'
         ? await all(
           `SELECT id, quantity FROM items
-            WHERE deleted_at IS NULL AND category_id = ? AND org_id = ?`, [category_id, orgId()])
+            WHERE deleted_at IS NULL AND category_id = @category_id AND org_id = @org`,
+          { category_id, org: orgId() })
         : await all(
           `SELECT id, quantity FROM items
-            WHERE deleted_at IS NULL AND id = ? AND org_id = ?`, [item_id, orgId()]);
+            WHERE deleted_at IS NULL AND id = @item_id AND org_id = @org`,
+          { item_id, org: orgId() });
 
     if (!items.length) throw unprocessable('لا توجد أصناف ضمن النطاق المحدد', 'NO_ITEMS_IN_SCOPE');
 
     for (const it of items) {
       await run(
         `INSERT INTO stock_count_lines (id, org_id, stock_count_id, item_id, expected_quantity)
-         VALUES (?,?,?,?,?)`, [newId(), orgId(), id, it.id, it.quantity]);
+         VALUES (@id, @org, @stock_count_id, @item_id, @expected_quantity)`,
+        { id: newId(), org: orgId(), stock_count_id: id, item_id: it.id, expected_quantity: it.quantity });
     }
 
     return getStockCount(id);
@@ -145,8 +154,8 @@ export async function updateCountLine(stockCountId, lineId, { counted_quantity, 
   }
 
   const line = await get(
-    'SELECT * FROM stock_count_lines WHERE id = ? AND stock_count_id = ? AND org_id = ?',
-    [lineId, stockCountId, orgId()]);
+    'SELECT * FROM stock_count_lines WHERE id = @id AND stock_count_id = @stock_count_id AND org_id = @org',
+    { id: lineId, stock_count_id: stockCountId, org: orgId() });
   if (!line) throw notFound('سطر الجرد غير موجود', 'COUNT_LINE_NOT_FOUND');
 
   const fields = [];
@@ -176,8 +185,8 @@ export async function updateCountLine(stockCountId, lineId, { counted_quantity, 
   // Re-open a submitted session that gets edited again.
   if (session.status === 'SUBMITTED') {
     await run(
-      "UPDATE stock_counts SET status = 'OPEN', submitted_at = NULL WHERE id = ? AND org_id = ?",
-      [stockCountId, orgId()]);
+      "UPDATE stock_counts SET status = 'OPEN', submitted_at = NULL WHERE id = @id AND org_id = @org",
+      { id: stockCountId, org: orgId() });
   }
 
   return getStockCount(stockCountId);
@@ -193,9 +202,9 @@ export async function refreshExpected(stockCountId) {
   await run(
     `UPDATE stock_count_lines
         SET expected_quantity = (SELECT quantity FROM items WHERE items.id = stock_count_lines.item_id)
-      WHERE stock_count_id = ? AND org_id = ?`, [stockCountId, orgId()]);
-  await run('UPDATE stock_counts SET created_at = ? WHERE id = ? AND org_id = ?',
-    [nowIso(), stockCountId, orgId()]);
+      WHERE stock_count_id = @id AND org_id = @org`, { id: stockCountId, org: orgId() });
+  await run('UPDATE stock_counts SET created_at = @created_at WHERE id = @id AND org_id = @org',
+    { created_at: nowIso(), id: stockCountId, org: orgId() });
   return getStockCount(stockCountId);
 }
 
@@ -207,16 +216,16 @@ export async function submitStockCount(stockCountId) {
 
   const { n: pending } = await get(
     `SELECT COUNT(*) n FROM stock_count_lines
-      WHERE stock_count_id = ? AND counted_quantity IS NULL AND skipped = 0 AND org_id = ?`,
-    [stockCountId, orgId()]);
+      WHERE stock_count_id = @id AND counted_quantity IS NULL AND skipped = 0 AND org_id = @org`,
+    { id: stockCountId, org: orgId() });
   if (pending) {
     throw unprocessable(
       `${pending} صنف بلا كمية فعلية — أدخل الكميات أو علّمها كـ"غير مجرودة"`,
       'LINES_NOT_COUNTED', { pending });
   }
 
-  await run("UPDATE stock_counts SET status = 'SUBMITTED', submitted_at = ? WHERE id = ? AND org_id = ?",
-    [nowIso(), stockCountId, orgId()]);
+  await run("UPDATE stock_counts SET status = 'SUBMITTED', submitted_at = @submitted_at WHERE id = @id AND org_id = @org",
+    { submitted_at: nowIso(), id: stockCountId, org: orgId() });
   return getStockCount(stockCountId);
 }
 
@@ -252,8 +261,8 @@ export async function applyStockCount(stockCountId) {
           update_item_price: false,     // a count never rewrites prices
           note: line.note || label,
         });
-        await run('UPDATE stock_count_lines SET auto_invoice_line_id = ? WHERE id = ? AND org_id = ?',
-          [line_id, line.id, orgId()]);
+        await run('UPDATE stock_count_lines SET auto_invoice_line_id = @line_id WHERE id = @id AND org_id = @org',
+          { line_id, id: line.id, org: orgId() });
       }
       created.push(await postInvoice(invoice.id, { referenceType: 'STOCK_COUNT' }));
     };
@@ -261,8 +270,8 @@ export async function applyStockCount(stockCountId) {
     await build('STOCK_IN', surplus);
     await build('STOCK_OUT', shortage);
 
-    await run("UPDATE stock_counts SET status = 'APPLIED', applied_at = ? WHERE id = ? AND org_id = ?",
-      [nowIso(), stockCountId, orgId()]);
+    await run("UPDATE stock_counts SET status = 'APPLIED', applied_at = @applied_at WHERE id = @id AND org_id = @org",
+      { applied_at: nowIso(), id: stockCountId, org: orgId() });
 
     return { session: await getStockCount(stockCountId), invoices: created };
   });
@@ -273,7 +282,7 @@ export async function cancelStockCount(stockCountId) {
   if (session.status === 'APPLIED') {
     throw unprocessable('لا يمكن إلغاء جلسة تم تطبيقها', 'STOCK_COUNT_APPLIED');
   }
-  await run("UPDATE stock_counts SET status = 'CANCELLED' WHERE id = ? AND org_id = ?",
-    [stockCountId, orgId()]);
+  await run("UPDATE stock_counts SET status = 'CANCELLED' WHERE id = @id AND org_id = @org",
+    { id: stockCountId, org: orgId() });
   return getStockCount(stockCountId);
 }

@@ -1,27 +1,25 @@
-import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
-  Printer, ArrowRight, Ban, Pencil, FileText, Lock, ClipboardList, Loader2,
+  Printer, ArrowRight, FileText, Lock, ClipboardList, Loader2,
 } from 'lucide-react';
 import {
-  Button, Card, PageHeader, Badge, EmptyState, ConfirmDialog, Stat,
+  Button, Card, PageHeader, Badge, EmptyState, Stat,
 } from '@/components/ui';
 import {
   BarcodeChip, INVOICE_TYPES, InvoiceStatusBadge, MovementBadge, SourceBadge,
 } from '@/components/domain';
 import { Thumb } from '@/components/ImagePicker';
-import { useInvoice, useInvoiceMutations } from '@/hooks';
+import { useInvoice } from '@/hooks';
 import { fmtCurrency, fmtDate, fmtDateTime, fmtInt } from '@/lib/format';
 import { usePrefs } from '@/store/prefs';
-import { toast, toastError } from '@/store/toast';
+import { usePermissions } from '@/lib/permissions';
 
 export default function InvoiceDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { data: invoice, isLoading } = useInvoice(id);
-  const mutations = useInvoiceMutations(id);
+  const { canSeePrices } = usePermissions();
   const companyName = usePrefs((s) => s.companyName);
-  const [confirmCancel, setConfirmCancel] = useState(false);
 
   if (isLoading) {
     return (
@@ -43,19 +41,21 @@ export default function InvoiceDetail() {
     );
   }
 
-  const config = INVOICE_TYPES[invoice.type];
-  const partyLabel = invoice.type === 'SALE' ? 'العميل' : invoice.type === 'PURCHASE' ? 'المورد' : 'الجهة';
+  // An unsaved invoice has no stock effect and nothing to show a record of, so
+  // there is no read-only view of one to land on — it goes back to the editor,
+  // which is the only place it can be finished. The editor redirects the other
+  // way for anything already saved, so the two guards do not chase each other.
+  if (invoice.status === 'DRAFT') {
+    navigate(`/invoices/${invoice.id}/edit`, { replace: true });
+    return null;
+  }
 
-  const cancel = async () => {
-    try {
-      await mutations.cancel.mutateAsync(invoice.id);
-      toast.info('تم إلغاء المسودة');
-      setConfirmCancel(false);
-    } catch (error) {
-      toastError(error, 'تعذّر إلغاء الفاتورة');
-      setConfirmCancel(false);
-    }
-  };
+  const config = INVOICE_TYPES[invoice.type];
+  const partyLabel = invoice.customer_id
+    ? 'العميل'
+    : invoice.supplier_id
+      ? 'المورد'
+      : (config.direction === 'OUT' ? 'العميل' : 'المورد');
 
   return (
     <>
@@ -74,22 +74,7 @@ export default function InvoiceDetail() {
           </span>
         }
         actions={
-          <>
-            {invoice.status === 'DRAFT' && (
-              <>
-                <Button variant="ghost" icon={<Ban className="size-4" />} onClick={() => setConfirmCancel(true)}>
-                  إلغاء
-                </Button>
-                <Button
-                  variant="primary" icon={<Pencil className="size-4" />}
-                  onClick={() => navigate(`/invoices/${invoice.id}/edit`)}
-                >
-                  متابعة التحرير
-                </Button>
-              </>
-            )}
-            <Button icon={<Printer className="size-4" />} onClick={() => window.print()}>طباعة</Button>
-          </>
+          <Button icon={<Printer className="size-4" />} onClick={() => window.print()}>طباعة</Button>
         }
       />
 
@@ -141,8 +126,8 @@ export default function InvoiceDetail() {
                 <th>الصنف</th>
                 <th>الباركود</th>
                 <th className="text-center">الكمية</th>
-                <th className="text-center">سعر الوحدة</th>
-                <th className="text-center">الإجمالي</th>
+                {canSeePrices && <th className="text-center">سعر الوحدة</th>}
+                {canSeePrices && <th className="text-center">الإجمالي</th>}
               </tr>
             </thead>
             <tbody>
@@ -160,8 +145,12 @@ export default function InvoiceDetail() {
                   </td>
                   <td data-label="الباركود"><BarcodeChip code={line.barcode_scanned || line.item_barcode} /></td>
                   <td data-label="الكمية" className="nums text-center font-bold">{fmtInt(line.quantity)}</td>
-                  <td data-label="سعر الوحدة" className="nums text-center">{fmtCurrency(line.unit_price)}</td>
-                  <td data-label="الإجمالي" className="nums text-center font-bold">{fmtCurrency(line.line_total)}</td>
+                  {canSeePrices && (
+                    <td data-label="سعر الوحدة" className="nums text-center">{fmtCurrency(line.unit_price)}</td>
+                  )}
+                  {canSeePrices && (
+                    <td data-label="الإجمالي" className="nums text-center font-bold">{fmtCurrency(line.line_total)}</td>
+                  )}
                 </tr>
               ))}
             </tbody>
@@ -178,19 +167,31 @@ export default function InvoiceDetail() {
               </>
             )}
           </div>
-          <div className="w-full max-w-xs space-y-2 text-sm">
-            <Row label="المجموع" value={fmtCurrency(invoice.subtotal)} />
-            {invoice.discount_total > 0 && (
-              <Row label="الخصم" value={`− ${fmtCurrency(invoice.discount_total)}`} tone="text-rose-500" />
-            )}
-            {invoice.tax_total > 0 && <Row label="الضريبة" value={`+ ${fmtCurrency(invoice.tax_total)}`} />}
-            <div className="flex items-center justify-between border-t border-line pt-2.5">
-              <span className="font-bold">الإجمالي</span>
-              <span className="nums text-xl font-bold text-brand-600 dark:text-brand-400">
-                {fmtCurrency(invoice.total)}
-              </span>
+          {/* The whole money panel, not just its numbers: a labelled but empty
+              "الإجمالي" row is worse than no panel. Staff get the line count,
+              which is what they check a delivery against. */}
+          {canSeePrices ? (
+            <div className="w-full max-w-xs space-y-2 text-sm">
+              <Row label="المجموع" value={fmtCurrency(invoice.subtotal)} />
+              {(invoice.discount_total ?? 0) > 0 && (
+                <Row label="الخصم" value={`− ${fmtCurrency(invoice.discount_total)}`} tone="text-accent-600 dark:text-accent-400" />
+              )}
+              {(invoice.tax_total ?? 0) > 0 && <Row label="الضريبة" value={`+ ${fmtCurrency(invoice.tax_total)}`} />}
+              <div className="flex items-center justify-between border-t border-line pt-2.5">
+                <span className="font-bold">الإجمالي</span>
+                <span className="nums text-xl font-bold text-brand-600 dark:text-brand-400">
+                  {fmtCurrency(invoice.total)}
+                </span>
+              </div>
             </div>
-          </div>
+          ) : (
+            <div className="w-full max-w-xs text-sm">
+              <div className="flex items-center justify-between border-t border-line pt-2.5">
+                <span className="font-bold">عدد الأصناف</span>
+                <span className="nums text-xl font-bold">{fmtInt(invoice.line_count)}</span>
+              </div>
+            </div>
+          )}
         </div>
       </Card>
 
@@ -230,15 +231,6 @@ export default function InvoiceDetail() {
         </Card>
       )}
 
-      <ConfirmDialog
-        open={confirmCancel}
-        onClose={() => setConfirmCancel(false)}
-        onConfirm={cancel}
-        loading={mutations.cancel.isPending}
-        title="إلغاء الفاتورة"
-        confirmLabel="إلغاء الفاتورة"
-        message="ستُحفظ الفاتورة كسجل ملغى ولن تؤثر على المخزون."
-      />
     </>
   );
 }

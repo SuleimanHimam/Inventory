@@ -24,6 +24,28 @@ for (const c of COLUMNS) {
 
 const norm = (v) => String(v ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
 
+/**
+ * Which item (if any) already owns this barcode, across every table the
+ * uniqueness triggers check — items, sub_barcodes, and item_units. Preview
+ * and commit both need this and must agree: previously preview only checked
+ * the first two, so a row colliding with a unit-level barcode showed as
+ * "ready" and was only rejected later, silently, at commit.
+ */
+async function findBarcodeOwner(barcode) {
+  return get(
+    `SELECT TOP (1) id, name FROM (
+       SELECT id, name FROM items WHERE org_id = @org AND barcode = @bc
+       UNION ALL
+       SELECT i.id, i.name FROM sub_barcodes sb JOIN items i ON i.id = sb.item_id
+        WHERE sb.org_id = @org AND sb.barcode = @bc
+       UNION ALL
+       SELECT i.id, i.name FROM item_units iu JOIN items i ON i.id = iu.item_id
+        WHERE iu.org_id = @org AND iu.barcode = @bc
+     ) owner`,
+    { org: orgId(), bc: barcode },
+  );
+}
+
 /** Build the blank .xlsx template, RTL-aware and pre-styled. */
 export async function buildTemplate() {
   const wb = new ExcelJS.Workbook();
@@ -115,6 +137,14 @@ export async function previewImport(buffer, filename) {
 
     if (!name) errors.push('الاسم مطلوب');
     if (!barcode) errors.push('الباركود مطلوب');
+    // A barcode typed into an unformatted Excel cell is stored as a *number*,
+    // which drops any leading zero before this code ever sees it — the value
+    // is already wrong, not just formatted oddly, and there's no reliable way
+    // to reconstruct how many zeros were lost. Reject rather than silently
+    // import a barcode that may not match the physical one.
+    else if (colMap.barcode && row.getCell(colMap.barcode).type === ExcelJS.ValueType.Number) {
+      errors.push('الباركود مخزَّن كرقم في الملف وقد فقد أصفاراً في البداية — نسّق العمود كنص في Excel ثم أعد الرفع');
+    }
 
     const num = (value, label, { integer = false } = {}) => {
       if (value === null || String(value).trim() === '') return 0;
@@ -131,12 +161,7 @@ export async function previewImport(buffer, filename) {
       errors.push(`باركود مكرر داخل الملف (الصف ${seenBarcodes.get(barcode)})`);
     } else if (barcode) seenBarcodes.set(barcode, r);
 
-    const existing = barcode
-      ? await get('SELECT id, name FROM items WHERE barcode = ? AND org_id = ?', [barcode, orgId()])
-        ?? await get(
-          `SELECT i.id, i.name FROM sub_barcodes sb JOIN items i ON i.id = sb.item_id
-            WHERE sb.barcode = ? AND sb.org_id = ?`, [barcode, orgId()])
-      : null;
+    const existing = barcode ? await findBarcodeOwner(barcode) : null;
 
     rows.push({
       row_number: r,
@@ -155,8 +180,8 @@ export async function previewImport(buffer, filename) {
 
   const id = newId();
   await run(
-    'INSERT INTO import_batches (id, org_id, filename, payload, created_at) VALUES (?,?,?,?,?)',
-    [id, orgId(), filename || 'items.xlsx', JSON.stringify(rows), nowIso()]);
+    'INSERT INTO import_batches (id, org_id, filename, payload, created_at) VALUES (@id, @org, @filename, @payload, @created_at)',
+    { id, org: orgId(), filename: filename || 'items.xlsx', payload: JSON.stringify(rows), created_at: nowIso() });
 
   return { upload_id: id, filename, ...summarise(rows), rows };
 }
@@ -169,13 +194,27 @@ const summarise = (rows) => ({
 });
 
 /**
+ * Does any item already claim this barcode, across every table the
+ * uniqueness triggers check? A plain read, so — unlike attempting the insert
+ * and catching a rejection — it can never doom the transaction. SQL Server
+ * has no savepoint recovery from a unique-index violation or a trigger THROW
+ * (proven in Phase 2: it recovers cleanly from a CHECK violation, but not
+ * from either of those), so `commitImport` checks first instead of asking
+ * forgiveness — the only path that keeps one bad row from taking the rest of
+ * the batch down with it.
+ */
+async function barcodeTaken(barcode) {
+  return !!(await findBarcodeOwner(barcode));
+}
+
+/**
  * Commit a previewed batch. Valid rows are created (or upserted); invalid rows
  * are skipped and kept for the downloadable error report. Any opening quantity
  * is posted through a single auto Stock-In invoice so the ledger stays uniform.
  */
 export async function commitImport(uploadId, onDuplicate = 'skip') {
-  const batch = await get('SELECT * FROM import_batches WHERE id = ? AND org_id = ?',
-    [uploadId, orgId()]);
+  const batch = await get('SELECT * FROM import_batches WHERE id = @id AND org_id = @org',
+    { id: uploadId, org: orgId() });
   if (!batch) throw notFound('لم يتم العثور على ملف الاستيراد — أعد رفعه', 'IMPORT_NOT_FOUND');
   if (batch.result) throw unprocessable('تم تنفيذ هذا الاستيراد مسبقاً', 'IMPORT_ALREADY_COMMITTED');
 
@@ -209,28 +248,33 @@ export async function commitImport(uploadId, onDuplicate = 'skip') {
         continue;
       }
 
+      // Re-checked here, not just at preview time: the two happen in separate
+      // requests, and this read is what keeps createItem() below from ever
+      // hitting the barcode-uniqueness trigger for an expected collision.
+      if (await barcodeTaken(row.barcode)) {
+        rejected.push({ ...row, reason: 'الباركود مستخدم بالفعل' });
+        continue;
+      }
+
       try {
-        // Nested tx = savepoint. Postgres aborts the whole transaction on a
-        // failed statement, so a row that trips the barcode constraint must be
-        // rolled back to a savepoint for the import to carry on past it.
-        const item = await tx(async () => createItem({
+        const item = await createItem({
           name: row.name,
           category_id: row.category ? await ensureCategory(row.category) : null,
           barcode: row.barcode,
           purchase_price: row.purchase_price,
           sale_price: row.sale_price,
           source: 'IMPORT',
-        }));
+        });
         created.push({ ...row, item_id: item.id });
         if (row.opening_quantity > 0) opening.push({ item_id: item.id, qty: row.opening_quantity });
       } catch (err) {
-        rejected.push({
-          ...row,
-          // `createItem` has already mapped the constraint violation to a domain
-          // error, so the code is what identifies it — not the message text.
-          reason: err.code === 'BARCODE_TAKEN' || /BARCODE_TAKEN|duplicate key/i.test(String(err.message))
-            ? 'الباركود مستخدم بالفعل' : String(err.message),
-        });
+        // The barcodeTaken() check above should make this unreachable in
+        // practice — a genuine race with a concurrent writer is the only way
+        // to still land here. If it doomed the transaction, there is nothing
+        // left to recover: every row after this one would fail too, so the
+        // whole commit aborts and the caller has to resubmit.
+        if (err.transactionDoomed) throw err;
+        rejected.push({ ...row, reason: String(err.message) });
       }
     }
 
@@ -257,16 +301,16 @@ export async function commitImport(uploadId, onDuplicate = 'skip') {
       opening_invoice: openingInvoice && { id: openingInvoice.id, number: openingInvoice.number },
       rejected: [...rejected, ...skipped],
     };
-    await run('UPDATE import_batches SET result = ? WHERE id = ? AND org_id = ?',
-      [JSON.stringify(result), uploadId, orgId()]);
+    await run('UPDATE import_batches SET result = @result WHERE id = @id AND org_id = @org',
+      { result: JSON.stringify(result), id: uploadId, org: orgId() });
     return result;
   });
 }
 
 /** Excel error report: the rejected rows plus a column explaining each rejection. */
 export async function buildErrorReport(uploadId) {
-  const batch = await get('SELECT * FROM import_batches WHERE id = ? AND org_id = ?',
-    [uploadId, orgId()]);
+  const batch = await get('SELECT * FROM import_batches WHERE id = @id AND org_id = @org',
+    { id: uploadId, org: orgId() });
   if (!batch) throw notFound('لم يتم العثور على ملف الاستيراد', 'IMPORT_NOT_FOUND');
 
   const rows = batch.result

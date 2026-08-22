@@ -34,7 +34,7 @@ export default function Movements() {
   const exportCsv = () => {
     const header = ['التاريخ', 'الصنف', 'الباركود', 'النوع', 'الكمية', 'المصدر', 'المستند', 'ملاحظة'];
     const rows = movements.map((m) => [
-      fmtDateTime(m.created_at), m.item_name, m.item_barcode,
+      fmtDateTime(m.created_at), m.item_name, m.item_barcode ?? '',
       m.type === 'IN' ? 'وارد' : 'صادر', m.quantity,
       REFERENCE_LABEL[m.reference_type], m.invoice_number ?? '', m.note ?? '',
     ]);
@@ -77,12 +77,12 @@ export default function Movements() {
             <option value="STOCK_COUNT">تسوية جرد</option>
             <option value="IMPORT">استيراد</option>
           </Select>
-          <div className="flex items-center gap-1.5">
+          <div className="flex w-full flex-wrap items-center gap-1.5 sm:w-auto sm:flex-nowrap">
             <Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)}
-              className="nums w-auto" aria-label="من تاريخ" />
-            <span className="text-xs text-subtle">إلى</span>
+              className="nums min-w-0 flex-1 sm:w-auto sm:flex-none" aria-label="من تاريخ" />
+            <span className="shrink-0 text-xs text-subtle">إلى</span>
             <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)}
-              className="nums w-auto" aria-label="إلى تاريخ" />
+              className="nums min-w-0 flex-1 sm:w-auto sm:flex-none" aria-label="إلى تاريخ" />
           </div>
           {hasFilters && (
             <Button variant="ghost" onClick={() => {
@@ -130,7 +130,7 @@ export default function Movements() {
                     <td data-label="الكمية" className={cn('nums text-center font-bold',
                       movement.type === 'IN'
                         ? 'text-emerald-600 dark:text-emerald-400'
-                        : 'text-rose-600 dark:text-rose-400')}>
+                        : 'text-accent-600 dark:text-accent-400')}>
                       {movement.type === 'IN' ? '+' : '−'}{fmtInt(movement.quantity)}
                     </td>
                     <td>

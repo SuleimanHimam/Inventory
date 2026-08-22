@@ -26,7 +26,7 @@ export async function listParties(kind, { search, is_active, page, limit }) {
   const params = { org: orgId() };
   if (search) {
     params.q = `%${search}%`;
-    where.push('(name ILIKE @q OR phone LIKE @q OR email ILIKE @q)');
+    where.push('(name LIKE @q OR phone LIKE @q OR email LIKE @q)');
   }
   if (is_active !== undefined && is_active !== null) {
     params.active = is_active ? 1 : 0;
@@ -36,7 +36,7 @@ export async function listParties(kind, { search, is_active, page, limit }) {
 
   const { n: total } = await get(`SELECT COUNT(*) n FROM ${table} ${clause}`, params);
   const rows = await all(
-    `SELECT * FROM ${table} ${clause} ORDER BY lower(name) LIMIT @limit OFFSET @offset`,
+    `SELECT * FROM ${table} ${clause} ORDER BY name OFFSET @offset ROWS FETCH NEXT @limit ROWS ONLY`,
     { ...params, limit, offset: (page - 1) * limit },
   );
 
@@ -47,25 +47,28 @@ const withFlags = (r) => r && { ...publicRow(r), is_active: !!r.is_active };
 
 export async function getParty(kind, id, { withDetail = false } = {}) {
   const { table, label } = cfg(kind);
-  const row = await get(`SELECT * FROM ${table} WHERE id = ? AND org_id = ?`, [id, orgId()]);
+  const row = await get(`SELECT * FROM ${table} WHERE id = @id AND org_id = @org`, { id, org: orgId() });
   if (!row) throw notFound(`${label} غير موجود`, 'PARTY_NOT_FOUND');
   const party = withFlags(row);
 
   if (withDetail) {
     const col = kind === 'customers' ? 'customer_id' : 'supplier_id';
+    // A draft is not a finished invoice — excluded from this party's count,
+    // total, and recent-invoices history the same way it's excluded from the
+    // main invoice list (see listInvoices).
     party.stats = await get(
       `SELECT COUNT(*) AS invoice_count,
               COALESCE(SUM(CASE WHEN status='POSTED' THEN
                 (SELECT COALESCE(SUM(l.quantity * l.unit_price),0) FROM invoice_lines l WHERE l.invoice_id = v.id)
                 - v.discount_total + v.tax_total END), 0) AS total_value,
               MAX(CASE WHEN status='POSTED' THEN invoice_date END) AS last_invoice_date
-         FROM invoices v WHERE v.${col} = ? AND v.org_id = ?`, [id, orgId()]);
+         FROM invoices v WHERE v.${col} = @id AND v.org_id = @org AND v.status <> 'DRAFT'`, { id, org: orgId() });
     party.recent_invoices = await all(
-      `SELECT v.id, v.number, v.type, v.status, v.invoice_date,
+      `SELECT TOP 10 v.id, v.number, v.type, v.status, v.invoice_date,
               (SELECT COALESCE(SUM(l.quantity * l.unit_price),0) FROM invoice_lines l WHERE l.invoice_id = v.id)
                 - v.discount_total + v.tax_total AS total
-         FROM invoices v WHERE v.${col} = ? AND v.org_id = ?
-        ORDER BY v.invoice_date DESC, v.created_at DESC LIMIT 10`, [id, orgId()]);
+         FROM invoices v WHERE v.${col} = @id AND v.org_id = @org AND v.status <> 'DRAFT'
+        ORDER BY v.invoice_date DESC, v.created_at DESC`, { id, org: orgId() });
   }
   return party;
 }
@@ -108,16 +111,16 @@ export async function updateParty(kind, id, patch) {
 export async function archiveParty(kind, id) {
   const { table } = cfg(kind);
   await getParty(kind, id);
-  await run(`UPDATE ${table} SET is_active = 0, updated_at = ? WHERE id = ? AND org_id = ?`,
-    [nowIso(), id, orgId()]);
+  await run(`UPDATE ${table} SET is_active = 0, updated_at = @updated_at WHERE id = @id AND org_id = @org`,
+    { updated_at: nowIso(), id, org: orgId() });
   return getParty(kind, id);
 }
 
 export async function restoreParty(kind, id) {
   const { table } = cfg(kind);
   await getParty(kind, id);
-  await run(`UPDATE ${table} SET is_active = 1, updated_at = ? WHERE id = ? AND org_id = ?`,
-    [nowIso(), id, orgId()]);
+  await run(`UPDATE ${table} SET is_active = 1, updated_at = @updated_at WHERE id = @id AND org_id = @org`,
+    { updated_at: nowIso(), id, org: orgId() });
   return getParty(kind, id);
 }
 
@@ -126,7 +129,7 @@ export async function findDuplicateName(kind, name, excludeId) {
   const { table } = cfg(kind);
   return await get(
     `SELECT id, name FROM ${table}
-      WHERE lower(name) = lower(@name) AND id IS DISTINCT FROM @exclude AND org_id = @org`,
+      WHERE name = @name AND id IS DISTINCT FROM @exclude AND org_id = @org`,
     { name: String(name ?? '').trim(), exclude: excludeId ?? null, org: orgId() },
   ) ?? null;
 }

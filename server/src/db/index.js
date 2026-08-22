@@ -1,97 +1,188 @@
 /**
- * PostgreSQL data access layer.
+ * SQL Server data access layer.
  *
- * Replaces the synchronous better-sqlite3 layer of v5.0. Three things are worth
- * knowing before reading the services:
+ * Replaces the PostgreSQL layer of v6.0. Three things are worth knowing before
+ * reading the services:
  *
- *  1. `@name` bind parameters are kept. The SQL in the services is unchanged
- *     from the SQLite build wherever the dialect allowed it, so `compile()`
- *     rewrites `@name` / `?` into `$1…$n` on the way out.
+ *  1. `@name` bind parameters are kept — and needed no rewriting to get here.
+ *     `@name` is native T-SQL parameter syntax, so `compile()` just extracts
+ *     the distinct names a query uses and hands their values to
+ *     `request.input()`; the driver does the actual parameterised binding.
  *
- *  2. Tenant isolation has two layers. Every service query carries an explicit
- *     `org_id = @org` predicate, and every request additionally runs inside a
- *     transaction that sets `app.org_id`, which the Row Level Security policies
- *     in migrations/002_rls.sql key on. The org id comes from the verified JWT,
- *     never from the request body.
+ *  2. Tenant isolation is a single layer now, not two. SQL Server has no
+ *     transaction-local equivalent of Postgres's `SET LOCAL` (its
+ *     `SESSION_CONTEXT` is connection-scoped, which is unsafe to rely on
+ *     under pooling), so Row-Level-Security was dropped rather than ported.
+ *     Every service query still carries an explicit `org_id = @org`
+ *     predicate — that was always the primary defence, RLS was
+ *     defence-in-depth on top of it.
  *
- *  3. The org id and the current transaction travel in AsyncLocalStorage rather
- *     than through every function signature, so the service layer keeps the
- *     exact same public API it had as a desktop app.
+ *  3. SQL Server dooms a transaction on a unique-constraint violation or a
+ *     trigger-raised error in a way `ROLLBACK TRANSACTION <savepoint>` cannot
+ *     recover from — proven empirically against this schema (plain `CHECK`
+ *     violations recover fine; unique-index and trigger `THROW` failures do
+ *     not). `tx()` marks this with `err.transactionDoomed = true` when a
+ *     savepoint rollback itself fails, so a catch-and-continue caller (the
+ *     importer, in particular) can tell "this row failed, try the next one"
+ *     apart from "this whole transaction is unusable now, stop." The safe
+ *     pattern for anything that might race a unique constraint (see
+ *     `nextNumber`/`setSettings` below) is to check under `UPDLOCK, HOLDLOCK`
+ *     before writing, not to attempt the write and catch the violation.
+ *
+ *  4. The org id and the current transaction travel in AsyncLocalStorage
+ *     rather than through every function signature, so the service layer
+ *     keeps the exact same public API it had as a desktop app.
  */
-import pg from 'pg';
+import sql from 'mssql';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import crypto from 'node:crypto';
+import { AppError } from '../lib/errors.js';
 
-// COUNT(*), SUM(int) and friends come back as int8, which node-postgres hands
-// over as a string to protect 64-bit precision. Every count in this schema is
-// far below 2^53, and the services (and the API contract) expect numbers.
-pg.types.setTypeParser(pg.types.builtins.INT8, (v) => (v === null ? null : Number(v)));
-pg.types.setTypeParser(pg.types.builtins.NUMERIC, (v) => (v === null ? null : Number(v)));
-
-export const DATABASE_URL = process.env.DATABASE_URL;
+export const DB_SERVER = process.env.DB_SERVER;
+export const DB_NAME = process.env.DB_NAME;
+export const DB_USER = process.env.DB_USER;
+export const DB_PASSWORD = process.env.DB_PASSWORD;
+const DB_ENCRYPT = (process.env.DB_ENCRYPT ?? 'false') === 'true';
+const DB_TRUST_SERVER_CERTIFICATE = (process.env.DB_TRUST_SERVER_CERTIFICATE ?? 'true') === 'true';
 
 /**
- * Missing configuration is recorded, not thrown at import time.
- *
- * Throwing here used to kill the process before `app.listen` ever ran, and a
- * host that only knows "the port never opened" reports that as a failed health
- * check — the same message it gives for a missing dependency, a wrong password
- * or an unreachable database. The one thing the operator needs, which of those
- * it is, was the thing that got lost. Now the API starts, `/api/v1/health`
+ * Missing configuration is recorded, not thrown at import time — see the
+ * PostgreSQL-era comment this replaces for why: throwing here used to kill
+ * the process before `app.listen` ever ran, which reports to a host as an
+ * undifferentiated failed health check. Now the API starts, `/api/v1/health`
  * names the problem, and the error still surfaces on the first query.
  */
-export const configError = DATABASE_URL ? null : new Error(
-  'DATABASE_URL is not set. Point it at your Postgres instance — on Railway, '
-  + 'reference the Postgres service with ${{Postgres.DATABASE_URL}}.',
-);
+export const configError = (DB_SERVER && DB_NAME && DB_USER && DB_PASSWORD)
+  ? null
+  : new Error(
+    'DB_SERVER, DB_NAME, DB_USER and DB_PASSWORD must all be set — point them at '
+    + 'your SQL Server instance, e.g. DB_SERVER=127.0.0.1\\INVENTORY.',
+  );
 
 /**
- * Supabase (and every other hosted Postgres) requires TLS; a local Docker
- * database does not have a certificate at all. `sslmode=` in the URL wins when
- * present, otherwise TLS is used for everything except loopback.
+ * Connection options shared with the admin pool in lib/backup.js, which needs
+ * the same server and credentials but binds to `master` instead — see the
+ * header there for why a backup or restore cannot run on this pool.
  */
-function sslOption(url) {
-  if (/[?&]sslmode=disable/.test(url)) return false;
-  if (/[?&]sslmode=(require|prefer|verify-full|verify-ca)/.test(url)) {
-    return { rejectUnauthorized: /verify/.test(url) };
-  }
-  return /@(localhost|127\.0\.0\.1|\[::1\])[:/]/.test(url)
-    ? false
-    // Supabase terminates TLS with a certificate chain Node does not ship a
-    // root for. The connection is still encrypted.
-    : { rejectUnauthorized: false };
-}
+export const DB_OPTIONS = {
+  encrypt: DB_ENCRYPT,
+  trustServerCertificate: DB_TRUST_SERVER_CERTIFICATE,
+  enableArithAbort: true,
+};
 
-export const pool = new pg.Pool({
-  connectionString: DATABASE_URL,
-  ssl: sslOption(DATABASE_URL),
-  // The API runs as a single instance and Supabase's free pooler allows few
-  // connections; a small pool leaves headroom for migrations and psql.
-  max: Number(process.env.PG_POOL_MAX ?? 8),
-  idleTimeoutMillis: 30_000,
-  connectionTimeoutMillis: 15_000,
-  // A runaway query must not pin a free-tier connection forever.
-  statement_timeout: Number(process.env.PG_STATEMENT_TIMEOUT_MS ?? 20_000),
+export const pool = configError ? null : new sql.ConnectionPool({
+  server: DB_SERVER,
+  database: DB_NAME,
+  user: DB_USER,
+  password: DB_PASSWORD,
+  options: DB_OPTIONS,
+  // The API runs as a single instance against a local SQL Server — a small
+  // pool leaves headroom for the migration runner and sqlcmd/SSMS.
+  pool: {
+    max: Number(process.env.DB_POOL_MAX ?? 8),
+    idleTimeoutMillis: 30_000,
+    /*
+     * Never wait forever for a connection.
+     *
+     * Without this, anything that pins the pool — the aborted-request leak
+     * `orgContext` used to have, a genuinely slow query, a stuck transaction —
+     * turns every later request into an indefinite hang. The API stays
+     * "running", `/health` keeps answering `ok`, and the only symptom is that
+     * nothing responds, which is the hardest possible failure to diagnose from
+     * the outside.
+     *
+     * A bounded wait converts that into an error with a name, at the cost of
+     * refusing a request that a very slow moment might eventually have served.
+     * That is the right trade for an app whose queries are all sub-second.
+     */
+    acquireTimeoutMillis: Number(process.env.DB_ACQUIRE_TIMEOUT_MS ?? 15_000),
+  },
+  // A runaway query must not pin a connection forever.
+  requestTimeout: Number(process.env.DB_STATEMENT_TIMEOUT_MS ?? 20_000),
+  connectionTimeout: 15_000,
 });
 
-pool.on('error', (err) => console.error('[pg] idle client error', err));
+pool?.on('error', (err) => console.error('[mssql] pool error', err));
+
+let connectPromise = null;
 
 /**
- * Borrow a connection, refusing early and by name when there is no connection
- * string. Without this, `pg` falls back to its own defaults (localhost, the
- * OS user) and a missing DATABASE_URL arrives as a puzzling ECONNREFUSED.
+ * Set while the database is being replaced underneath us (see lib/backup.js).
+ *
+ * A RESTORE needs `SINGLE_USER WITH ROLLBACK IMMEDIATE`, which evicts every
+ * session on the database — including this pool's. Closing the pool is not
+ * enough on its own: the next request to arrive would reconnect, take the one
+ * connection single-user mode allows, and the RESTORE would fail with
+ * "database is in use" having already killed everything.
+ *
+ * So the gate does both halves. While it is set, no connection is handed out
+ * at all and every request that touches data fails with a 503 that says why,
+ * which is a far better answer than a connection error nobody can interpret.
  */
-export async function connect() {
+let maintenanceReason = null;
+
+/** Connect the pool once, lazily, and retry on a later call if it failed. */
+async function activePool() {
   if (configError) throw configError;
-  return pool.connect();
+  if (maintenanceReason) {
+    throw new AppError(503, maintenanceReason, 'DB_MAINTENANCE');
+  }
+  if (!connectPromise) {
+    connectPromise = pool.connect().catch((err) => {
+      connectPromise = null;
+      throw err;
+    });
+  }
+  await connectPromise;
+  return pool;
+}
+
+/**
+ * Close the pool and refuse new connections until `endMaintenance` runs.
+ *
+ * Deliberately not exported as a general-purpose "close" — `close()` below is
+ * that, and leaves the pool able to reconnect. This one latches.
+ */
+export async function beginMaintenance(reason) {
+  maintenanceReason = reason;
+  connectPromise = null;
+  await pool?.close().catch(() => {});
+}
+
+/** Re-open for business. The next query reconnects to whatever is there now. */
+export function endMaintenance() {
+  maintenanceReason = null;
+  connectPromise = null;
+}
+
+export const inMaintenance = () => maintenanceReason;
+
+/**
+ * Turn a pool-acquire timeout into something that names itself.
+ *
+ * When `acquireTimeoutMillis` fires, tedious reports "operation timed out for
+ * an unknown reason", which is true and useless — it is precisely the message
+ * that made the original pool exhaustion so hard to diagnose. This says what
+ * happened and prints the pool counters, so the next occurrence is one log
+ * line rather than an investigation.
+ */
+function mapPoolError(err) {
+  if (!/timed out/i.test(err?.message ?? '') || err instanceof AppError) return err;
+  const tarn = pool?.pool;
+  console.error('[db] could not acquire a connection: '
+    + `used=${tarn?.numUsed?.()} free=${tarn?.numFree?.()} `
+    + `pendingAcquire=${tarn?.numPendingAcquires?.()} max=${pool?.config?.pool?.max}`);
+  return new AppError(503,
+    'الخادم مشغول حالياً — تعذّر الحصول على اتصال بقاعدة البيانات. حاول بعد قليل.',
+    'DB_POOL_BUSY');
 }
 
 // ---------------------------------------------------------------- ambient context
 /**
  * @typedef {object} Ctx
  * @property {string|null} orgId  organisation every query is scoped to
- * @property {import('pg').PoolClient|null} client dedicated connection, if any
- * @property {boolean} inTx  whether that connection is inside a transaction
+ * @property {import('mssql').Transaction|null} transaction  ambient transaction, if any
+ * @property {boolean} inTx  whether that transaction is open
  */
 const store = new AsyncLocalStorage();
 
@@ -111,167 +202,196 @@ export const maybeOrgId = () => store.getStore()?.orgId ?? null;
 // ------------------------------------------------------------------ statements
 const NAMED = /@([a-zA-Z_][a-zA-Z0-9_]*)/g;
 
-/** Rewrite `@name` (object params) or `?` (array params) into `$1…$n`. */
-export function compile(sql, params) {
-  if (params === undefined || params === null) return { text: sql, values: [] };
+/** Pull out the distinct `@name` parameters a query uses, in first-seen order. */
+export function compile(sqlText, params) {
+  if (params === undefined || params === null) return { text: sqlText, inputs: [] };
 
   if (Array.isArray(params)) {
-    let i = 0;
-    return { text: sql.replace(/\?/g, () => `$${(i += 1)}`), values: params };
+    throw new Error('positional (?) parameters are not supported against SQL Server — use named @params');
   }
 
-  const values = [];
-  const seen = new Map();
-  const text = sql.replace(NAMED, (_match, name) => {
-    if (!seen.has(name)) {
-      if (!(name in params)) throw new Error(`missing bind parameter @${name}`);
-      values.push(params[name]);
-      seen.set(name, values.length);
-    }
-    return `$${seen.get(name)}`;
-  });
-  return { text, values };
+  const inputs = [];
+  const seen = new Set();
+  for (const match of sqlText.matchAll(NAMED)) {
+    const name = match[1];
+    if (seen.has(name)) continue;
+    seen.add(name);
+    if (!(name in params)) throw new Error(`missing bind parameter @${name}`);
+    inputs.push([name, params[name]]);
+  }
+  return { text: sqlText, inputs };
 }
 
 /** Run a statement on the ambient transaction if there is one, else the pool. */
-export async function query(sql, params) {
-  if (configError) throw configError;
-  const { text, values } = compile(sql, params);
-  const client = store.getStore()?.client;
-  return (client ?? pool).query(text, values);
+export async function query(sqlText, params) {
+  const p = await activePool();
+  const { text, inputs } = compile(sqlText, params);
+  const current = store.getStore();
+  const request = current?.transaction ? new sql.Request(current.transaction) : p.request();
+  for (const [name, value] of inputs) request.input(name, value);
+  try {
+    return await request.query(text);
+  } catch (err) {
+    throw mapPoolError(err);
+  }
 }
 
 /** All rows. */
-export const all = async (sql, params) => (await query(sql, params)).rows;
+export const all = async (sqlText, params) => (await query(sqlText, params)).recordset ?? [];
 
 /** The first row, or undefined — the shape better-sqlite3's `.get()` returned. */
-export const get = async (sql, params) => (await query(sql, params)).rows[0];
+export const get = async (sqlText, params) => (await query(sqlText, params)).recordset?.[0];
 
 /** `{ changes }`, so callers that checked `res.changes` keep working. */
-export const run = async (sql, params) => ({ changes: (await query(sql, params)).rowCount });
+export async function run(sqlText, params) {
+  const res = await query(sqlText, params);
+  const changes = Array.isArray(res.rowsAffected) ? res.rowsAffected.reduce((a, b) => a + b, 0) : 0;
+  return { changes };
+}
 
 // ---------------------------------------------------------------- transactions
 let savepointSeq = 0;
+
+/**
+ * How long `settle` will wait for an in-flight query before giving up on
+ * closing its transaction cleanly. Comfortably longer than `requestTimeout`
+ * (20s by default), so a query that is going to be killed anyway is waited out
+ * rather than abandoned along with its connection.
+ */
+const SETTLE_TIMEOUT_MS = Number(process.env.DB_SETTLE_TIMEOUT_MS ?? 30_000);
+const SETTLE_POLL_MS = 25;
+
+/**
+ * Roll back to `name`, and if that itself fails, mark `err` as having doomed
+ * the whole ambient transaction rather than just this unit of work — see the
+ * file header for why SQL Server needs this where Postgres did not.
+ */
+async function rollbackToSavepoint(transaction, name, err) {
+  try {
+    await new sql.Request(transaction).query(`ROLLBACK TRANSACTION ${name}`);
+  } catch {
+    err.transactionDoomed = true;
+  }
+}
 
 /**
  * Run `fn` inside a transaction.
  *
  * Nested calls become savepoints, which matters in two places: posting an
  * invoice is itself transactional and is called from inside the stocktaking
- * apply and the importer. It also matters for error handling — in Postgres a
- * failed statement poisons the whole transaction, so any code that catches a
- * constraint violation and carries on (the importer does, per row) must have
- * its own savepoint to roll back to.
+ * apply and the importer. It also matters for error handling — a failed
+ * statement can poison the whole transaction, so any code that catches an
+ * error and carries on (the importer does, per row) must have its own
+ * savepoint to roll back to, and must check `err.transactionDoomed` before
+ * assuming that recovery actually worked.
  */
 export async function tx(fn) {
   const current = store.getStore();
 
-  // Already inside a transaction → savepoint, so a failure here rolls back only
-  // this unit of work and the caller decides what to do next.
-  if (current?.inTx && current.client) {
+  // Already inside a transaction → savepoint, so a failure here rolls back
+  // only this unit of work (when the engine allows it) and the caller decides
+  // what to do next.
+  if (current?.inTx && current.transaction) {
     const name = `sp_${(savepointSeq += 1)}`;
-    await current.client.query(`SAVEPOINT ${name}`);
+    await new sql.Request(current.transaction).query(`SAVE TRANSACTION ${name}`);
     try {
-      const result = await fn();
-      await current.client.query(`RELEASE SAVEPOINT ${name}`);
-      return result;
+      return await fn();
     } catch (err) {
-      await current.client.query(`ROLLBACK TO SAVEPOINT ${name}`);
+      await rollbackToSavepoint(current.transaction, name, err);
       throw err;
     }
   }
 
-  // Reuse the request's dedicated connection when there is one, so the
-  // transaction sees the writes made before it on the same connection.
-  const borrowed = current?.client ?? null;
-  const client = borrowed ?? await connect();
+  const p = await activePool();
+  const transaction = new sql.Transaction(p);
   try {
-    await client.query('BEGIN');
-    if (!borrowed && current?.orgId) {
-      await client.query('SELECT set_config($1, $2, true)', ['app.org_id', current.orgId]);
-    }
-    let result;
-    try {
-      result = await store.run({ orgId: current?.orgId ?? null, client, inTx: true }, fn);
-    } catch (err) {
-      await client.query('ROLLBACK');
-      throw err;
-    }
-    await client.query('COMMIT');
+    await transaction.begin();
+  } catch (err) {
+    throw mapPoolError(err);
+  }
+  try {
+    const result = await store.run({ orgId: current?.orgId ?? null, transaction, inTx: true }, fn);
+    await settle(transaction, 'commit');
     return result;
-  } finally {
-    if (!borrowed) client.release();
+  } catch (err) {
+    try {
+      await settle(transaction, 'rollback');
+    } catch {
+      // Already gone (e.g. the connection dropped) — nothing more to undo.
+    }
+    throw err;
   }
 }
 
 /**
- * Bind an organisation to everything `fn` does.
+ * Commit or roll back, waiting out a query that is still running on the same
+ * connection.
  *
- * Runs the whole unit of work in one transaction with `app.org_id` set
- * *transaction-locally*, which is what makes the RLS policies effective — a
- * connection with no setting can read nothing.
+ * This exists because of how a request ends when the client disappears. The
+ * API holds one transaction per request and releases it when the response
+ * closes (`orgContext`) — but the route handler is not cancelled by a client
+ * hanging up, so its query is often still in flight at that moment. Committing
+ * then fails with `EREQINPROG`, "Can't commit transaction. There is a request
+ * in progress"; the rollback in the catch fails for the identical reason; and
+ * the connection is never returned to the pool.
  *
- * Transaction-scoped rather than session-scoped on purpose. A session-level
- * `SET` only survives if the connection maps to one backend for its lifetime,
- * and that is exactly what a transaction pooler does not promise: Supabase's
- * Supavisor on port 6543, and PgBouncer in transaction mode, hand consecutive
- * statements to different backends. `SET LOCAL` inside a transaction is safe
- * under both pooling modes, because a pooler pins one backend for the duration
- * of a transaction. Free-tier Supabase reaches the pooler over IPv4 while the
- * direct connection is IPv6-only, so the pooler is not really optional.
+ * That is a permanent leak of one pooled connection per aborted-mid-query
+ * request, and with `DB_POOL_MAX` at 8 the API stops answering entirely after
+ * the eighth — silently, because `/health` touches no database. Observed in
+ * production after ~14 hours of ordinary use: exactly 8 connections held,
+ * every authenticated route hanging forever.
  *
- * The cost is that a request is one transaction: an error part-way through rolls
- * back everything it wrote, rather than leaving earlier statements committed the
- * way autocommit did against SQLite. For this API that is the better default —
- * a request that answers with an error should not leave rows behind.
+ * The in-flight query does finish on its own, moments later, so the fix is
+ * simply not to give up on the first attempt. Bounded, because waiting forever
+ * would reproduce the very failure it prevents.
+ */
+async function settle(transaction, action) {
+  const deadline = Date.now() + SETTLE_TIMEOUT_MS;
+  for (;;) {
+    try {
+      await transaction[action]();
+      return;
+    } catch (err) {
+      // Anything other than "still busy" is a real failure and belongs to the
+      // caller — a doomed transaction, a dropped connection, a rollback of
+      // something already rolled back.
+      if (err?.code !== 'EREQINPROG' || Date.now() >= deadline) throw err;
+      await new Promise((resolve) => { setTimeout(resolve, SETTLE_POLL_MS); });
+    }
+  }
+}
+
+/**
+ * Bind an organisation to everything `fn` does, and run it in one transaction.
  *
- * The API calls this once per request.
+ * The API calls this once per request. A request that answers with an error
+ * should not leave rows behind, so the whole thing commits or rolls back
+ * together — same contract the Postgres build had, minus the RLS
+ * transaction-local `SET`, which no longer has anything to set.
  */
 export async function runInOrg(org, fn) {
   if (!org) throw new Error('runInOrg requires an organisation id');
-  const client = await connect();
-  try {
-    await client.query('BEGIN');
-    await client.query('SELECT set_config($1, $2, true)', ['app.org_id', org]);
-    let result;
-    try {
-      result = await store.run({ orgId: org, client, inTx: true }, fn);
-    } catch (err) {
-      await client.query('ROLLBACK').catch(() => {});
-      throw err;
-    }
-    await client.query('COMMIT');
-    return result;
-  } finally {
-    client.release();
-  }
+  return store.run({ orgId: org, transaction: null, inTx: false }, () => tx(fn));
 }
 
 /** Escape hatch for work that has no organisation yet (auth, provisioning). */
-export const runWithoutOrg = (fn) => store.run({ orgId: null, client: null, inTx: false }, fn);
+export const runWithoutOrg = (fn) => store.run({ orgId: null, transaction: null, inTx: false }, fn);
 
 /**
- * Verify at boot that the organisation context actually reaches the RLS
- * policies: bind a probe org, then ask the policy function what it sees.
+ * Bind an organisation to `fn` without opening a transaction — every write
+ * `fn` makes commits on its own as soon as its statement finishes.
  *
- * This is the one thing that, if silently broken by a connection-string change,
- * turns the second line of tenant isolation off without any visible symptom.
+ * Not used by the API (every request goes through `runInOrg`, which is one
+ * transaction per request, same as the Postgres build). This exists for the
+ * test suite: the Postgres-era suite batched many assertions — including
+ * expected-failure ones — into one transaction per `test()`, using a
+ * savepoint per assertion. On this engine a savepoint cannot recover from a
+ * unique-violation or trigger-THROW failure (see the `tx()` comment above),
+ * which is exactly the failure class most of those assertions check for. So
+ * the suite instead simulates one request per service call — which is what
+ * each of those calls actually corresponds to in production anyway.
  */
-export async function checkOrgContextReachesPolicies() {
-  const probe = '00000000-0000-4000-8000-0000000000ff';
-  const seen = await runInOrg(probe, () =>
-    get('SELECT app_current_org()::text AS value'));
-  const ok = seen?.value === probe;
-  if (!ok) {
-    console.error(
-      '\n  ⚠  app.org_id is not reaching the RLS policies.\n'
-      + `     Bound ${probe} but app_current_org() reported ${seen?.value ?? 'NULL'}.\n`
-      + '     Row Level Security will match no rows. Check DATABASE_URL, and that\n'
-      + '     migrations/002_rls.sql has been applied.\n',
-    );
-  }
-  return ok;
-}
+export const bindOrg = (org, fn) => store.run({ orgId: org, transaction: null, inTx: false }, fn);
 
 // ---------------------------------------------------------------------- utils
 /**
@@ -294,14 +414,24 @@ export const nowIso = () => new Date().toISOString();
 
 export const newId = () => crypto.randomUUID();
 
-/** Mint the next sequential document number, e.g. `PUR-00001`. */
+/**
+ * Mint the next sequential document number, e.g. `PUR-00001`.
+ *
+ * Checks under `UPDLOCK, HOLDLOCK` before deciding insert vs. update, rather
+ * than attempting the insert and catching a PK violation on the race — the
+ * latter is exactly the pattern that dooms a transaction on this engine (see
+ * the file header), and `nextNumber` is usually called from inside a larger
+ * transaction (posting an invoice) that must survive it.
+ */
 export async function nextNumber(key, prefix) {
-  const { value } = await get(
-    `INSERT INTO counters (org_id, key, value) VALUES (@org, @key, 1)
-     ON CONFLICT (org_id, key) DO UPDATE SET value = counters.value + 1
-     RETURNING value`,
+  const { value } = await tx(() => get(
+    `IF NOT EXISTS (SELECT 1 FROM counters WITH (UPDLOCK, HOLDLOCK) WHERE org_id = @org AND [key] = @key)
+       INSERT INTO counters (org_id, [key], value) VALUES (@org, @key, 1);
+     ELSE
+       UPDATE counters SET value = value + 1 WHERE org_id = @org AND [key] = @key;
+     SELECT value FROM counters WHERE org_id = @org AND [key] = @key;`,
     { org: orgId(), key },
-  );
+  ));
   return `${prefix}-${String(value).padStart(5, '0')}`;
 }
 
@@ -318,34 +448,40 @@ export const DEFAULT_SETTINGS = {
 
 /** Seed the settings rows a brand-new organisation needs. */
 export async function ensureOrgDefaults() {
-  for (const [key, value] of Object.entries(DEFAULT_SETTINGS)) {
-    await run(
-      `INSERT INTO settings (org_id, key, value) VALUES (@org, @key, @value)
-       ON CONFLICT (org_id, key) DO NOTHING`,
-      { org: orgId(), key, value },
-    );
-  }
+  const org = orgId();
+  await tx(async () => {
+    for (const [key, value] of Object.entries(DEFAULT_SETTINGS)) {
+      await run(
+        `IF NOT EXISTS (SELECT 1 FROM settings WITH (UPDLOCK, HOLDLOCK) WHERE org_id = @org AND [key] = @key)
+           INSERT INTO settings (org_id, [key], value) VALUES (@org, @key, @value);`,
+        { org, key, value },
+      );
+    }
+  });
 }
 
 export async function getSetting(key) {
-  const row = await get('SELECT value FROM settings WHERE org_id = @org AND key = @key',
+  const row = await get('SELECT value FROM settings WHERE org_id = @org AND [key] = @key',
     { org: orgId(), key });
   return row?.value ?? DEFAULT_SETTINGS[key];
 }
 
 export async function getSettings() {
-  const rows = await all('SELECT key, value FROM settings WHERE org_id = @org', { org: orgId() });
+  const rows = await all('SELECT [key], value FROM settings WHERE org_id = @org', { org: orgId() });
   // Fall back to the defaults for any key an older organisation never got.
   return { ...DEFAULT_SETTINGS, ...Object.fromEntries(rows.map((r) => [r.key, r.value])) };
 }
 
 export async function setSettings(patch) {
+  const org = orgId();
   await tx(async () => {
     for (const [key, value] of Object.entries(patch)) {
       await run(
-        `INSERT INTO settings (org_id, key, value) VALUES (@org, @key, @value)
-         ON CONFLICT (org_id, key) DO UPDATE SET value = excluded.value`,
-        { org: orgId(), key, value: String(value) },
+        `IF NOT EXISTS (SELECT 1 FROM settings WITH (UPDLOCK, HOLDLOCK) WHERE org_id = @org AND [key] = @key)
+           INSERT INTO settings (org_id, [key], value) VALUES (@org, @key, @value);
+         ELSE
+           UPDATE settings SET value = @value WHERE org_id = @org AND [key] = @key;`,
+        { org, key, value: String(value) },
       );
     }
   });
@@ -355,4 +491,4 @@ export async function setSettings(patch) {
 export const lowStockThreshold = async () => Number(await getSetting('low_stock_threshold') ?? 5);
 
 /** Close the pool — used by the test suite and the graceful shutdown path. */
-export const close = () => pool.end();
+export const close = () => (pool ? pool.close() : Promise.resolve());
