@@ -591,19 +591,37 @@
   .list-pane { min-height: 18rem; }
 
   /*
-   * How much of the window is *not* this pane. Named rather than inlined
-   * because it is no longer one number: a page that has dropped its title row
-   * has 4.44rem more to give the list, and the pages that still carry one do
-   * not. `.list-pane-flush` is that page saying so, instead of the stylesheet
-   * guessing from the URL.
+   * How much of the window is *not* this pane, added up from the things that
+   * are actually there rather than carried as one measured constant:
+   *
+   *   --topnav-h   the ribbon, measured live by Shell (it collapses, and a
+   *                hardcoded 8.39rem goes stale the moment it does)
+   *   2rem         main's padding, pt-4 + pb-4 from `sm:` up
+   *   1.75rem      the status bar, h-7
+   *   --pane-title the page title row and its margin, where there is one
+   *
+   * A page that dropped its title says so with `.list-pane-flush` and gets
+   * those 4.44rem back; the stylesheet is in no position to guess.
    */
-  .list-pane { --pane-offset: 16.5rem; }
-  .list-pane-flush { --pane-offset: 12.1rem; }
+  .list-pane {
+    --pane-title: 4.44rem;
+    --pane-offset: calc(var(--topnav-h, 8.39rem) + 2rem + 1.75rem + var(--pane-title));
+  }
+  .list-pane-flush { --pane-title: 0rem; }
 
   @media (min-width: 640px) and (min-height: 700px) {
     .list-pane {
       overflow: hidden;
-      max-height: calc(100dvh - var(--pane-offset, 16.5rem));
+      /*
+       * `height`, not `max-height`. A cap lets the pane stop wherever its
+       * content happens to end, which on a wide screen left the pagination bar
+       * floating in the middle of the window with the page's background under
+       * it -- worst of all in the gallery, where a page of items is a few rows
+       * tall and the card ended halfway down. Filling the space puts the empty
+       * room inside the pane, below the list and above its own pager, where it
+       * reads as a pane with room to spare instead of a page that stopped.
+       */
+      height: calc(100dvh - var(--pane-offset));
       /*
        * `overflow: hidden` clips what the pane *paints*, but it does not stop
        * the full height of the table inside it from counting towards the
