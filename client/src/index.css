@@ -899,11 +899,112 @@
 }
 
 /* ----------------------------------------------------------------- print */
+/*
+ * Print.
+ *
+ * A printed invoice is a document that leaves the building -- it is handed to
+ * the customer or the supplier named on it. What was here before treated print
+ * as "the screen, minus the buttons", and three separate things made the
+ * result not look like an invoice at all.
+ */
 @media print {
-  @page { margin: 14mm; }
+  @page { margin: 12mm; }
+
+  /*
+   * 1. Paper has no theme.
+   *
+   * Forcing white on <body> did not reach anything else: every card, border,
+   * heading and muted label reads its colour from these tokens, and under
+   * `.dark` they are near-black. Printing from a dark screen therefore put
+   * dark grey panels on white paper -- or, once the browser dropped the
+   * backgrounds it does not print by default, pale grey text on white.
+   * Re-declaring the light values here makes the printout independent of who
+   * was looking at which theme when they pressed print.
+   */
+  .dark {
+    --page: #ffffff;
+    --surface: #ffffff;
+    --surface-2: #ffffff;
+    --surface-3: #f2f2f2;
+    --border: #b8b8b8;
+    --border-strong: #8a8a8a;
+    --text: #000000;
+    --text-muted: #3a3a3a;
+    --text-subtle: #4a4a4a;
+  }
+  :root {
+    --surface-2: #ffffff;
+    --border: #b8b8b8;
+    --text-muted: #3a3a3a;
+    --text-subtle: #4a4a4a;
+  }
+
   html, body { background: #fff !important; color: #000 !important; }
-  .no-print, header.topnav { display: none !important; }
-  .print-area { box-shadow: none !important; border: 0 !important; }
-  .card { break-inside: avoid; box-shadow: none !important; }
+  /* Points, not pixels: the browser maps pt to the sheet, and 10.5pt is the
+     smallest size that still reads as a business document rather than a
+     receipt. */
+  body { font-size: 10.5pt; line-height: 1.45; }
+
+  /* `header.topnav` was the old selector and matched nothing: the ribbon is a
+     <div class="topnav">, and there is no <header> element in the app. It is
+     `hidden sm:block`, and A4 clears the sm breakpoint, so the whole desktop
+     navigation bar has been printing across the top of every invoice. */
+  .no-print, .topnav, .page-header { display: none !important; }
   main { padding: 0 !important; overflow: visible !important; }
+
+  .card, .print-area {
+    box-shadow: none !important;
+    border-radius: 0 !important;
+    /* `overflow-hidden` on the invoice card clips at the page edge instead of
+       letting the table flow onto the next sheet. */
+    overflow: visible !important;
+  }
+  .print-area { border: 1px solid var(--border) !important; }
+  .card { break-inside: auto; }
+
+  /*
+   * 2. The lines table printed as a column of phone cards.
+   *
+   * `.data-table.stacked` collapses to one-cell-per-line below 1024px, and A4
+   * is 794px wide -- 688px inside the margins. So every invoice printed with
+   * no header row at all and each line as a rounded, bordered card reading
+   * "الباركود: ..." / "الكمية: ...". Print is not a narrow viewport; it is a
+   * page, and a page is where a table belongs.
+   */
+  .data-table.stacked { display: table !important; width: 100% !important; }
+  .data-table.stacked thead { display: table-header-group !important; }
+  .data-table.stacked tbody { display: table-row-group !important; }
+  .data-table.stacked tbody tr {
+    display: table-row !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: transparent !important;
+  }
+  .data-table.stacked tbody td {
+    display: table-cell !important;
+    flex: none !important;
+    padding: 0.35rem 0.5rem !important;
+    border-bottom: 1px solid var(--border) !important;
+    vertical-align: middle;
+  }
+  /* The label prefix belongs to the card layout; a real table has a header. */
+  .data-table.stacked tbody td::before { content: none !important; }
+
+  /* A header row on the first page only is a header row on the first page
+     only. `table-header-group` above repeats it on every sheet; this keeps a
+     line from being split down the middle of one. */
+  .data-table tr { break-inside: avoid; }
+  .data-table thead th {
+    border-bottom: 1px solid var(--border-strong) !important;
+    font-size: 9.5pt;
+  }
+
+  /* Product photos are for finding things on a screen. On paper they cost a
+     column, three lines of row height each, and a great deal of toner. */
+  .data-table [data-thumb], .data-table th[aria-label='الصورة'] { display: none !important; }
+
+  /* Links are navigation. On paper an item name is just the item's name. */
+  a { color: #000 !important; text-decoration: none !important; }
 }

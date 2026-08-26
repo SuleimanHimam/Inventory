@@ -385,7 +385,7 @@ export function PageHeader({
   title, subtitle, actions, breadcrumb,
 }: { title: ReactNode; subtitle?: ReactNode; actions?: ReactNode; breadcrumb?: ReactNode }) {
   return (
-    <div className="mb-4 flex flex-wrap items-end justify-between gap-3 sm:mb-5 sm:gap-4">
+    <div className="page-header mb-4 flex flex-wrap items-end justify-between gap-3 sm:mb-5 sm:gap-4">
       <div className="min-w-0">
         {breadcrumb && <div className="mb-1.5 text-xs text-subtle">{breadcrumb}</div>}
         <h1 className="text-lg font-bold leading-tight tracking-tight sm:text-[1.35rem]">{title}</h1>
