@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Link, Navigate, useNavigate, useParams } from 'react-router-dom';
 import {
   Printer, ArrowRight, FileText, Lock, ClipboardList, Loader2,
-  Pencil, Trash2, Undo2, TrendingUp, Info,
+  Pencil, Trash2, Undo2, TrendingUp, Info, ReceiptText,
 } from 'lucide-react';
 import {
   Button, Card, PageHeader, Badge, EmptyState, Stat, ConfirmDialog,
@@ -17,6 +17,7 @@ import { cn } from '@/lib/cn';
 import { usePrefs } from '@/store/prefs';
 import { usePermissions } from '@/lib/permissions';
 import { toast, toastError } from '@/store/toast';
+import { printAs, lastPaper, PAPER_LABEL, type PaperFormat } from '@/lib/print';
 
 export default function InvoiceDetail() {
   const { id } = useParams<{ id: string }>();
@@ -129,7 +130,19 @@ export default function InvoiceDetail() {
                 </Button>
               </>
             )}
-            <Button icon={<Printer className="size-4" />} onClick={() => window.print()}>طباعة</Button>
+            {/* Two objects, not one setting: A4 is the document that gets
+                filed, 80mm is the slip the thermal printer hands over the
+                counter. Whichever was used last is the one on the left. */}
+            {([lastPaper(), lastPaper() === 'a4' ? 'receipt' : 'a4'] as PaperFormat[]).map((format, i) => (
+              <Button
+                key={format}
+                variant={i === 0 ? 'secondary' : 'ghost'}
+                icon={format === 'a4' ? <Printer className="size-4" /> : <ReceiptText className="size-4" />}
+                onClick={() => printAs(format)}
+              >
+                {`طباعة ${PAPER_LABEL[format]}`}
+              </Button>
+            ))}
           </>
         }
       />
@@ -179,12 +192,12 @@ export default function InvoiceDetail() {
 
       <Card className="print-area overflow-hidden">
         {/* Document header */}
-        <div className="flex flex-wrap items-start justify-between gap-6 border-b border-line p-6">
+        <div className="doc-head flex flex-wrap items-start justify-between gap-6 border-b border-line p-6">
           <div>
             <p className="text-lg font-bold">{companyName}</p>
             <p className="mt-0.5 text-xs text-muted">{config.label}</p>
           </div>
-          <div className="grid grid-cols-2 gap-x-8 gap-y-3 sm:grid-cols-4">
+          <div className="doc-meta grid grid-cols-2 gap-x-8 gap-y-3 sm:grid-cols-4">
             <Stat label="رقم الفاتورة" value={<span className="font-mono">{invoice.number}</span>} />
             <Stat label="التاريخ" value={fmtDate(invoice.invoice_date)} />
             <Stat label={partyLabel} value={invoice.party_name || '—'} />
@@ -193,7 +206,7 @@ export default function InvoiceDetail() {
         </div>
 
         {/* Lines */}
-        <div className="overflow-x-auto">
+        <div className="doc-lines overflow-x-auto">
           <table className="data-table stacked">
             <thead>
               <tr>
@@ -254,7 +267,7 @@ export default function InvoiceDetail() {
         </div>
 
         {/* Totals */}
-        <div className="flex flex-wrap justify-between gap-6 border-t border-line bg-surface-2 p-6">
+        <div className="doc-totals flex flex-wrap justify-between gap-6 border-t border-line bg-surface-2 p-6">
           <div className="max-w-md text-xs leading-relaxed text-muted">
             {invoice.note && (
               <>
