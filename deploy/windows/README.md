@@ -133,7 +133,7 @@ and functions — not just read and write rows.
 ### 2. Code
 
 ```powershell
-git clone https://github.com/SuleimanHimam/Inventory1.git C:\inventory
+git clone https://github.com/SuleimanHimam/Inventory.git C:\inventory
 cd C:\inventory
 npm run setup
 ```
@@ -248,19 +248,77 @@ Get-Service inventory-api, caddy
 Get-Content C:\inventory\logs\api.log -Tail 40 -Wait
 ```
 
-## Updating
+## Working on the code
+
+The server is not the place to write features. It holds the live database, the
+uploads and the backups; a half-finished migration or a broken build there is an
+outage, not a failed test. Develop in a clone instead:
 
 ```powershell
-cd C:\inventory
-git pull
+git clone https://github.com/SuleimanHimam/Inventory.git C:\dev\Inventory
+cd C:\dev\Inventory
 npm run setup
-cd client; npm run build; cd ..
-Restart-Service inventory-api
+Copy-Item server\.env.example server\.env    # DB_* pointing at a LOCAL instance
+npm run migrate; npm run seed                # sample Arabic data
+npm run dev                                  # client + server together
+npm test
 ```
 
-Migrations apply themselves at boot (unless `SKIP_MIGRATIONS=1`), so a restart
-ships a schema change — as long as the new migration file follows the `GO`
-batch-separator convention `server/src/db/migrate.js` requires.
+The one rule that protects the customer: the clone's `server\.env` never points
+at the production SQL instance. A dev database, or `inventory_dev` on a separate
+one.
+
+Then one branch per change, reviewed as a pull request before it can reach
+anyone:
+
+```powershell
+git switch -c feature/short-name
+git commit -am "…"
+git push -u origin feature/short-name        # open the PR on GitHub, merge to main
+```
+
+Two things to respect when a change touches data:
+
+- A schema change is a **new** numbered file in `server/migrations-mssql/`, its
+  batches separated by a line containing only `GO` — `server/src/db/migrate.js`
+  splits on that. Never edit a migration that has already run on the server.
+- Everything user-facing is Arabic and RTL; follow the strings already in
+  `client/src/pages/`.
+
+## Updating the server
+
+In this order. The backup first is not ceremony — it is the only thing that
+makes step 4 reversible.
+
+```powershell
+# 1. take a backup (the app's backup screen does the same thing)
+D:\Inventory\deploy\windows\backup.ps1
+
+# 2. the working tree has to be clean or the pull refuses
+cd D:\Inventory
+git status
+git pull
+
+# 3. dependencies and the frontend bundle
+npm run setup
+cd client; npm run build; cd ..
+
+# 4. schema — this deployment sets SKIP_MIGRATIONS=1, so migrations do NOT
+#    apply themselves at boot. Run them when the release carries one.
+cd server; npm run migrate; npm run doctor; cd ..
+
+# 5. restart, then read the payload
+Restart-Service inventory-api
+curl.exe http://127.0.0.1:4317/api/v1/health     # want "db":"ready"
+```
+
+`git pull` cannot touch the customer's data: `server\.env`, `data\uploads\`,
+`backups\`, `logs\` and `secrets\` are all ignored, so Git neither tracks nor
+overwrites them.
+
+Rolling back: `git checkout <previous tag>`, rebuild the client, restart the
+service. If the migration is what broke, restore the backup from step 1 with
+`restore.ps1`.
 
 ## Backups from the app itself
 

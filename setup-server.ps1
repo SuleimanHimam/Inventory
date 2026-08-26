@@ -172,7 +172,7 @@ if (-not (Test-Path (Join-Path $AppRoot 'server\package.json'))) {
   $git = Find-Exe 'git' @('C:\Program Files\Git\cmd\git.exe')
   if (-not $git) { throw "No checkout at $AppRoot and git is not installed." }
   Info "cloning into $AppRoot"
-  & $git clone --quiet https://github.com/SuleimanHimam/Inventory1.git $AppRoot
+  & $git clone --quiet https://github.com/SuleimanHimam/Inventory.git $AppRoot
 }
 Ok $AppRoot
 
