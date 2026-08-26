@@ -147,11 +147,14 @@ test('the summary loses profit_total alongside the other money', () => {
     meta: { page: 1, limit: 25, total: 0, pages: 1 },
     summary: {
       in_total: 400, out_total: 950, net_total: 550,
-      profit_total: 310, profit_exact: true, in_count: 2, out_count: 1,
+      cost_total: 640, profit_total: 310, profit_exact: true,
+      in_count: 2, out_count: 1,
     },
   };
   for (const keep of [false, true]) {
     const out = scrubMoney(body, { keepSalePrice: keep });
+    assert.equal('cost_total' in out.summary, false,
+      `cost_total must be dropped (keepSalePrice: ${keep})`);
     assert.equal('profit_total' in out.summary, false,
       `profit_total must be dropped (keepSalePrice: ${keep})`);
     assert.equal('profit_exact' in out.summary, false,

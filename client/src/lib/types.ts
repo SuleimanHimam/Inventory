@@ -240,6 +240,12 @@ export type InvoiceSummary = {
   /** out_total − in_total. @money */
   net_total?: number;
   /**
+   * What the goods sold in this range cost, snapshotted at posting. @money and
+   * manager-only. Not `in_total`: that is stock *bought* in the range, which
+   * may not be sold for months.
+   */
+  cost_total?: number;
+  /**
    * Earned on the sales in this range: revenue net of discount, before tax,
    * minus cost. @money and manager-only.
    *

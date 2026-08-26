@@ -101,35 +101,48 @@ export default function Invoices() {
             <option value="CANCELLED">ملغاة</option>
           </Select>
           {/*
-            * The profit on whatever is currently filtered, in the space the
-            * status dropdown leaves beside it rather than on a line of its
-            * own. `ms-auto` pushes it to the far end, so the row reads as
-            * filter on one side, result on the other.
+            * The cost and the profit on whatever is currently filtered, in the
+            * space the status dropdown leaves beside it rather than on lines of
+            * their own. `ms-auto` pushes the pair to the far end, so the row
+            * reads as filter on one side, result on the other.
+            *
+            * Cost sits above profit because profit is the subtraction and cost
+            * is one of its two inputs -- shown together the figure can be read
+            * as a result instead of taken on faith. It is deliberately the
+            * quieter of the two: smaller, unweighted, in the body colour.
             *
             * The long form -- posted documents only, and whether any cost was
-            * reconstructed -- moves to the title. Same caveat, but a figure
+            * reconstructed -- stays in the title. Same caveat, but a readout
             * sharing a row with the controls has no room for a sentence, and
-            * both facts matter only to someone already reading the number
+            * both facts matter only to someone already reading the numbers
             * closely. "تقديري" stays visible, because that one changes what
-            * the number means.
+            * they mean.
             */}
           {canSeePrices && data?.summary?.profit_total != null && (
             <span
-              className="ms-auto flex shrink-0 items-baseline gap-1.5"
-              title={`ربح الفواتير المعروضة — الفواتير المرحّلة فقط${
-                data.summary.profit_exact === false ? '، ويتضمن تكلفة تقديرية' : ''}`}
+              className="ms-auto flex shrink-0 flex-col items-start gap-0.5 leading-tight"
+              title={`تكلفة وربح الفواتير المعروضة — الفواتير المرحّلة فقط${
+                data.summary.profit_exact === false ? '، وتتضمن تكلفة تقديرية' : ''}`}
             >
-              <span className="text-xs text-muted">الربح</span>
-              <span className={cn('nums text-sm font-bold',
-                (data.summary.profit_total ?? 0) < 0
-                  ? 'text-accent-600 dark:text-accent-400'
-                  : 'text-emerald-600 dark:text-emerald-400')}
-              >
-                {fmtCurrency(data.summary.profit_total)}
-              </span>
-              {data.summary.profit_exact === false && (
-                <span className="text-[11px] text-subtle">تقديري</span>
+              {data.summary.cost_total != null && (
+                <span className="flex items-baseline gap-1.5">
+                  <span className="text-[11px] text-muted">التكلفة</span>
+                  <span className="nums text-xs">{fmtCurrency(data.summary.cost_total)}</span>
+                </span>
               )}
+              <span className="flex items-baseline gap-1.5">
+                <span className="text-xs text-muted">الربح</span>
+                <span className={cn('nums text-sm font-bold',
+                  (data.summary.profit_total ?? 0) < 0
+                    ? 'text-accent-600 dark:text-accent-400'
+                    : 'text-emerald-600 dark:text-emerald-400')}
+                >
+                  {fmtCurrency(data.summary.profit_total)}
+                </span>
+                {data.summary.profit_exact === false && (
+                  <span className="text-[11px] text-subtle">تقديري</span>
+                )}
+              </span>
             </span>
           )}
           <div className="flex w-full flex-wrap items-center gap-1.5 sm:w-auto sm:flex-nowrap">
