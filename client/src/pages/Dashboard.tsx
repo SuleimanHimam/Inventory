@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis,
@@ -6,20 +7,46 @@ import {
   Package, Boxes, PackageX, ArrowDownLeft, ArrowUpRight, Wallet,
   ArrowLeft, ClipboardList, FileText, TrendingUp, TriangleAlert,
 } from 'lucide-react';
-import { Card, PageHeader, Skeleton, EmptyState, Button } from '@/components/ui';
+import { Card, PageHeader, Skeleton, EmptyState, Button, Select } from '@/components/ui';
 import { useDashboard, useMovements } from '@/hooks';
 import { fmtInt, fmtCurrency, fmtRelative, fmtDateShort } from '@/lib/format';
 import { MovementBadge, ItemLink, InvoiceLink } from '@/components/domain';
 import { usePrefs } from '@/store/prefs';
 import { usePermissions } from '@/lib/permissions';
 import { cn } from '@/lib/cn';
+import type { DashboardPeriod } from '@/lib/types';
 
 /** Stock in reads teal (the brand/"good, arriving"), stock out reads coral.
  *  Recharts needs literal colour values, not CSS custom properties. */
 const CHART = { in: '#0e6b64', out: '#f2634c' };
 
+const PERIODS: Array<{ value: DashboardPeriod; label: string }> = [
+  { value: 'today', label: 'اليوم' },
+  { value: 'month', label: 'هذا الشهر' },
+  { value: '30d', label: 'آخر ٣٠ يوماً' },
+  { value: 'all', label: 'كل الفترات' },
+];
+
+const PERIOD_KEY = 'inv.dash_period';
+const storedPeriod = (): DashboardPeriod => {
+  try {
+    const saved = localStorage.getItem(PERIOD_KEY);
+    return PERIODS.some((p) => p.value === saved) ? saved as DashboardPeriod : 'month';
+  } catch {
+    return 'month';
+  }
+};
+
 export default function Dashboard() {
-  const { data, isLoading } = useDashboard();
+  /*
+   * The window is the viewer's to choose -- "this month" is how a shop counts
+   * its takings, a rolling thirty days is smoother, and at 4pm behind a
+   * counter the only interesting number is today's. Remembered per device, so
+   * the choice survives the next visit without becoming an org-wide setting
+   * that one person's preference imposes on everyone.
+   */
+  const [period, setPeriod] = useState<DashboardPeriod>(storedPeriod);
+  const { data, isLoading } = useDashboard(true, period);
   const { data: recent } = useMovements({ page: 1, limit: 8 });
   const { canSeePrices } = usePermissions();
   const theme = usePrefs((s) => s.theme);
@@ -103,6 +130,65 @@ export default function Dashboard() {
           />
         )}
       </div>
+
+      {/* Purchases, sales and profit — the three figures that used to sit above
+          the invoices list, where they only ever described whatever filter
+          happened to be applied. On the dashboard they answer the question
+          directly, over a window the viewer picks.
+
+          Manager-only: the API strips all three for anyone else (roles.js), so
+          for a staff account this would be three empty cards. */}
+      {canSeePrices && (
+        <div className="mt-4">
+          <div className="mb-2 flex items-center justify-between gap-3">
+            <h2 className="text-sm font-bold">الحركة المالية</h2>
+            <Select
+              value={period}
+              onChange={(e) => {
+                const next = e.target.value as DashboardPeriod;
+                setPeriod(next);
+                try { localStorage.setItem(PERIOD_KEY, next); } catch { /* private window */ }
+              }}
+              className="w-auto min-w-36"
+              aria-label="الفترة"
+            >
+              {PERIODS.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
+            </Select>
+          </div>
+          <div className="stagger grid grid-cols-2 gap-4 lg:grid-cols-3">
+            <KpiCard
+              loading={isLoading}
+              icon={<ArrowDownLeft className="size-5" />}
+              tone="brand"
+              label="المشتريات"
+              value={fmtCurrency(data?.trading.purchases)}
+              hint="فواتير الإدخال المرحّلة"
+              to="/invoices?type=STOCK_IN"
+            />
+            <KpiCard
+              loading={isLoading}
+              icon={<ArrowUpRight className="size-5" />}
+              tone="success"
+              label="المبيعات"
+              value={fmtCurrency(data?.trading.sales)}
+              hint="فواتير الإخراج المرحّلة"
+              to="/invoices?type=STOCK_OUT"
+            />
+            <KpiCard
+              loading={isLoading}
+              icon={<Wallet className="size-5" />}
+              tone={(data?.trading.profit ?? 0) < 0 ? 'danger' : 'success'}
+              label="الربح"
+              value={fmtCurrency(data?.trading.profit)}
+              hint={data?.trading.profit_exact === false
+                ? 'المبيعات − التكلفة · يتضمن تكلفة تقديرية'
+                : 'المبيعات − تكلفة البضاعة المباعة'}
+              to="/invoices?type=STOCK_OUT"
+              className="max-lg:col-span-2"
+            />
+          </div>
+        </div>
+      )}
 
       {/* Today + chart */}
       <div className="mt-4 grid gap-4 lg:grid-cols-3">
@@ -305,13 +391,13 @@ const TONES = {
 };
 
 function KpiCard({
-  icon, label, value, hint, tone, to, loading,
+  icon, label, value, hint, tone, to, loading, className,
 }: {
   icon: React.ReactNode; label: string; value: string; hint?: string;
-  tone: keyof typeof TONES; to: string; loading?: boolean;
+  tone: keyof typeof TONES; to: string; loading?: boolean; className?: string;
 }) {
   return (
-    <Link to={to} className="card card-interactive group block p-4">
+    <Link to={to} className={cn('card card-interactive group block p-4', className)}>
       <div className="flex items-start justify-between gap-2">
         <span className={cn(
           'grid size-11 place-items-center rounded-2xl bg-gradient-to-br shadow-sm', TONES[tone],
@@ -321,10 +407,15 @@ function KpiCard({
         <ArrowLeft className="size-4 text-subtle opacity-0 transition-opacity group-hover:opacity-100" />
       </div>
       <p className="mt-3 text-xs font-medium text-muted">{label}</p>
+      {/* `truncate` and a smaller step on a phone for the same reason the
+          invoices strip needed them: two cards to a row leaves about 160px,
+          and a currency figure at 2xl does not fit that. */}
       {loading ? (
         <Skeleton className="mt-1.5 h-7 w-20" />
       ) : (
-        <p className="nums mt-0.5 text-2xl font-bold tracking-tight">{value}</p>
+        <p className="nums mt-0.5 truncate text-lg font-bold tracking-tight sm:text-2xl" title={value}>
+          {value}
+        </p>
       )}
       {hint && <p className="nums mt-1 text-[11px] text-subtle">{hint}</p>}
     </Link>

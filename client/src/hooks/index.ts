@@ -5,7 +5,8 @@ import { useEffect, useState, useSyncExternalStore } from 'react';
 import { api } from '@/lib/api';
 import { subscribeInstallPrompt, getCanInstall, promptInstall } from '@/lib/installPrompt';
 import type {
-  BackupConfig, BackupSet, BackupStatus, BrowseResult, Category, DashboardStats, ImportPreview, ImportResult,
+  BackupConfig, BackupSet, BackupStatus, BrowseResult, Category, DashboardPeriod, DashboardStats,
+  ImportPreview, ImportResult,
   Invoice, Item, ItemImage, ItemUnit, InvoiceSummary, Movement, OrgUser, Paginated, Party,
   PostProblem, RestoreResult, Settings, StockCount,
 } from '@/lib/types';
@@ -66,8 +67,15 @@ const listOptions = { placeholderData: keepPreviousData } as const;
  * bar and both navs read these stats, so without the gate every screen that
  * role opens fired a request that came back 403 and logged a console error.
  */
-export const useDashboard = (enabled = true) =>
-  useQuery({ queryKey: keys.dashboard, queryFn: () => api.get<DashboardStats>('/dashboard'), enabled });
+export const useDashboard = (enabled = true, period: DashboardPeriod = 'month') =>
+  useQuery({
+    // The period is part of the key: two windows are two different answers,
+    // and sharing one cache entry would show the previous window's figures
+    // for as long as the new request took.
+    queryKey: [...keys.dashboard, period],
+    queryFn: () => api.get<DashboardStats>(`/dashboard?period=${period}`),
+    enabled,
+  });
 
 export const useSettings = (options?: Partial<UseQueryOptions<Settings>>) =>
   useQuery({ queryKey: keys.settings, queryFn: () => api.get<Settings>('/settings'), ...options });

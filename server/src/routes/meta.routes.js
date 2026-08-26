@@ -3,12 +3,22 @@ import { z } from 'zod';
 import { wrap, parse, pageQuery, paginated } from '../lib/http.js';
 import { requireManager, requireNotClerk } from '../lib/roles.js';
 import { getSettings, setSettings } from '../db/index.js';
-import { dashboardStats } from '../services/items.service.js';
+import { dashboardStats, DASHBOARD_PERIODS } from '../services/items.service.js';
 import { listMovements } from '../services/invoices.service.js';
 
 const router = Router();
 
-router.get('/dashboard', requireNotClerk, wrap(async (_req, res) => res.json(await dashboardStats())));
+/*
+ * `period` picks the window the trading figures cover. Validated against the
+ * known list rather than passed through: it reaches a date computation and an
+ * unrecognised value should fall back to the default, not produce a window
+ * nobody asked for.
+ */
+router.get('/dashboard', requireNotClerk, wrap(async (req, res) => {
+  const asked = String(req.query.period ?? '');
+  const period = DASHBOARD_PERIODS.includes(asked) ? asked : 'month';
+  res.json(await dashboardStats({ period }));
+}));
 
 /** Who am I, and which organisation am I in — drives the account menu. */
 router.get('/me', wrap((req, res) => res.json({

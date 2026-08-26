@@ -358,7 +358,20 @@ export type DashboardStats = {
     categories: number; customers: number; suppliers: number;
     draft_invoices: number; open_counts: number;
   };
+  /** Purchases, sales and profit over the window the viewer chose. */
+  trading: {
+    period: DashboardPeriod;
+    /** ISO date the window opens on; null when it is all of time. */
+    from: string | null;
+    /** @money The three below are absent for a staff role. */
+    purchases?: number;
+    sales?: number;
+    profit?: number;
+    profit_exact?: boolean;
+  };
 };
+
+export type DashboardPeriod = 'today' | 'month' | '30d' | 'all';
 
 /** A member of the signed-in user's organisation — Settings › المستخدمون. */
 export type OrgUser = {

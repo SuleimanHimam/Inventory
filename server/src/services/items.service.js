@@ -378,7 +378,31 @@ export function lowStockReport({ category_id, page, limit }) {
   return listItems({ category_id, low_stock: true, page, limit, sort: 'quantity' });
 }
 
-export async function dashboardStats() {
+/**
+ * The window the trading figures cover. Chosen by whoever is looking, because
+ * there is no one right answer: "this month" is how a shop counts its takings,
+ * a rolling thirty days is smoother, and today is what someone standing behind
+ * the counter at 4pm actually wants to know.
+ *
+ * Returned as the ISO date the period starts on, or null for all of it --
+ * `invoice_date` is ISO-8601 text, so a plain string comparison orders it
+ * correctly and no date parsing has to happen in SQL.
+ */
+export const DASHBOARD_PERIODS = ['today', 'month', '30d', 'all'];
+
+function periodStart(period) {
+  const now = new Date();
+  const iso = (d) => d.toISOString().slice(0, 10);
+  switch (period) {
+    case 'today': return iso(now);
+    case 'month': return `${iso(now).slice(0, 7)}-01`;
+    case 'all':   return null;
+    case '30d':
+    default:      return iso(new Date(now.getTime() - 29 * 86_400_000));
+  }
+}
+
+export async function dashboardStats({ period = 'month' } = {}) {
   const threshold = await lowStockThreshold();
   const org = orgId();
 
@@ -427,6 +451,46 @@ export async function dashboardStats() {
       WHERE m.type='OUT' AND m.created_at >= @since AND i.deleted_at IS NULL AND m.org_id = @org
       GROUP BY i.id, i.name ORDER BY moved DESC`, { since, org });
 
+  /*
+   * Purchases, sales and profit over the chosen window -- the same three
+   * figures the invoices list used to carry in a strip above its filters, and
+   * computed on the same terms so the two cannot disagree:
+   *
+   *   • POSTED only. A draft has moved no stock and taken no money.
+   *   • The totals are net of discount and include tax, because that is what
+   *     changed hands.
+   *   • Profit is revenue *before* tax, less the cost snapshotted onto each
+   *     line when it was posted (migration 007). Tax collected for an
+   *     authority was never the seller's to keep.
+   *   • `profit_exact` is false as soon as one line's cost was reconstructed
+   *     rather than recorded, so the tile can say so rather than implying a
+   *     precision it does not have.
+   */
+  const from = periodStart(period);
+  const trading = await get(
+    `SELECT
+       COALESCE(SUM(CASE WHEN v.type = 'STOCK_IN'  THEN t.net END), 0) AS purchases,
+       COALESCE(SUM(CASE WHEN v.type = 'STOCK_OUT' THEN t.net END), 0) AS sales,
+       COALESCE(SUM(CASE WHEN v.type = 'STOCK_OUT' THEN t.revenue - t.cost END), 0) AS profit,
+       COALESCE(SUM(CASE WHEN v.type = 'STOCK_OUT' AND t.inexact > 0 THEN 1 ELSE 0 END), 0) AS inexact
+     FROM invoices v
+     CROSS APPLY (
+       SELECT (SELECT COALESCE(SUM(l.quantity * l.unit_price), 0)
+                 FROM invoice_lines l WHERE l.invoice_id = v.id)
+              - v.discount_total + v.tax_total AS net,
+              (SELECT COALESCE(SUM(l.quantity * l.unit_price), 0)
+                 FROM invoice_lines l WHERE l.invoice_id = v.id)
+              - v.discount_total AS revenue,
+              (SELECT COALESCE(SUM(l.quantity * l.cost_price), 0)
+                 FROM invoice_lines l WHERE l.invoice_id = v.id) AS cost,
+              (SELECT COUNT(*) FROM invoice_lines l
+                WHERE l.invoice_id = v.id
+                  AND (l.cost_price IS NULL OR l.cost_basis = 'ESTIMATED')) AS inexact
+     ) t
+     WHERE v.org_id = @org AND v.status = 'POSTED'
+       ${from ? 'AND v.invoice_date >= @from' : ''}`,
+    from ? { org, from } : { org });
+
   const counts = await get(
     `SELECT
        (SELECT COUNT(*) FROM categories WHERE org_id=@org)                    AS categories,
@@ -441,6 +505,14 @@ export async function dashboardStats() {
     ...base,
     stock_value: money(base.stock_value),
     stock_profit: money(base.stock_profit),
+    trading: {
+      period,
+      from,
+      purchases: money(trading.purchases),
+      sales: money(trading.sales),
+      profit: money(trading.profit),
+      profit_exact: trading.inexact === 0,
+    },
     today, trend, top_moving: topMoving, counts, threshold,
   };
 }
