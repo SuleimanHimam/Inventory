@@ -23,7 +23,10 @@ server/.tmp/
 # Build caches
 *.tsbuildinfo
 
-# Logs / editor / OS
+# Logs / editor / OS. The whole folder, not just *.log: the service's own logs
+# are .log, but diagnostics dropped next to them (SQL Server ERRORLOG excerpts
+# and the like) are not, and they name the machine and its instances.
+logs/
 *.log
 npm-debug.log*
 .vscode/

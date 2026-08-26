@@ -1,0 +1,11 @@
+# Every file already in this repository is stored with CRLF, and the only
+# consumers are Windows: the server, the deployment scripts, the SQL that
+# sqlcmd runs. `-text` therefore means "store exactly what is on disk" — no
+# end-of-line conversion in either direction.
+#
+# The alternative, `* text=auto`, is the usual advice and is wrong here: with
+# the history already CRLF it would renormalise every file to LF the next time
+# it is touched, turning a one-line fix into a whole-file diff. It would also
+# quietly make new commits disagree with old ones about line endings, which is
+# what `core.autocrlf=true` was about to do to server/src/lib/errors.js.
+* -text
