@@ -72,8 +72,21 @@ export function InvoiceTypeBadge({ type, withIcon = true }: { type: InvoiceType;
   );
 }
 
-export function InvoiceStatusBadge({ status }: { status: InvoiceStatus }) {
+/**
+ * A reopened draft is labelled for what it is, rather than as "غير محفوظة".
+ *
+ * It is a posted document temporarily returned to draft for correction: the
+ * number is spent, the stock effect is currently reversed, and it is waiting
+ * to be posted again. Calling that "unsaved" would invite someone to abandon
+ * it, and would read as identical to a form nobody ever finished.
+ */
+export function InvoiceStatusBadge(
+  { status, reopened = false }: { status: InvoiceStatus; reopened?: boolean },
+) {
   const { t } = useTranslation();
+  if (status === 'DRAFT' && reopened) {
+    return <Badge tone="warning">{t('invoiceStatus.REOPENED')}</Badge>;
+  }
   return <Badge tone={INVOICE_STATUS[status].tone}>{t(`invoiceStatus.${status}`)}</Badge>;
 }
 

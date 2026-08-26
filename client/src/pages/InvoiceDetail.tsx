@@ -160,7 +160,7 @@ export default function InvoiceDetail() {
           <span className="flex flex-wrap items-center gap-2.5">
             {config.label}
             <span className="nums font-mono text-base text-subtle">{invoice.number}</span>
-            <InvoiceStatusBadge status={invoice.status} />
+            <InvoiceStatusBadge status={invoice.status} reopened={!!invoice.reopened_at} />
             <SourceBadge source={invoice.source} />
           </span>
         }
