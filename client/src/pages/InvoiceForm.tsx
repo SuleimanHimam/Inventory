@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, Navigate, useBlocker, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
-  Loader2, Save, AlertCircle, X, Trash2, LogOut,
+  Loader2, Save, AlertCircle, X, Trash2, LogOut, Printer,
 } from 'lucide-react';
 import {
   Button, Card, Input, Select, ConfirmDialog, Modal, Badge,
@@ -232,6 +232,13 @@ function InvoiceEditor({ invoice }: { invoice: Invoice }) {
   const patchHeader = (patch: Record<string, unknown>) =>
     mutations.update.mutate({ id: invoice.id, ...patch });
 
+  /*
+   * Set by "حفظ وطباعة" and read once, when the save succeeds. A ref rather
+   * than state because nothing renders from it -- it only has to survive the
+   * trip through the confirmation dialog.
+   */
+  const printAfterSave = useRef(false);
+
   const post = async () => {
     if (inFlightRef.current) return;
     inFlightRef.current = true;
@@ -246,7 +253,13 @@ function InvoiceEditor({ invoice }: { invoice: Invoice }) {
        * behind us, so Back landed there, was redirected forward again, and the
        * button looked broken: you had to press it twice to reach the list.
        */
-      navigate(`/invoices/${posted.id}`, { replace: true });
+      navigate(`/invoices/${posted.id}`, {
+        replace: true,
+        // The editor cannot print: it renders a form, not the document. The
+        // detail page renders the document, so the request rides along and is
+        // spent there.
+        state: printAfterSave.current ? { print: true } : null,
+      });
     } catch (error) {
       inFlightRef.current = false;
       decidedRef.current = false;
@@ -552,11 +565,21 @@ function InvoiceEditor({ invoice }: { invoice: Invoice }) {
               variant="primary"
               icon={<Save className="size-4" />}
               disabled={!canPost}
-              onClick={() => setConfirmPost(true)}
+              onClick={() => { printAfterSave.current = false; setConfirmPost(true); }}
               title={blockingReason}
               className="w-full"
             >
               حفظ الفاتورة
+            </Button>
+            <Button
+              variant="secondary"
+              icon={<Printer className="size-4" />}
+              disabled={!canPost}
+              onClick={() => { printAfterSave.current = true; setConfirmPost(true); }}
+              title={blockingReason}
+              className="mt-2 w-full"
+            >
+              حفظ وطباعة
             </Button>
 
             {!canPost && blockingReason && (
@@ -594,10 +617,21 @@ function InvoiceEditor({ invoice }: { invoice: Invoice }) {
               variant="primary"
               icon={<Save className="size-4" />}
               disabled={!canPost}
-              onClick={() => setConfirmPost(true)}
+              onClick={() => { printAfterSave.current = false; setConfirmPost(true); }}
               title={blockingReason}
             >
               حفظ الفاتورة
+            </Button>
+            {/* Saving and printing is one action at a counter, and making it
+                two invites the half that gets forgotten. */}
+            <Button
+              variant="secondary"
+              icon={<Printer className="size-4" />}
+              disabled={!canPost}
+              onClick={() => { printAfterSave.current = true; setConfirmPost(true); }}
+              title={blockingReason}
+            >
+              حفظ وطباعة
             </Button>
 
             {/* The banner that used to carry this is gone, but a disabled button

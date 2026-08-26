@@ -1,8 +1,8 @@
-import { useState } from 'react';
-import { Link, Navigate, useNavigate, useParams } from 'react-router-dom';
+import { useEffect, useRef, useState } from 'react';
+import { Link, Navigate, useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
   Printer, ArrowRight, FileText, Lock, ClipboardList, Loader2,
-  Pencil, Trash2, Undo2, TrendingUp, Info, ReceiptText,
+  Pencil, Trash2, Undo2, TrendingUp, Info, ReceiptText, FileDown,
 } from 'lucide-react';
 import {
   Button, Card, PageHeader, Badge, EmptyState, Stat, ConfirmDialog,
@@ -18,6 +18,7 @@ import { usePrefs } from '@/store/prefs';
 import { usePermissions } from '@/lib/permissions';
 import { toast, toastError } from '@/store/toast';
 import { printAs, lastPaper, PAPER_LABEL, type PaperFormat } from '@/lib/print';
+import { invoicePdfBlob, deliverPdf } from '@/lib/pdf';
 
 export default function InvoiceDetail() {
   const { id } = useParams<{ id: string }>();
@@ -26,7 +27,35 @@ export default function InvoiceDetail() {
   const { canSeePrices, isManager } = usePermissions();
   const { reverse, reopen } = useInvoiceMutations(id);
   const [confirming, setConfirming] = useState<'reverse' | 'reopen' | null>(null);
+  const [pdfBusy, setPdfBusy] = useState(false);
+  const docRef = useRef<HTMLDivElement>(null);
+  const location = useLocation();
   const companyName = usePrefs((s) => s.companyName);
+
+  /*
+   * "حفظ وطباعة" in the editor posts the invoice and lands here; the printable
+   * document only exists on this page, so the request travels as router state
+   * and is spent on arrival. `replace` clears it, so a refresh or a Back into
+   * this entry does not print a second time.
+   */
+  const wantsPrint = (location.state as { print?: boolean } | null)?.print === true;
+  const printedRef = useRef(false);
+  useEffect(() => {
+    if (!wantsPrint || isLoading || printedRef.current) return undefined;
+    /*
+     * The ref, not the router state, is what prevents a second print. Clearing
+     * the state here instead would re-run this effect with `wantsPrint` false,
+     * and the cleanup of *this* run would cancel the timer before it fired --
+     * so the state is cleared alongside the print, not before it.
+     */
+    printedRef.current = true;
+    // A beat, so the document is painted before the dialog freezes the page.
+    const timer = window.setTimeout(() => {
+      navigate(location.pathname, { replace: true, state: null });
+      printAs(lastPaper());
+    }, 200);
+    return () => window.clearTimeout(timer);
+  }, [wantsPrint, isLoading, navigate, location.pathname]);
 
   if (isLoading) {
     return (
@@ -64,6 +93,24 @@ export default function InvoiceDetail() {
   // A draft has already been redirected away above, so status needs no test
   // here; `profit` being non-null is what rules out an unposted document.
   const showsProfit = canSeePrices && invoice.type === 'STOCK_OUT' && invoice.profit != null;
+
+  const sharePdf = async () => {
+    if (!docRef.current) return;
+    setPdfBusy(true);
+    try {
+      const format = lastPaper();
+      const blob = await invoicePdfBlob(docRef.current, format);
+      // ASCII filename: an Arabic one survives most phones and mangles on some.
+      const how = await deliverPdf(blob, `invoice-${invoice.number}.pdf`);
+      if (how === 'downloaded') {
+        toast.success('تم إنشاء ملف PDF', 'نُزّل الملف على الجهاز — أرفقه من مجلد التنزيلات.');
+      }
+    } catch (error) {
+      toastError(error, 'تعذّر إنشاء ملف PDF');
+    } finally {
+      setPdfBusy(false);
+    }
+  };
 
   const correct = (kind: 'reverse' | 'reopen') => {
     const mutation = kind === 'reverse' ? reverse : reopen;
@@ -133,6 +180,14 @@ export default function InvoiceDetail() {
             {/* Two objects, not one setting: A4 is the document that gets
                 filed, 80mm is the slip the thermal printer hands over the
                 counter. Whichever was used last is the one on the left. */}
+            <Button
+              variant="ghost"
+              icon={<FileDown className="size-4" />}
+              onClick={sharePdf}
+              loading={pdfBusy}
+            >
+              PDF
+            </Button>
             {([lastPaper(), lastPaper() === 'a4' ? 'receipt' : 'a4'] as PaperFormat[]).map((format, i) => (
               <Button
                 key={format}
@@ -190,7 +245,7 @@ export default function InvoiceDetail() {
         </div>
       )}
 
-      <Card className="print-area overflow-hidden">
+      <Card ref={docRef} className="print-area overflow-hidden">
         {/* Document header */}
         <div className="doc-head flex flex-wrap items-start justify-between gap-6 border-b border-line p-6">
           <div>
