@@ -175,32 +175,40 @@ export default function Invoices() {
                     </div>
                   )}
 
+                  {/*
+                    * The bottom line: what was earned on the start, what was
+                    * charged on the end.
+                    *
+                    * The status badge used to hold this corner and said
+                    * "مرحّلة" on almost every card -- the list defaults to
+                    * hiding drafts and has a filter for the rest, so it was
+                    * repeating the filter back. The profit is the number worth
+                    * the space, and putting it opposite the total keeps the two
+                    * from reading as one figure.
+                    *
+                    * SourceBadge stays: it renders nothing at all for an
+                    * ordinary invoice (see domain.tsx) and appears only when
+                    * this document came from a stock count, an import or the
+                    * quick-entry screen, which is not something the card can
+                    * say any other way.
+                    */}
                   <div className="mt-2.5 flex items-center justify-between gap-2 border-t border-line pt-2.5">
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      <InvoiceStatusBadge status={invoice.status} />
+                    <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                      {canSeePrices && invoice.profit != null && (
+                        <span className={cn('nums text-sm font-bold',
+                          invoice.profit < 0
+                            ? 'text-accent-600 dark:text-accent-400'
+                            : 'text-emerald-600 dark:text-emerald-400')}
+                        >
+                          ربح {fmtCurrency(invoice.profit)}
+                        </span>
+                      )}
                       <SourceBadge source={invoice.source} />
                     </div>
                     {canSeePrices && (
-                      <div className="shrink-0 text-end">
-                        <span className="nums block text-lg font-bold leading-tight text-brand-600 dark:text-brand-400">
-                          {fmtCurrency(invoice.total)}
-                        </span>
-                        {/* Under the total, not beside it: the total is what
-                            the customer pays and the profit is what the shop
-                            keeps, and a phone card is exactly where two
-                            currency figures on one line would be read as one.
-                            Absent on a purchase and on anything not yet
-                            costed, where `profit` is null by design. */}
-                        {invoice.profit != null && (
-                          <span className={cn('nums mt-0.5 block text-[11px] font-bold',
-                            invoice.profit < 0
-                              ? 'text-accent-600 dark:text-accent-400'
-                              : 'text-emerald-600 dark:text-emerald-400')}
-                          >
-                            ربح {fmtCurrency(invoice.profit)}
-                          </span>
-                        )}
-                      </div>
+                      <span className="nums shrink-0 text-lg font-bold text-brand-600 dark:text-brand-400">
+                        {fmtCurrency(invoice.total)}
+                      </span>
                     )}
                   </div>
                 </div>
