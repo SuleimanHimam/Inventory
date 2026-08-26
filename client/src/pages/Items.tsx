@@ -5,7 +5,7 @@ import {
   LayoutGrid, Rows3,
 } from 'lucide-react';
 import {
-  Button, Card, PageHeader, Pagination, SearchInput, Select, EmptyState, TableSkeleton,
+  Button, Card, Pagination, SearchInput, Select, EmptyState, TableSkeleton,
   ConfirmDialog, Badge,
 } from '@/components/ui';
 import { ItemFormModal } from '@/components/ItemFormModal';
@@ -94,19 +94,22 @@ export default function Items() {
 
   return (
     <>
-      {/* On phone this costs a full screen row for a title the operator
-          already knows they're on — the same space buys another row of
-          cards. "صنف جديد" stays reachable via the command palette
-          (Ctrl/Cmd+K → "صنف جديد"). */}
-      <div className="hidden sm:block">
-        <PageHeader
-          title="الأصناف"
-          subtitle="جميع الأصناف المعرّفة في النظام مع أرصدتها الحالية"
-          actions={canWriteItems
-            ? <Button variant="primary" icon={<Plus className="size-4" />} onClick={openCreate}>صنف جديد</Button>
-            : undefined}
-        />
-      </div>
+      {/* No page title here. The nav already says which page this is, and the
+          list says what it holds better than a sentence describing it could —
+          on a phone that row was already traded for another row of cards, and
+          the same argument holds on a desk.
+
+          What the header did carry is the "صنف جديد" button, so that stays:
+          the floating one below is `sm:hidden`, and removing this row without
+          it would leave a desktop with no way to add an item but the command
+          palette (Ctrl/Cmd+K → "صنف جديد"). */}
+      {canWriteItems && (
+        <div className="mb-4 hidden justify-end sm:flex">
+          <Button variant="primary" icon={<Plus className="size-4" />} onClick={openCreate}>
+            صنف جديد
+          </Button>
+        </div>
+      )}
 
       {/* Phone-only replacement for that header button — floats above the
           bottom nav so it stays reachable no matter how far the list is
