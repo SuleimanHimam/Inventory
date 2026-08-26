@@ -361,8 +361,10 @@ export type DashboardStats = {
   /** Purchases, sales and profit over the window the viewer chose. */
   trading: {
     period: DashboardPeriod;
-    /** ISO date the window opens on; null when it is all of time. */
+    /** ISO date the window opens on; null when it is unbounded. */
     from: string | null;
+    /** ISO date it closes on. Only a custom range has one — every preset runs to now. */
+    to: string | null;
     /** @money The three below are absent for a staff role. */
     purchases?: number;
     sales?: number;
@@ -371,7 +373,7 @@ export type DashboardStats = {
   };
 };
 
-export type DashboardPeriod = 'today' | 'month' | '30d' | 'all';
+export type DashboardPeriod = 'today' | 'month' | '30d' | 'all' | 'custom';
 
 /** A member of the signed-in user's organisation — Settings › المستخدمون. */
 export type OrgUser = {

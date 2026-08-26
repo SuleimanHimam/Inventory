@@ -388,7 +388,7 @@ export function lowStockReport({ category_id, page, limit }) {
  * `invoice_date` is ISO-8601 text, so a plain string comparison orders it
  * correctly and no date parsing has to happen in SQL.
  */
-export const DASHBOARD_PERIODS = ['today', 'month', '30d', 'all'];
+export const DASHBOARD_PERIODS = ['today', 'month', '30d', 'all', 'custom'];
 
 function periodStart(period) {
   const now = new Date();
@@ -402,7 +402,21 @@ function periodStart(period) {
   }
 }
 
-export async function dashboardStats({ period = 'month' } = {}) {
+/**
+ * The window, as two ISO dates or nulls.
+ *
+ * `custom` is the only one with an end: every preset runs up to now, and
+ * pinning a closing date on them would only invite a stale one. Either bound
+ * of a custom range may be missing -- "everything since March" and "everything
+ * up to March" are both things someone means -- so they are applied
+ * independently rather than as a pair.
+ */
+function periodRange(period, from, to) {
+  if (period === 'custom') return { from: from || null, to: to || null };
+  return { from: periodStart(period), to: null };
+}
+
+export async function dashboardStats({ period = 'month', from: fromArg, to: toArg } = {}) {
   const threshold = await lowStockThreshold();
   const org = orgId();
 
@@ -466,7 +480,7 @@ export async function dashboardStats({ period = 'month' } = {}) {
    *     rather than recorded, so the tile can say so rather than implying a
    *     precision it does not have.
    */
-  const from = periodStart(period);
+  const { from, to } = periodRange(period, fromArg, toArg);
   const trading = await get(
     `SELECT
        COALESCE(SUM(CASE WHEN v.type = 'STOCK_IN'  THEN t.net END), 0) AS purchases,
@@ -488,8 +502,9 @@ export async function dashboardStats({ period = 'month' } = {}) {
                   AND (l.cost_price IS NULL OR l.cost_basis = 'ESTIMATED')) AS inexact
      ) t
      WHERE v.org_id = @org AND v.status = 'POSTED'
-       ${from ? 'AND v.invoice_date >= @from' : ''}`,
-    from ? { org, from } : { org });
+       ${from ? 'AND v.invoice_date >= @from' : ''}
+       ${to ? 'AND v.invoice_date <= @to' : ''}`,
+    { org, ...(from ? { from } : {}), ...(to ? { to } : {}) });
 
   const counts = await get(
     `SELECT
@@ -508,6 +523,7 @@ export async function dashboardStats({ period = 'month' } = {}) {
     trading: {
       period,
       from,
+      to,
       purchases: money(trading.purchases),
       sales: money(trading.sales),
       profit: money(trading.profit),
