@@ -315,8 +315,9 @@ function InvoiceEditor({ invoice }: { invoice: Invoice }) {
     return () => window.removeEventListener('beforeunload', warn);
   }, [lines.length]);
 
-  /** Leave and throw the unsaved invoice away. */
+  /** Leave and throw the unsaved invoice away. Never reached on an amendment. */
   const dropDraft = async () => {
+    if (invoice.reopened_at) { decidedRef.current = true; blocker.proceed?.(); return; }
     if (inFlightRef.current) return;
     inFlightRef.current = true;
     try {
@@ -332,6 +333,24 @@ function InvoiceEditor({ invoice }: { invoice: Invoice }) {
       toastError(error, 'تعذّر حذف الفاتورة');
     }
   };
+
+  /*
+   * A reopened invoice is not an unsaved one, and this screen used to treat
+   * every draft as though it were.
+   *
+   * Everything the leave path says and does was written for a document that
+   * has never existed: "you will lose it", and an exit that deletes the row.
+   * On an invoice being *amended* all of that is false and the delete is
+   * destructive -- it erases a spent number and its ledger entries. Backing
+   * out of an edit was doing exactly that.
+   *
+   * So on an amendment there is no discard on this screen at all. The two
+   * honest actions are to save it, or to leave it قيد التعديل and come back:
+   * it stays in the list, badged, with its stock effect still in force.
+   * Deleting a real document is the list's and the detail page's job, where
+   * the dialog can explain that it means a reversal.
+   */
+  const amending = !!invoice.reopened_at;
 
   const blockingReason = validation?.problems?.[0]?.message;
   const canPost = validation?.ok ?? false;
@@ -595,16 +614,18 @@ function InvoiceEditor({ invoice }: { invoice: Invoice }) {
                 saving is the full-width button above, and there is no longer a
                 separate "save as draft" to sit down here beside it. */}
             <div className="mt-2 grid grid-cols-2 gap-1.5">
-              <Button
-                variant="ghost" icon={<Trash2 className="size-4" />}
-                className="justify-center whitespace-nowrap px-2"
-                onClick={() => setConfirmDiscard(true)}
-              >
-                حذف
-              </Button>
+              {!amending && (
+                <Button
+                  variant="ghost" icon={<Trash2 className="size-4" />}
+                  className="justify-center whitespace-nowrap px-2"
+                  onClick={() => setConfirmDiscard(true)}
+                >
+                  حذف
+                </Button>
+              )}
               <Button
                 variant="ghost" icon={<LogOut className="size-4" />}
-                className="justify-center whitespace-nowrap px-2"
+                className={cn('justify-center whitespace-nowrap px-2', amending && 'col-span-2')}
                 onClick={() => navigate('/')}
               >
                 خروج
@@ -644,7 +665,9 @@ function InvoiceEditor({ invoice }: { invoice: Invoice }) {
               </span>
             )}
 
-            <Button variant="ghost" onClick={() => setConfirmDiscard(true)}>حذف الفاتورة</Button>
+            {!amending && (
+              <Button variant="ghost" onClick={() => setConfirmDiscard(true)}>حذف الفاتورة</Button>
+            )}
             <Button variant="ghost" className="ms-auto" onClick={() => navigate('/')}>خروج</Button>
           </div>
         </div>
@@ -658,30 +681,42 @@ function InvoiceEditor({ invoice }: { invoice: Invoice }) {
         open={blocker.state === 'blocked'}
         onClose={() => blocker.reset?.()}
         size="sm"
-        title="الفاتورة لم تُحفظ بعد"
-        description={`هذه الفاتورة تحتوي ${fmtInt(lines.length)} سطراً ولم تؤثر على المخزون بعد. إذا خرجت الآن ستفقدها.`}
+        title={amending ? 'الفاتورة قيد التعديل' : 'الفاتورة لم تُحفظ بعد'}
+        description={amending
+          ? `تعديلاتك على الفاتورة ${invoice.number} محفوظة، لكنها لم تُرحَّل بعد.`
+          : `هذه الفاتورة تحتوي ${fmtInt(lines.length)} سطراً ولم تؤثر على المخزون بعد. إذا خرجت الآن ستفقدها.`}
         footer={
           <>
             <Button
-              variant="danger"
-              icon={<Trash2 className="size-4" />}
-              loading={mutations.remove.isPending}
+              variant={amending ? 'secondary' : 'danger'}
+              icon={amending ? <LogOut className="size-4" /> : <Trash2 className="size-4" />}
+              loading={!amending && mutations.remove.isPending}
               onClick={dropDraft}
             >
-              الخروج دون حفظ
+              {amending ? 'الخروج والعودة لاحقاً' : 'الخروج دون حفظ'}
             </Button>
             <Button variant="primary" onClick={() => blocker.reset?.()}>
-              العودة والحفظ
+              {amending ? 'العودة وإعادة الترحيل' : 'العودة والحفظ'}
             </Button>
           </>
         }
       >
-        <p className="text-sm leading-relaxed text-muted">
-          <strong className="text-ink">العودة والحفظ</strong> يعيدك إلى الفاتورة لتحفظها — الحفظ
-          يسجّل حركات المخزون مباشرة.
-          <br />
-          <strong className="text-ink">الخروج دون حفظ</strong> يزيلها نهائياً — لا يمكن التراجع.
-        </p>
+        {amending ? (
+          <p className="text-sm leading-relaxed text-muted">
+            <strong className="text-ink">العودة وإعادة الترحيل</strong> يعيدك للفاتورة لترحّلها،
+            فيُسجَّل الفرق وحده في حركات المخزون.
+            <br />
+            <strong className="text-ink">الخروج والعودة لاحقاً</strong> لا يحذف شيئاً — تبقى
+            الفاتورة في القائمة بشارة «قيد التعديل» وأثرها على المخزون قائم كما هو.
+          </p>
+        ) : (
+          <p className="text-sm leading-relaxed text-muted">
+            <strong className="text-ink">العودة والحفظ</strong> يعيدك إلى الفاتورة لتحفظها — الحفظ
+            يسجّل حركات المخزون مباشرة.
+            <br />
+            <strong className="text-ink">الخروج دون حفظ</strong> يزيلها نهائياً — لا يمكن التراجع.
+          </p>
+        )}
       </Modal>
 
       <ItemBrowserModal
@@ -709,10 +744,18 @@ function InvoiceEditor({ invoice }: { invoice: Invoice }) {
         confirmLabel="حفظ نهائي"
         message={
           <>
-            سيتم تسجيل {fmtInt(lines.length)} حركة مخزون
-            {config.direction === 'IN' ? ' واردة' : ' صادرة'} وتحديث الأرصدة، وتحديث أسعار
-            الأصناف المحددة. <strong className="text-ink">بعد الحفظ لا يمكن تعديل الفاتورة</strong> —
-            يُصحَّح الخطأ بفاتورة جديدة.
+            {amending ? (
+              <>
+                سيُسجَّل <strong className="text-ink">الفرق وحده</strong> في حركات المخزون: صنف لم
+                تغيّر كميته لا يُكتب له قيد. وتُحدَّث أسعار الأصناف المحددة.
+              </>
+            ) : (
+              <>
+                سيتم تسجيل {fmtInt(lines.length)} حركة مخزون
+                {config.direction === 'IN' ? ' واردة' : ' صادرة'} وتحديث الأرصدة، وتحديث أسعار
+                الأصناف المحددة.
+              </>
+            )}
           </>
         }
       />
