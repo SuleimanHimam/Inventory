@@ -52,6 +52,25 @@ const COST_ESTIMATED = `
 const COST_MISSING = `
   (SELECT COUNT(*) FROM invoice_lines l WHERE l.invoice_id = v.id AND l.cost_price IS NULL)`;
 
+/**
+ * The first line of the document, so a list row can say what the invoice is
+ * *for* rather than only how many things are on it -- "1" tells a reader
+ * nothing they wanted to know.
+ *
+ * OUTER APPLY rather than two correlated subqueries: the name and the quantity
+ * have to come from the *same* line, and two independent TOP 1 queries only
+ * agree by luck of the plan. Ordered exactly as getLines orders the document,
+ * so "first" here and "first" on the page are the same row.
+ */
+const FIRST_LINE = `
+  OUTER APPLY (
+    SELECT TOP 1 i.name AS item_name, l.quantity
+      FROM invoice_lines l
+      JOIN items i ON i.id = l.item_id AND i.org_id = l.org_id
+     WHERE l.invoice_id = v.id AND l.org_id = v.org_id
+     ORDER BY l.sort_order, l.seq
+  ) fl`;
+
 const SELECT_INVOICE = `
   SELECT v.*, ${TOTALS} AS subtotal,
          ${TOTALS} - v.discount_total + v.tax_total AS total,
@@ -59,12 +78,14 @@ const SELECT_INVOICE = `
          ${COST_ESTIMATED} AS estimated_cost_lines,
          ${COST_MISSING} AS missing_cost_lines,
          (SELECT COUNT(*) FROM invoice_lines l WHERE l.invoice_id = v.id) AS line_count,
+         fl.item_name AS first_item_name, fl.quantity AS first_item_qty,
          s.name AS supplier_name, c.name AS customer_name,
          sc.number AS stock_count_number
     FROM invoices v
     LEFT JOIN suppliers s ON s.id = v.supplier_id
     LEFT JOIN customers c ON c.id = v.customer_id
-    LEFT JOIN stock_counts sc ON sc.id = v.stock_count_id`;
+    LEFT JOIN stock_counts sc ON sc.id = v.stock_count_id
+    ${FIRST_LINE}`;
 
 /**
  * Profit on one document, and the three deliberate choices inside it.

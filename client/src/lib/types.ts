@@ -190,6 +190,9 @@ export type Invoice = {
   tax_total?: number;
   total?: number;
   line_count: number;
+  /** The document's first line, so a list row can show what it is for. */
+  first_item_name: string | null;
+  first_item_qty: number | null;
   note: string | null;
   stock_count_id: string | null;
   stock_count_number: string | null;
