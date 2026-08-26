@@ -100,6 +100,38 @@ export default function Invoices() {
             <option value="POSTED">محفوظة</option>
             <option value="CANCELLED">ملغاة</option>
           </Select>
+          {/*
+            * The profit on whatever is currently filtered, in the space the
+            * status dropdown leaves beside it rather than on a line of its
+            * own. `ms-auto` pushes it to the far end, so the row reads as
+            * filter on one side, result on the other.
+            *
+            * The long form -- posted documents only, and whether any cost was
+            * reconstructed -- moves to the title. Same caveat, but a figure
+            * sharing a row with the controls has no room for a sentence, and
+            * both facts matter only to someone already reading the number
+            * closely. "تقديري" stays visible, because that one changes what
+            * the number means.
+            */}
+          {canSeePrices && data?.summary?.profit_total != null && (
+            <span
+              className="ms-auto flex shrink-0 items-baseline gap-1.5"
+              title={`ربح الفواتير المعروضة — الفواتير المرحّلة فقط${
+                data.summary.profit_exact === false ? '، ويتضمن تكلفة تقديرية' : ''}`}
+            >
+              <span className="text-xs text-muted">الربح</span>
+              <span className={cn('nums text-sm font-bold',
+                (data.summary.profit_total ?? 0) < 0
+                  ? 'text-accent-600 dark:text-accent-400'
+                  : 'text-emerald-600 dark:text-emerald-400')}
+              >
+                {fmtCurrency(data.summary.profit_total)}
+              </span>
+              {data.summary.profit_exact === false && (
+                <span className="text-[11px] text-subtle">تقديري</span>
+              )}
+            </span>
+          )}
           <div className="flex w-full flex-wrap items-center gap-1.5 sm:w-auto sm:flex-nowrap">
             <Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)}
               className="nums min-w-0 flex-1 sm:w-auto sm:flex-none" aria-label="من تاريخ" />
@@ -109,40 +141,6 @@ export default function Invoices() {
           </div>
         </div>
 
-        {/*
-          * The profit on whatever is currently filtered.
-          *
-          * This is the one figure that belongs on a list rather than on the
-          * dashboard, and for the reason the four-card strip did not: the
-          * dashboard answers "how are we doing", over a window chosen there,
-          * while this answers "what did *these* invoices earn" -- this
-          * customer, last week, that supplier. It moves when the filters move,
-          * which is exactly what made it wrong as a headline and right here.
-          *
-          * One line, not a card: it is a footnote to the filters above it, and
-          * the manager-only figures the strip used to carry now live on the
-          * dashboard where they are not competing with a list for attention.
-          */}
-        {canSeePrices && data?.summary?.profit_total != null && (
-          <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 border-b border-line bg-surface-2 px-3.5 py-2 text-xs">
-            {/* "المرحّلة فقط" is not padding: the summary counts posted
-                documents only, so filtering to ملغاة would otherwise show a
-                profit that does not match the list under it. */}
-            <span className="text-muted">
-              ربح الفواتير المعروضة · المرحّلة فقط
-              {data.summary.profit_exact === false && (
-                <span className="text-subtle"> · يتضمن تكلفة تقديرية</span>
-              )}
-            </span>
-            <span className={cn('nums text-sm font-bold',
-              (data.summary.profit_total ?? 0) < 0
-                ? 'text-accent-600 dark:text-accent-400'
-                : 'text-emerald-600 dark:text-emerald-400')}
-            >
-              {fmtCurrency(data.summary.profit_total)}
-            </span>
-          </div>
-        )}
 
         {isLoading ? (
           <TableSkeleton cols={7} />
