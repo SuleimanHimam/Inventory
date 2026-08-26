@@ -1,24 +1,30 @@
+import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
   Printer, ArrowRight, FileText, Lock, ClipboardList, Loader2,
+  Pencil, Undo2, TrendingUp, Info,
 } from 'lucide-react';
 import {
-  Button, Card, PageHeader, Badge, EmptyState, Stat,
+  Button, Card, PageHeader, Badge, EmptyState, Stat, ConfirmDialog,
 } from '@/components/ui';
 import {
   BarcodeChip, INVOICE_TYPES, InvoiceStatusBadge, MovementBadge, SourceBadge,
 } from '@/components/domain';
 import { Thumb } from '@/components/ImagePicker';
-import { useInvoice } from '@/hooks';
+import { useInvoice, useInvoiceMutations } from '@/hooks';
 import { fmtCurrency, fmtDate, fmtDateTime, fmtInt } from '@/lib/format';
+import { cn } from '@/lib/cn';
 import { usePrefs } from '@/store/prefs';
 import { usePermissions } from '@/lib/permissions';
+import { toast, toastError } from '@/store/toast';
 
 export default function InvoiceDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { data: invoice, isLoading } = useInvoice(id);
-  const { canSeePrices } = usePermissions();
+  const { canSeePrices, isManager } = usePermissions();
+  const { reverse, reopen } = useInvoiceMutations(id);
+  const [confirming, setConfirming] = useState<'reverse' | 'reopen' | null>(null);
   const companyName = usePrefs((s) => s.companyName);
 
   if (isLoading) {
@@ -51,6 +57,32 @@ export default function InvoiceDetail() {
   }
 
   const config = INVOICE_TYPES[invoice.type];
+
+  /*
+   * Profit is a sales question. A STOCK_IN document has no margin — it is
+   * inventory changing form — so the whole panel and both extra columns are
+   * absent on one rather than showing a column of dashes.
+   */
+  // A draft has already been redirected away above, so status needs no test
+  // here; `profit` being non-null is what rules out an unposted document.
+  const showsProfit = canSeePrices && invoice.type === 'STOCK_OUT' && invoice.profit != null;
+
+  const correct = (kind: 'reverse' | 'reopen') => {
+    const mutation = kind === 'reverse' ? reverse : reopen;
+    mutation.mutate(invoice.id, {
+      onSuccess: (updated) => {
+        setConfirming(null);
+        if (kind === 'reopen') {
+          toast.success('فُتحت الفاتورة للتعديل', `أُعيد أثرها على المخزون. رقمها ${updated.number} كما هو.`);
+          navigate(`/invoices/${invoice.id}/edit`);
+        } else {
+          toast.success('تم عكس الفاتورة', 'أُعيد أثرها على المخزون، وبقيت في السجل موثّقة.');
+        }
+      },
+      onError: (error) => toastError(error, kind === 'reopen' ? 'تعذّر فتح الفاتورة' : 'تعذّر عكس الفاتورة'),
+    });
+  };
+
   const partyLabel = invoice.customer_id
     ? 'العميل'
     : invoice.supplier_id
@@ -74,16 +106,57 @@ export default function InvoiceDetail() {
           </span>
         }
         actions={
-          <Button icon={<Printer className="size-4" />} onClick={() => window.print()}>طباعة</Button>
+          <>
+            {isManager && invoice.status === 'POSTED' && (
+              <>
+                <Button
+                  icon={<Pencil className="size-4" />}
+                  onClick={() => setConfirming('reopen')}
+                  loading={reopen.isPending}
+                >
+                  تعديل
+                </Button>
+                <Button
+                  variant="danger"
+                  icon={<Undo2 className="size-4" />}
+                  onClick={() => setConfirming('reverse')}
+                  loading={reverse.isPending}
+                >
+                  عكس الفاتورة
+                </Button>
+              </>
+            )}
+            <Button icon={<Printer className="size-4" />} onClick={() => window.print()}>طباعة</Button>
+          </>
         }
       />
 
+      {/* What this banner says depends on who is reading it: a posted invoice is
+          still final for everyone except a manager, and telling a staff account
+          that it "can be corrected by a manager" only invites a request that
+          the API would refuse. */}
       {invoice.status === 'POSTED' && (
         <div className="mb-4 flex items-center gap-2.5 rounded-xl border border-emerald-500/25 bg-emerald-500/8 px-4 py-2.5 text-sm no-print">
           <Lock className="size-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
           <span className="text-muted">
-            فاتورة مرحّلة وغير قابلة للتعديل — أي تصحيح يتم عبر فاتورة جديدة.
+            {isManager
+              ? 'فاتورة مرحّلة. التعديل أو العكس يعيد أثرها على المخزون بقيود معاكسة — لا يُحذف من السجل شيء.'
+              : 'فاتورة مرحّلة وغير قابلة للتعديل — أي تصحيح يتم عبر فاتورة جديدة.'}
             {invoice.posted_at && <span className="nums"> رُحّلت في {fmtDateTime(invoice.posted_at)}.</span>}
+            {invoice.revision > 0 && (
+              <span className="nums"> عُدّلت {fmtInt(invoice.revision)} مرة.</span>
+            )}
+          </span>
+        </div>
+      )}
+
+      {invoice.is_reversed && (
+        <div className="mb-4 flex items-center gap-2.5 rounded-xl border border-accent-500/25 bg-accent-500/8 px-4 py-2.5 text-sm no-print">
+          <Undo2 className="size-4 shrink-0 text-accent-600 dark:text-accent-400" />
+          <span className="text-muted">
+            فاتورة معكوسة — أُعيد أثرها على المخزون بالكامل، وبقيت هنا للسجل.
+            {invoice.reversed_at && <span className="nums"> عُكست في {fmtDateTime(invoice.reversed_at)}</span>}
+            {invoice.reversed_by && <> بواسطة {invoice.reversed_by}</>}.
           </span>
         </div>
       )}
@@ -127,7 +200,9 @@ export default function InvoiceDetail() {
                 <th>الباركود</th>
                 <th className="text-center">الكمية</th>
                 {canSeePrices && <th className="text-center">سعر الوحدة</th>}
+                {showsProfit && <th className="text-center no-print">التكلفة</th>}
                 {canSeePrices && <th className="text-center">الإجمالي</th>}
+                {showsProfit && <th className="text-center no-print">الربح</th>}
               </tr>
             </thead>
             <tbody>
@@ -148,8 +223,26 @@ export default function InvoiceDetail() {
                   {canSeePrices && (
                     <td data-label="سعر الوحدة" className="nums text-center">{fmtCurrency(line.unit_price)}</td>
                   )}
+                  {showsProfit && (
+                    <td data-label="التكلفة" className="nums text-center text-muted no-print">{fmtCurrency(line.line_cost)}</td>
+                  )}
                   {canSeePrices && (
                     <td data-label="الإجمالي" className="nums text-center font-bold">{fmtCurrency(line.line_total)}</td>
+                  )}
+                  {/* A loss-making line is worth seeing at a glance, so the
+                      sign drives the colour rather than the column doing so. */}
+                  {showsProfit && (
+                    <td
+                      data-label="الربح"
+                      className={cn(
+                        'nums text-center font-bold no-print',
+                        (line.line_profit ?? 0) < 0
+                          ? 'text-accent-600 dark:text-accent-400'
+                          : 'text-emerald-600 dark:text-emerald-400',
+                      )}
+                    >
+                      {fmtCurrency(line.line_profit)}
+                    </td>
                   )}
                 </tr>
               ))}
@@ -183,6 +276,53 @@ export default function InvoiceDetail() {
                   {fmtCurrency(invoice.total)}
                 </span>
               </div>
+
+              {/* Profit sits below the total and visibly apart from it: the
+                  total is what the customer pays, this is what the business
+                  keeps, and running them together is how the two get confused.
+
+                  `no-print` on this panel and on the two profit columns above
+                  is not cosmetic. This invoice gets handed to the customer or
+                  the supplier it names, and a printout that discloses the
+                  margin on their own order is a commercial problem, not a
+                  layout one. On screen it is manager-only; on paper it is
+                  nobody's. */}
+              {showsProfit && (
+                <div className="no-print mt-3 space-y-2 rounded-xl border border-emerald-500/25 bg-emerald-500/8 p-3">
+                  <Row label="تكلفة البضاعة" value={fmtCurrency(invoice.cost_total)} />
+                  <div className="flex items-center justify-between border-t border-emerald-500/20 pt-2">
+                    <span className="flex items-center gap-1.5 font-bold">
+                      <TrendingUp className="size-4 text-emerald-600 dark:text-emerald-400" />
+                      الربح
+                    </span>
+                    <span
+                      className={cn(
+                        'nums text-xl font-bold',
+                        (invoice.profit ?? 0) < 0
+                          ? 'text-accent-600 dark:text-accent-400'
+                          : 'text-emerald-600 dark:text-emerald-400',
+                      )}
+                    >
+                      {fmtCurrency(invoice.profit)}
+                    </span>
+                  </div>
+                  {invoice.margin_pct != null && (
+                    <p className="nums text-[11px] text-muted">
+                      هامش الربح {invoice.margin_pct}% من صافي المبيعات
+                      {(invoice.discount_total ?? 0) > 0 && ' بعد الخصم'}
+                      {(invoice.tax_total ?? 0) > 0 && ' وقبل الضريبة'}
+                    </p>
+                  )}
+                  {/* Says so plainly rather than quietly presenting a
+                      reconstructed number as a recorded one. */}
+                  {invoice.profit_exact === false && (
+                    <p className="flex items-start gap-1.5 text-[11px] text-amber-700 dark:text-amber-400">
+                      <Info className="mt-px size-3 shrink-0" />
+                      تكلفة تقديرية: هذه الفاتورة رُحّلت قبل تفعيل حفظ التكلفة، فحُسبت من سعر الشراء الحالي.
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
           ) : (
             <div className="w-full max-w-xs text-sm">
@@ -194,6 +334,46 @@ export default function InvoiceDetail() {
           )}
         </div>
       </Card>
+
+      {/* Both confirmations spell out the stock consequence, because that is
+          the part a manager cannot see from the invoice in front of them. */}
+      <ConfirmDialog
+        open={confirming === 'reopen'}
+        onClose={() => setConfirming(null)}
+        onConfirm={() => correct('reopen')}
+        title="فتح الفاتورة للتعديل؟"
+        tone="primary"
+        confirmLabel="فتح للتعديل"
+        loading={reopen.isPending}
+        message={
+          <>
+            سيُعاد أثر الفاتورة على المخزون بقيود معاكسة، وتعود مسودة برقمها
+            <span className="nums font-semibold"> {invoice.number} </span>
+            نفسه لتعديلها ثم ترحيلها من جديد.
+            <span className="mt-2 block text-xs">
+              لا يُحذف من سجل الحركات شيء — تبقى القيود الأصلية وقيود العكس ظاهرة معاً.
+            </span>
+          </>
+        }
+      />
+      <ConfirmDialog
+        open={confirming === 'reverse'}
+        onClose={() => setConfirming(null)}
+        onConfirm={() => correct('reverse')}
+        title="عكس الفاتورة؟"
+        confirmLabel="عكس الفاتورة"
+        loading={reverse.isPending}
+        message={
+          <>
+            سيُعاد أثر الفاتورة
+            <span className="nums font-semibold"> {invoice.number} </span>
+            على المخزون بالكامل، وتُعلَّم كملغاة مع بقائها في السجل.
+            <span className="mt-2 block text-xs">
+              الفاتورة لا تُحذف: رقمها مستهلك وحركاتها مسجّلة، فتبقى موثّقة مع قيود عكسها.
+            </span>
+          </>
+        }
+      />
 
       {/* Generated ledger entries */}
       {!!invoice.movements?.length && (

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ComponentType } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
   Package, PackagePlus, PackageMinus, Tags, FileSpreadsheet, TriangleAlert,
-  ArrowLeftRight, ClipboardList, PlayCircle, Settings, Moon, Sun,
+  ArrowLeftRight, ClipboardList, PlayCircle, Settings, Moon, Sun, FileText,
   ChevronUp, ChevronDown, Download, LayoutDashboard, User, Users, LogOut, DatabaseBackup,
 } from 'lucide-react';
 import { Menu, MenuItem } from '@/components/ui';
@@ -115,7 +115,22 @@ export function Ribbon() {
         {
           title: 'السجل',
           commands: [
+            /*
+             * The invoice register. It was reachable from the phone's "more"
+             * sheet and from global search, but never from the ribbon — so on
+             * desktop the only way to a saved invoice was to already be
+             * looking at one. Same icon and violet tone the phone gives it,
+             * per the TONE comment above.
+             *
+             * No draft badge, deliberately, though `stats.counts.draft_invoices`
+             * is right there and two neighbouring commands carry one. This
+             * screen cannot show drafts: `listInvoices` excludes them unless
+             * status=DRAFT is asked for explicitly, and the status filter
+             * offers only محفوظة and ملغاة. A count that lands on a list not
+             * containing what it counted is worse than no count.
+             */
             ...(canSeeFullNav ? [
+              { label: 'الفواتير', icon: FileText, run: go('/invoices'), big: true, tone: 'violet' as const },
               { label: 'الحركات', icon: ArrowLeftRight, run: go('/movements'), big: true, tone: 'blue' as const },
             ] : []),
             // Refused for a clerk both client- and API-side — see RequireNotClerk.

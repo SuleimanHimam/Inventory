@@ -390,6 +390,19 @@ export function useInvoiceMutations(invoiceId?: string) {
       mutationFn: (id: string) => api.post<Invoice>(`/invoices/${id}/cancel`),
       onSuccess: refresh,
     }),
+    /*
+     * Manager-only corrections to a posted document. Both move stock, so both
+     * invalidate the stock caches the way `post` does — reversing an invoice
+     * changes on-hand quantities just as surely as posting one did.
+     */
+    reverse: useMutation({
+      mutationFn: (id: string) => api.post<Invoice>(`/invoices/${id}/reverse`),
+      onSuccess: (invoice) => { invalidate(); refresh(invoice); },
+    }),
+    reopen: useMutation({
+      mutationFn: (id: string) => api.post<Invoice>(`/invoices/${id}/reopen`),
+      onSuccess: (invoice) => { invalidate(); refresh(invoice); },
+    }),
     remove: useMutation({
       mutationFn: (id: string) => api.delete(`/invoices/${id}`),
       onSuccess: () => qc.invalidateQueries({ queryKey: ['invoices'] }),

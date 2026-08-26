@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { wrap, parse, pageQuery, paginated } from '../lib/http.js';
-import { requireNotClerk, CLERK } from '../lib/roles.js';
+import { requireNotClerk, requireManager, isManager, CLERK } from '../lib/roles.js';
 import { forbidden } from '../lib/errors.js';
 import * as invoices from '../services/invoices.service.js';
 
@@ -85,12 +85,29 @@ router.patch('/:id', requireStockOutForClerk, wrap(async (req, res) => {
   res.json(await invoices.updateInvoice(req.params.id, body));
 }));
 
-/** Deletes a draft; a non-draft is cancelled instead, per the API contract. */
+/**
+ * Deletes a draft outright. A posted invoice cannot be deleted by anyone —
+ * it has consumed a document number and moved stock — so for a manager this
+ * reverses it instead: the ledger effect is undone by compensating entries
+ * and the document is marked cancelled. Anything else (an already-cancelled
+ * document) takes the plain cancel path.
+ *
+ * The manager check is here rather than as route middleware because the rule
+ * is about the invoice's state, not the route: any role may still delete its
+ * own draft, which is what it always could do.
+ */
 router.delete('/:id', requireStockOutForClerk, wrap(async (req, res) => {
   const invoice = await invoices.getInvoice(req.params.id, { withDetail: false });
-  res.json(invoice.status === 'DRAFT'
-    ? await invoices.deleteInvoice(req.params.id)
-    : await invoices.cancelInvoice(req.params.id));
+  if (invoice.status === 'DRAFT') {
+    return res.json(await invoices.deleteInvoice(req.params.id));
+  }
+  if (invoice.status === 'POSTED') {
+    if (!isManager(req.auth?.role)) {
+      throw forbidden('عكس فاتورة مرحّلة صلاحية للمدير فقط', 'MANAGER_ONLY');
+    }
+    return res.json(await invoices.reverseInvoice(req.params.id, { by: req.auth?.email }));
+  }
+  return res.json(await invoices.cancelInvoice(req.params.id));
 }));
 
 // ------------------------------------------------------------------- lines
@@ -132,5 +149,20 @@ router.post('/:id/post', requireStockOutForClerk, wrap(async (req, res) =>
 
 router.post('/:id/cancel', requireStockOutForClerk, wrap(async (req, res) =>
   res.json(await invoices.cancelInvoice(req.params.id))));
+
+/**
+ * Manager-only corrections to a posted document. Both undo the ledger effect
+ * with compensating entries rather than touching what is already written —
+ * see the block comment above `reverseInvoice` in the service.
+ *
+ * `requireManager` and not a state check inside the handler: unlike DELETE
+ * above, there is no version of either action that a non-manager may perform.
+ */
+router.post('/:id/reverse', requireManager, wrap(async (req, res) =>
+  res.json(await invoices.reverseInvoice(req.params.id, { by: req.auth?.email }))));
+
+/** POSTED → DRAFT, keeping the number, so the normal edit endpoints apply. */
+router.post('/:id/reopen', requireManager, wrap(async (req, res) =>
+  res.json(await invoices.reopenInvoice(req.params.id, { by: req.auth?.email }))));
 
 export default router;

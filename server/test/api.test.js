@@ -223,9 +223,193 @@ test('posted invoices are immutable', inOrg(async () => {
     "SELECT TOP (1) id FROM invoices WHERE status='POSTED' AND org_id = @org", ORG_SCOPED);
   await rejectsWith(() => invoices.updateInvoice(posted.id, { note: 'تعديل' }), 'INVOICE_NOT_DRAFT');
   await rejectsWith(() => invoices.addLineByBarcode(posted.id, { barcode: 'AAA-111' }), 'INVOICE_NOT_DRAFT');
+  // Still true of the ordinary paths. What migration 007 added is two further
+  // paths for a manager - reverse and reopen - which undo the ledger effect
+  // with new entries rather than by editing what is already posted. The route
+  // layer restricts those to a manager; the service is reachable here by
+  // design, as every other service call in this file is.
   await rejectsWith(() => invoices.cancelInvoice(posted.id), 'INVOICE_POSTED');
   await rejectsWith(() => invoices.deleteInvoice(posted.id), 'INVOICE_POSTED');
 }));
+
+test('profit is the sale less the cost snapshotted at posting time', inOrg(async () => {
+  const item = await items.createItem({
+    name: 'صنف ربح', barcode: 'PROFIT-001', purchase_price: 10, sale_price: 25 });
+
+  const buy = await invoices.createInvoice({ type: 'STOCK_IN' });
+  await invoices.addLineByBarcode(buy.id, { barcode: 'PROFIT-001', quantity: 10 });
+  const bought = await invoices.postInvoice(buy.id);
+  // A purchase has no margin — null, not a large negative number.
+  assert.equal(bought.profit, null);
+  assert.equal(bought.cost_total, null);
+
+  const sell = await invoices.createInvoice({ type: 'STOCK_OUT' });
+  await invoices.addLineByBarcode(sell.id, { barcode: 'PROFIT-001', quantity: 4 });
+  const sold = await invoices.postInvoice(sell.id);
+  assert.equal(sold.subtotal, 100);          // 4 x 25
+  assert.equal(sold.cost_total, 40);         // 4 x 10, as it stood when posted
+  assert.equal(sold.profit, 60);
+  assert.equal(sold.margin_pct, 60);
+  assert.equal(sold.profit_exact, true);
+  assert.equal((await invoices.getLines(sell.id))[0].line_profit, 60);
+
+  /*
+   * The whole point of the snapshot: restocking at a higher price must not
+   * rewrite what an already-posted sale earned. Read live from
+   * items.purchase_price, this number would move.
+   */
+  const restock = await invoices.createInvoice({ type: 'STOCK_IN' });
+  await invoices.addLineByBarcode(restock.id, { barcode: 'PROFIT-001', quantity: 5, unit_price: 22 });
+  await invoices.postInvoice(restock.id);
+  assert.equal((await items.getItem(item.id)).purchase_price, 22);
+
+  const unchanged = await invoices.getInvoice(sell.id);
+  assert.equal(unchanged.cost_total, 40);
+  assert.equal(unchanged.profit, 60);
+
+  // …and the next sale costs at the new price, not the old one.
+  const sell2 = await invoices.createInvoice({ type: 'STOCK_OUT' });
+  await invoices.addLineByBarcode(sell2.id, { barcode: 'PROFIT-001', quantity: 1 });
+  assert.equal((await invoices.postInvoice(sell2.id)).cost_total, 22);
+}));
+
+test('an item with no purchase price is costed as an estimate, not as free goods', inOrg(async () => {
+  // purchase_price is NOT NULL DEFAULT 0, so this is what a quick-added or
+  // imported item looks like — not a good that genuinely cost nothing.
+  await items.createItem({ name: 'صنف بلا تكلفة', barcode: 'PROFIT-004', sale_price: 30 });
+
+  const sell = await invoices.createInvoice({ type: 'STOCK_OUT' });
+  await invoices.addLineByBarcode(sell.id, { barcode: 'PROFIT-004', quantity: 2 });
+  const sold = await invoices.postInvoice(sell.id);
+
+  // The arithmetic is unavoidable: there is no cost to subtract.
+  assert.equal(sold.cost_total, 0);
+  assert.equal(sold.profit, 60);
+  // What must not happen is the API calling that 100% margin a recorded fact.
+  assert.equal(sold.profit_exact, false);
+
+  const [line] = await invoices.getLines(sell.id);
+  assert.equal(line.cost_basis, 'ESTIMATED');
+}));
+
+test('an unposted sale reports no profit rather than its whole value', inOrg(async () => {
+  await items.createItem({
+    name: 'صنف مسودة', barcode: 'PROFIT-005', purchase_price: 6, sale_price: 15 });
+
+  const draft = await invoices.createInvoice({ type: 'STOCK_OUT' });
+  await invoices.addLineByBarcode(draft.id, { barcode: 'PROFIT-005', quantity: 3 });
+
+  /*
+   * Costs are snapshotted at posting, so a draft has none. Summing a NULL
+   * column yields 0, which would report the entire 45 as profit at a 100%
+   * margin — the figure the UI reads `profit != null` to rule out.
+   */
+  const unposted = await invoices.getInvoice(draft.id);
+  assert.equal(unposted.subtotal, 45);
+  assert.equal(unposted.profit, null);
+  assert.equal(unposted.cost_total, null);
+  assert.equal(unposted.margin_pct, null);
+  assert.equal((await invoices.getLines(draft.id))[0].line_profit, null);
+
+  // Posting is what makes the figure exist.
+  const posted = await invoices.postInvoice(draft.id);
+  assert.equal(posted.profit, 27);           // 45 - 3 x 6
+  assert.equal(posted.profit_exact, true);
+}));
+
+test('a discount reduces profit and tax does not', inOrg(async () => {
+  await items.createItem({ name: 'صنف خصم', barcode: 'PROFIT-002', purchase_price: 10, sale_price: 20 });
+  const buy = await invoices.createInvoice({ type: 'STOCK_IN' });
+  await invoices.addLineByBarcode(buy.id, { barcode: 'PROFIT-002', quantity: 10 });
+  await invoices.postInvoice(buy.id);
+
+  const out = await invoices.createInvoice({ type: 'STOCK_OUT', discount_total: 20, tax_total: 15 });
+  await invoices.addLineByBarcode(out.id, { barcode: 'PROFIT-002', quantity: 10 });
+  const posted = await invoices.postInvoice(out.id);
+
+  assert.equal(posted.subtotal, 200);
+  assert.equal(posted.total, 195);        // 200 − 20 discount + 15 tax
+  assert.equal(posted.cost_total, 100);
+  // Revenue given up reduces profit; tax collected for someone else does not.
+  assert.equal(posted.profit, 80);        // (200 − 20) − 100
+  assert.equal(posted.margin_pct, 44.4);
+}));
+
+test('reversing a posted invoice undoes its stock without touching the ledger', inOrg(async () => {
+  const item = await items.createItem({
+    name: 'صنف عكس', barcode: 'REV-001', purchase_price: 3, sale_price: 7 });
+  const buy = await invoices.createInvoice({ type: 'STOCK_IN' });
+  await invoices.addLineByBarcode(buy.id, { barcode: 'REV-001', quantity: 20 });
+  await invoices.postInvoice(buy.id);
+
+  const sell = await invoices.createInvoice({ type: 'STOCK_OUT' });
+  await invoices.addLineByBarcode(sell.id, { barcode: 'REV-001', quantity: 8 });
+  const posted = await invoices.postInvoice(sell.id);
+  assert.equal((await items.getItem(item.id)).quantity, 12);
+
+  const reversed = await invoices.reverseInvoice(posted.id, { by: 'mgr@test' });
+  assert.equal(reversed.status, 'CANCELLED');
+  assert.equal(reversed.is_reversed, true);
+  assert.equal(reversed.reversed_by, 'mgr@test');
+  assert.equal((await items.getItem(item.id)).quantity, 20);
+
+  // Nothing was deleted: the original entry and its compensation both stand.
+  const ledger = (await invoices.getInvoice(posted.id)).movements;
+  assert.deepEqual(ledger.map((m) => [m.type, m.quantity, m.reference_type]),
+    [['OUT', 8, 'INVOICE'], ['IN', 8, 'REVERSAL']]);
+  assert.equal(ledger[1].reverses_movement_id, ledger[0].id);
+
+  await rejectsWith(() => invoices.reverseInvoice(posted.id), 'INVOICE_NOT_POSTED');
+}));
+
+test('reopening keeps the number, and re-posting re-costs the lines', inOrg(async () => {
+  const item = await items.createItem({
+    name: 'صنف فتح', barcode: 'REOPEN-001', purchase_price: 5, sale_price: 12 });
+  const buy = await invoices.createInvoice({ type: 'STOCK_IN' });
+  await invoices.addLineByBarcode(buy.id, { barcode: 'REOPEN-001', quantity: 30 });
+  await invoices.postInvoice(buy.id);
+
+  const sell = await invoices.createInvoice({ type: 'STOCK_OUT' });
+  const { line_id: lineId } = await invoices.addLineByBarcode(sell.id, { barcode: 'REOPEN-001', quantity: 3 });
+  const posted = await invoices.postInvoice(sell.id);
+  const number = posted.number;
+  assert.equal(posted.profit, 21);                                  // 3 x (12 − 5)
+  assert.equal((await items.getItem(item.id)).quantity, 27);
+
+  const reopened = await invoices.reopenInvoice(posted.id, { by: 'mgr@test' });
+  assert.equal(reopened.status, 'DRAFT');
+  assert.equal(reopened.number, number, 'a reopened invoice keeps its number');
+  assert.equal(reopened.revision, 1);
+  assert.equal((await items.getItem(item.id)).quantity, 30, 'stock is restored while it is a draft');
+
+  await invoices.updateLine(sell.id, lineId, { quantity: 10 });
+  const again = await invoices.postInvoice(sell.id);
+  assert.equal(again.number, number, 're-posting mints no new number');
+  assert.equal(again.profit, 70);                                   // 10 x (12 − 5)
+  assert.equal((await items.getItem(item.id)).quantity, 20);
+
+  // Three entries now: the original, its reversal, and the corrected one.
+  const ledger = (await invoices.getInvoice(sell.id)).movements;
+  assert.deepEqual(ledger.map((m) => [m.type, m.quantity, m.reference_type]),
+    [['OUT', 3, 'INVOICE'], ['IN', 3, 'REVERSAL'], ['OUT', 10, 'INVOICE']]);
+}));
+
+test('a reversal that would drive stock negative is refused', inOrg(async () => {
+  await items.createItem({ name: 'صنف عجز', barcode: 'REV-002', purchase_price: 2, sale_price: 5 });
+  const buy = await invoices.createInvoice({ type: 'STOCK_IN' });
+  await invoices.addLineByBarcode(buy.id, { barcode: 'REV-002', quantity: 6 });
+  const bought = await invoices.postInvoice(buy.id);
+
+  // Sell the lot, then try to unwind the purchase that brought it in.
+  const sell = await invoices.createInvoice({ type: 'STOCK_OUT' });
+  await invoices.addLineByBarcode(sell.id, { barcode: 'REV-002', quantity: 6 });
+  await invoices.postInvoice(sell.id);
+
+  await rejectsWith(() => invoices.reverseInvoice(bought.id), 'REVERSAL_INSUFFICIENT_STOCK');
+  // Refused whole: the invoice is untouched, not half-reversed.
+  assert.equal((await invoices.getInvoice(bought.id)).status, 'POSTED');
+}));
+
 
 test('the stock ledger rejects updates and deletes', inOrg(async () => {
   const m = await get('SELECT TOP (1) id FROM stock_movements WHERE org_id = @org', ORG_SCOPED);

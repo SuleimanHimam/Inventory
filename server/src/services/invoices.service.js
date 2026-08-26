@@ -35,9 +35,29 @@ function baseQuantity(line) {
 const TOTALS = `
   (SELECT COALESCE(SUM(l.quantity * l.unit_price), 0) FROM invoice_lines l WHERE l.invoice_id = v.id)`;
 
+/**
+ * What the goods on this document cost, from the per-line snapshot taken when
+ * it was posted (see `snapshotCosts`). Never reads today's `purchase_price`:
+ * that number moves with every new purchase, so using it here would make the
+ * profit on a document from March change tomorrow.
+ */
+const COST_TOTAL = `
+  (SELECT COALESCE(SUM(l.quantity * l.cost_price), 0) FROM invoice_lines l WHERE l.invoice_id = v.id)`;
+
+/** Lines whose cost was reconstructed rather than recorded — the UI flags these. */
+const COST_ESTIMATED = `
+  (SELECT COUNT(*) FROM invoice_lines l WHERE l.invoice_id = v.id AND l.cost_basis = 'ESTIMATED')`;
+
+/** Lines with no cost at all: a draft that has never been posted. */
+const COST_MISSING = `
+  (SELECT COUNT(*) FROM invoice_lines l WHERE l.invoice_id = v.id AND l.cost_price IS NULL)`;
+
 const SELECT_INVOICE = `
   SELECT v.*, ${TOTALS} AS subtotal,
          ${TOTALS} - v.discount_total + v.tax_total AS total,
+         ${COST_TOTAL} AS cost_total,
+         ${COST_ESTIMATED} AS estimated_cost_lines,
+         ${COST_MISSING} AS missing_cost_lines,
          (SELECT COUNT(*) FROM invoice_lines l WHERE l.invoice_id = v.id) AS line_count,
          s.name AS supplier_name, c.name AS customer_name,
          sc.number AS stock_count_number
@@ -46,12 +66,69 @@ const SELECT_INVOICE = `
     LEFT JOIN customers c ON c.id = v.customer_id
     LEFT JOIN stock_counts sc ON sc.id = v.stock_count_id`;
 
-const shape = (r) => r && {
-  ...publicRow(r),
-  subtotal: money(r.subtotal),
-  total: money(r.total),
-  party_name: r.supplier_name || r.customer_name || null,
-  is_system: r.source !== 'USER',
+/**
+ * Profit on one document, and the three deliberate choices inside it.
+ *
+ *  1. Only a STOCK_OUT document has one. A purchase is not a loss — it is
+ *     inventory moving from cash to shelf — so `profit` is null on a STOCK_IN
+ *     rather than a large negative number that would poison every total it
+ *     was ever summed into.
+ *
+ *  2. Revenue is net of the discount and *excludes* tax. Tax collected on
+ *     behalf of an authority was never the seller's money, so counting it as
+ *     profit would overstate every margin by the tax rate. A discount is the
+ *     opposite: it is revenue genuinely given up, so it reduces profit.
+ *
+ *  3. Margin is expressed against revenue (gross margin), not against cost
+ *     (markup). The two are different numbers and the difference is not small
+ *     — 50% margin is 100% markup — so the API names which one it means.
+ *
+ * `exact` is what keeps the figure honest: false as soon as any line's cost
+ * was reconstructed by migration 007 rather than recorded at posting time.
+ */
+const NO_PROFIT = { cost_total: null, profit: null, margin_pct: null, profit_exact: null };
+
+function profitOf(r) {
+  if (r.type !== 'STOCK_OUT') return { ...NO_PROFIT };
+  /*
+   * A line with no cost yet is not a line that cost nothing, and COST_TOTAL
+   * cannot tell them apart: SUM over an all-NULL column is NULL and the
+   * COALESCE turns it into 0, which would report a draft's entire value as
+   * profit at a 100% margin. `getLines` already answers null for exactly this
+   * case per line; this is the same answer for the document.
+   *
+   * It is reachable through the API rather than the UI -- the list excludes
+   * drafts and the status filter offers only POSTED and CANCELLED -- but
+   * InvoiceDetail.tsx reads `profit != null` as "this document is posted", and
+   * that has to be true where the value is produced, not only where today's
+   * callers happen to look.
+   */
+  if (r.missing_cost_lines > 0) return { ...NO_PROFIT };
+  const revenue = money(money(r.subtotal) - money(r.discount_total));
+  const cost = money(r.cost_total);
+  const profit = money(revenue - cost);
+  return {
+    cost_total: cost,
+    profit,
+    margin_pct: revenue > 0 ? Math.round((profit / revenue) * 1000) / 10 : null,
+    profit_exact: r.missing_cost_lines === 0 && r.estimated_cost_lines === 0,
+  };
+}
+
+const shape = (r) => {
+  if (!r) return r;
+  // The two line counts are how `profitOf` decides `profit_exact`; that
+  // boolean is the answer callers want, so the raw counts stay internal.
+  const { estimated_cost_lines: _est, missing_cost_lines: _missing, ...rest } = r;
+  return {
+    ...publicRow(rest),
+    subtotal: money(r.subtotal),
+    total: money(r.total),
+    ...profitOf(r),
+    party_name: r.supplier_name || r.customer_name || null,
+    is_system: r.source !== 'USER',
+    is_reversed: !!r.reversed_at,
+  };
 };
 
 export async function listInvoices({ type, status, party_id, source, search, date_from, date_to, page, limit }) {
@@ -128,14 +205,25 @@ export async function listInvoices({ type, status, party_id, source, search, dat
        COALESCE(SUM(CASE WHEN v.type = 'STOCK_IN'  THEN t.net END), 0) AS in_total,
        COALESCE(SUM(CASE WHEN v.type = 'STOCK_OUT' THEN t.net END), 0) AS out_total,
        COALESCE(SUM(CASE WHEN v.type = 'STOCK_IN'  THEN 1 ELSE 0 END), 0) AS in_count,
-       COALESCE(SUM(CASE WHEN v.type = 'STOCK_OUT' THEN 1 ELSE 0 END), 0) AS out_count
+       COALESCE(SUM(CASE WHEN v.type = 'STOCK_OUT' THEN 1 ELSE 0 END), 0) AS out_count,
+       COALESCE(SUM(CASE WHEN v.type = 'STOCK_OUT' THEN t.revenue - t.cost END), 0) AS profit_total,
+       COALESCE(SUM(CASE WHEN v.type = 'STOCK_OUT' AND t.inexact_lines > 0 THEN 1 ELSE 0 END), 0)
+         AS inexact_invoices
        FROM invoices v
        LEFT JOIN suppliers s ON s.id = v.supplier_id
        LEFT JOIN customers c ON c.id = v.customer_id
        CROSS APPLY (
          SELECT (SELECT COALESCE(SUM(l.quantity * l.unit_price), 0)
                    FROM invoice_lines l WHERE l.invoice_id = v.id)
-                - v.discount_total + v.tax_total AS net
+                - v.discount_total + v.tax_total AS net,
+                (SELECT COALESCE(SUM(l.quantity * l.unit_price), 0)
+                   FROM invoice_lines l WHERE l.invoice_id = v.id)
+                - v.discount_total AS revenue,
+                (SELECT COALESCE(SUM(l.quantity * l.cost_price), 0)
+                   FROM invoice_lines l WHERE l.invoice_id = v.id) AS cost,
+                (SELECT COUNT(*) FROM invoice_lines l
+                  WHERE l.invoice_id = v.id
+                    AND (l.cost_price IS NULL OR l.cost_basis = 'ESTIMATED')) AS inexact_lines
        ) t
       ${clause} AND v.status = 'POSTED'`, params);
 
@@ -145,6 +233,19 @@ export async function listInvoices({ type, status, party_id, source, search, dat
     net_total: money(totals.out_total - totals.in_total),
     in_count: totals.in_count,
     out_count: totals.out_count,
+    /*
+     * Profit over the same filtered set, on the same terms as `profitOf`:
+     * sales only, net of discount, before tax, against the cost snapshotted
+     * when each document was posted.
+     *
+     * `net_total` above and `profit_total` here answer different questions and
+     * are routinely confused, so it is worth naming the difference: net_total
+     * is money that moved (sales minus purchases in this range), profit_total
+     * is what was earned on the sales in it. A month with a large restock has
+     * a poor net_total and a perfectly healthy profit_total.
+     */
+    profit_total: money(totals.profit_total),
+    profit_exact: totals.inexact_invoices === 0,
   };
 
   return { rows: rows.map(shape), total, summary };
@@ -173,6 +274,7 @@ export async function getLines(invoiceId) {
   // type to auto-parse, so it's parsed below instead.
   const rows = await all(
     `SELECT l.*, l.quantity * l.unit_price AS line_total,
+            l.quantity * l.cost_price AS line_cost, v.type AS invoice_type,
             i.name AS item_name, i.barcode AS item_barcode, i.quantity AS item_quantity,
             CASE WHEN i.image_file IS NULL THEN NULL
                  ELSE '/uploads/' + i.image_file END AS item_image_url,
@@ -183,14 +285,22 @@ export async function getLines(invoiceId) {
                      ORDER BY iu.conversion_factor
                      FOR JSON PATH), '[]') AS item_units_json
        FROM invoice_lines l
+       JOIN invoices v ON v.id = l.invoice_id AND v.org_id = l.org_id
        JOIN items i ON i.id = l.item_id
        LEFT JOIN categories c ON c.id = i.category_id
        LEFT JOIN item_units u ON u.id = l.unit_id AND u.org_id = l.org_id
       WHERE l.invoice_id = @id AND l.org_id = @org ORDER BY l.sort_order, l.seq`,
     { id: invoiceId, org: orgId() });
-  return rows.map(({ item_units_json, ...l }) => ({
+  return rows.map(({ item_units_json, invoice_type, ...l }) => ({
     ...publicRow(l),
     line_total: money(l.line_total),
+    // Per-line margin, on the same terms as the document-level figure in
+    // `profitOf`: outbound only, and null rather than 0 when the line has no
+    // cost yet, so "not posted" never reads as "sold at cost".
+    line_cost: l.cost_price === null ? null : money(l.line_cost),
+    line_profit: invoice_type !== 'STOCK_OUT' || l.cost_price === null
+      ? null
+      : money(money(l.line_total) - money(l.line_cost)),
     update_item_price: !!l.update_item_price,
     item_units: JSON.parse(item_units_json),
   }));
@@ -493,6 +603,62 @@ async function shortages(lines) {
 }
 
 /**
+ * The cost behind one line, read at the moment of posting.
+ *
+ * This is the whole of the profit feature's accuracy: `items.purchase_price`
+ * is a live number that the next STOCK_IN will overwrite, so the only moment
+ * it answers "what did this cost?" for *this* sale is now. Written to
+ * `invoice_lines.cost_price`, where it is never touched again.
+ *
+ * On a STOCK_IN line there is nothing to look up — the line's own price is
+ * what was paid, which is why its basis is ACTUAL rather than SNAPSHOT.
+ *
+ * A line priced in a non-base unit takes that unit's own purchase price when
+ * one has been set, because a carton cost and a piece cost are unrelated
+ * numbers — the same rule `postInvoice` already applies when propagating
+ * prices the other way. Falling back to the base item's price scaled by the
+ * line's stored `conversion_factor` keeps a unit nobody ever priced from
+ * silently costing zero and reporting the entire sale as profit.
+ *
+ * Migration 007's backfill implements this identical rule, deliberately: a
+ * reconstructed cost and a recorded one should differ in when they were taken,
+ * not in what they mean. That includes landing on zero the same way — see the
+ * basis chosen at the bottom of this function.
+ */
+async function costForLine(invoice, line) {
+  if (!INBOUND.has(invoice.type)) {
+    const item = await get('SELECT purchase_price FROM items WHERE id = @id AND org_id = @org',
+      { id: line.item_id, org: orgId() });
+    const base = money(item?.purchase_price);
+
+    let cost = base;
+    if (line.unit_id) {
+      const unit = await get(
+        'SELECT purchase_price FROM item_units WHERE id = @id AND org_id = @org',
+        { id: line.unit_id, org: orgId() });
+      const own = money(unit?.purchase_price);
+      cost = own > 0 ? own : money(base * line.conversion_factor);
+    }
+
+    /*
+     * Zero is not a cost, it is the absence of one. `items.purchase_price` is
+     * NOT NULL DEFAULT 0, so an item quick-added or imported without a cost
+     * carries 0 rather than NULL, and nothing above can tell that apart from a
+     * genuinely free good. Calling it SNAPSHOT would let `profit_exact` claim
+     * the resulting 100% margin was recorded fact.
+     *
+     * ESTIMATED is the honest label and costs nothing to apply: the counting in
+     * COST_ESTIMATED, the `profit_exact` flag and the UI's badge all already
+     * exist, and this is exactly the case they were built for. Migration 007's
+     * backfill reaches the same 0 by the same route, so the two now agree in
+     * meaning as well as in arithmetic.
+     */
+    return { cost, basis: cost > 0 ? 'SNAPSHOT' : 'ESTIMATED' };
+  }
+  return { cost: money(line.unit_price), basis: 'ACTUAL' };
+}
+
+/**
  * DRAFT → POSTED. The single action with side effects: writes the stock
  * ledger and propagates prices. Runs as one transaction so a failing line
  * leaves nothing partially applied.
@@ -520,6 +686,17 @@ export function postInvoice(invoiceId, { referenceType } = {}) {
 
     for (const line of lines) {
       const ledgerQty = baseQuantity(line);
+
+      // Cost first, then effect. Nothing in a posting run moves a *purchase*
+      // price for the document it is costing — an outbound line propagates to
+      // sale_price, an inbound one is its own cost — so the read is stable
+      // either way; the order is kept because it stays correct if that ever
+      // changes, and because it reads in the direction the money moves.
+      const { cost, basis } = await costForLine(invoice, line);
+      await run(
+        'UPDATE invoice_lines SET cost_price = @cost, cost_basis = @basis WHERE id = @id AND org_id = @org',
+        { cost, basis, id: line.id, org: orgId() });
+
       await run(
         `INSERT INTO stock_movements (id, org_id, item_id, type, quantity, invoice_id,
                                       reference_type, note, created_at)
@@ -569,6 +746,143 @@ export async function cancelInvoice(invoiceId) {
   await run("UPDATE invoices SET status = 'CANCELLED' WHERE id = @id AND org_id = @org",
     { id: invoiceId, org: orgId() });
   return getInvoice(invoiceId);
+}
+
+/* ==========================================================================
+ *  Correcting a posted document (manager only — see invoices.routes.js).
+ *
+ *  A posted invoice used to be final: cancelInvoice and deleteInvoice both
+ *  refused one outright, and the error told the operator to enter a reversing
+ *  invoice by hand. That instruction was right about the accounting and wrong
+ *  about whose job it was, so the app performs it now.
+ *
+ *  What has NOT changed is the ledger. `trg_movements_immutable_upd` / `_del`
+ *  still THROW on any attempt to update or delete a stock movement, and this
+ *  code never tries: a correction is written as new movements in the opposite
+ *  direction, each pointing at the entry it undoes. The stock lands where it
+ *  should, and both the original error and its correction stay on the record —
+ *  which is the difference between an audit trail and a story.
+ * ========================================================================== */
+
+/** Movements of this invoice that are still in force — not themselves reversals, and not yet reversed. */
+const liveMovements = (invoiceId) => all(
+  `SELECT m.* FROM stock_movements m
+    WHERE m.invoice_id = @id AND m.org_id = @org
+      AND m.reverses_movement_id IS NULL
+      AND NOT EXISTS (SELECT 1 FROM stock_movements r
+                       WHERE r.reverses_movement_id = m.id AND r.org_id = m.org_id)
+    ORDER BY m.seq`,
+  { id: invoiceId, org: orgId() });
+
+/**
+ * Write the compensating entries for one invoice.
+ *
+ * Reversing a STOCK_OUT puts stock back and is always safe. Reversing a
+ * STOCK_IN takes stock away, and the goods may well have been sold in the
+ * meantime — so the same balance guard the posting path applies runs here
+ * first, over the net effect per item. Refusing is the right answer: the
+ * alternative is a negative balance, which this schema has no representation
+ * for and every report downstream would quietly mis-state.
+ */
+async function reverseLedger(invoiceId, { note }) {
+  const movements = await liveMovements(invoiceId);
+  if (!movements.length) return 0;
+
+  const delta = new Map();
+  for (const m of movements) {
+    // The reversal moves the opposite way, so an OUT entry gives stock back.
+    const change = m.type === 'IN' ? -m.quantity : m.quantity;
+    delta.set(m.item_id, (delta.get(m.item_id) || 0) + change);
+  }
+  for (const [itemId, change] of delta) {
+    if (change >= 0) continue;
+    const row = await get('SELECT name, quantity FROM items WHERE id = @id AND org_id = @org',
+      { id: itemId, org: orgId() });
+    const available = row?.quantity ?? 0;
+    if (available + change < 0) {
+      throw unprocessable(
+        `${row?.name ?? 'الصنف'}: المتوفر ${available} ولا يكفي للتراجع عن ${-change}`,
+        'REVERSAL_INSUFFICIENT_STOCK',
+        { item_id: itemId, available, required: -change });
+    }
+  }
+
+  const now = nowIso();
+  for (const m of movements) {
+    await run(
+      `INSERT INTO stock_movements (id, org_id, item_id, type, quantity, invoice_id,
+                                    reference_type, note, created_at, reverses_movement_id)
+       VALUES (@id, @org, @item_id, @type, @qty, @invoice_id, 'REVERSAL', @note, @now, @reverses)`,
+      {
+        id: newId(),
+        org: orgId(),
+        item_id: m.item_id,
+        type: m.type === 'IN' ? 'OUT' : 'IN',
+        qty: m.quantity,
+        invoice_id: invoiceId,
+        note,
+        now,
+        reverses: m.id,
+      });
+  }
+  return movements.length;
+}
+
+/**
+ * POSTED → CANCELLED, with the ledger effect undone. The "delete" an admin
+ * asks for on a document that has already moved stock.
+ *
+ * The row is not removed. A posted invoice consumed a document number and its
+ * movements are on the record permanently; deleting the header would leave a
+ * numbered gap and orphan entries pointing at nothing. It is marked instead,
+ * and `reversed_at` is what tells this apart from a draft someone abandoned.
+ */
+export function reverseInvoice(invoiceId, { by } = {}) {
+  return tx(async () => {
+    const invoice = await loadRaw(invoiceId);
+    if (invoice.status !== 'POSTED') {
+      throw unprocessable('هذه الفاتورة ليست مرحّلة', 'INVOICE_NOT_POSTED');
+    }
+    await reverseLedger(invoiceId, { note: `عكس الفاتورة ${invoice.number}` });
+    await run(
+      `UPDATE invoices SET status = 'CANCELLED', reversed_at = @now, reversed_by = @by
+        WHERE id = @id AND org_id = @org`,
+      { now: nowIso(), by: by || 'المدير', id: invoiceId, org: orgId() });
+    return getInvoice(invoiceId);
+  });
+}
+
+/**
+ * POSTED → DRAFT, with the ledger effect undone: the "edit" half.
+ *
+ * Reopening deliberately reuses the whole existing draft machinery rather than
+ * adding a parallel edit path — once the status is DRAFT again, every line
+ * endpoint, `assertDraft`, `validateForPost` and `postInvoice` already do the
+ * right thing, and re-posting mints no new number because `postInvoice` only
+ * mints when there isn't one. So an edited invoice keeps its identity, and the
+ * ledger shows the original entries, their reversal, and the new entries, in
+ * that order.
+ *
+ * `revision` counts the round trips, so "this document has been amended twice"
+ * is a fact the UI can state rather than infer.
+ */
+export function reopenInvoice(invoiceId, { by } = {}) {
+  return tx(async () => {
+    const invoice = await loadRaw(invoiceId);
+    if (invoice.status !== 'POSTED') {
+      throw unprocessable('لا يمكن فتح فاتورة غير مرحّلة للتعديل', 'INVOICE_NOT_POSTED');
+    }
+    if (invoice.stock_count_id) {
+      throw conflict('لا يمكن تعديل فاتورة ناتجة عن جلسة جرد', 'INVOICE_FROM_STOCK_COUNT');
+    }
+    await reverseLedger(invoiceId, { note: `فتح الفاتورة ${invoice.number} للتعديل` });
+    await run(
+      `UPDATE invoices SET status = 'DRAFT', posted_at = NULL, reopened_at = @now,
+                          reopened_by = @by, revision = revision + 1
+        WHERE id = @id AND org_id = @org`,
+      { now: nowIso(), by: by || 'المدير', id: invoiceId, org: orgId() });
+    return getInvoice(invoiceId);
+  });
 }
 
 export async function deleteInvoice(invoiceId) {

@@ -156,6 +156,16 @@ export type InvoiceLine = {
   unit_price?: number;
   /** @money Absent for a staff role. */
   line_total?: number;
+  /**
+   * What these goods cost, snapshotted when the invoice was posted — never
+   * today's purchase price. @money, and manager-only: absent for staff *and*
+   * clerk, unlike the sale-side fields above. Null on an unposted line.
+   */
+  cost_price?: number | null;
+  /** quantity x cost_price. @money, manager-only. */
+  line_cost?: number | null;
+  /** line_total − line_cost. @money, manager-only. Null on anything but a posted sale. */
+  line_profit?: number | null;
   update_item_price: boolean;
   note: string | null;
 };
@@ -186,6 +196,29 @@ export type Invoice = {
   created_by: string;
   created_at: string;
   posted_at: string | null;
+  /**
+   * Profitability. All four are @money and manager-only — a clerk sees sale
+   * prices and totals but never what the goods cost.
+   *
+   * `profit` is revenue net of discount, before tax, minus the cost snapshot
+   * taken at posting time. It is null on a STOCK_IN: a purchase is inventory
+   * changing form, not a loss.
+   */
+  cost_total?: number | null;
+  profit?: number | null;
+  /** Gross margin against revenue, not markup against cost. @money-gated. */
+  margin_pct?: number | null;
+  /** False when any line's cost was reconstructed by migration 007 rather than recorded. */
+  profit_exact?: boolean | null;
+  /** Set when a manager reversed this document; its status is then CANCELLED. */
+  reversed_at: string | null;
+  reversed_by: string | null;
+  is_reversed: boolean;
+  /** Set when a manager last reopened this document for editing. */
+  reopened_at: string | null;
+  reopened_by: string | null;
+  /** How many times it has been reopened and re-posted. 0 for an untouched document. */
+  revision: number;
   lines?: InvoiceLine[];
   movements?: Movement[];
 };
@@ -203,6 +236,16 @@ export type InvoiceSummary = {
   out_total?: number;
   /** out_total − in_total. @money */
   net_total?: number;
+  /**
+   * Earned on the sales in this range: revenue net of discount, before tax,
+   * minus cost. @money and manager-only.
+   *
+   * Not to be confused with `net_total` above, which is money that *moved* —
+   * a month with a big restock has a poor net_total and a healthy profit_total.
+   */
+  profit_total?: number;
+  /** False when any invoice in the range has a reconstructed rather than recorded cost. */
+  profit_exact?: boolean;
   in_count: number;
   out_count: number;
 };
