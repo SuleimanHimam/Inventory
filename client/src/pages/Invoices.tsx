@@ -395,13 +395,23 @@ function SummaryCard({
   className?: string;
 }) {
   return (
-    <Card className={cn('flex items-start gap-3 p-3.5', className)}>
-      <span className={cn('grid size-9 shrink-0 place-items-center rounded-xl', SUMMARY_TONES[tone])}>
+    /*
+     * Two of these sit side by side on a phone, which leaves each about 160px
+     * -- and "961,004.61 ILS" does not fit that at text-lg next to a 36px
+     * icon, so the number the card exists to show was the part that got the
+     * ellipsis. The icon and the type both come down a step below `sm:`, which
+     * is where there is room for them again.
+     */
+    <Card className={cn('flex items-start gap-2 p-3 sm:gap-3 sm:p-3.5', className)}>
+      <span className={cn('grid size-8 shrink-0 place-items-center rounded-xl sm:size-9', SUMMARY_TONES[tone])}>
         {icon}
       </span>
       <div className="min-w-0">
         <p className="text-[11px] font-medium text-subtle">{label}</p>
-        <p className="nums mt-0.5 truncate text-lg font-bold leading-tight" title={value}>{value}</p>
+        {/* `truncate` stays as the backstop for a number bigger than any of
+            this reasoning: clipped is recoverable (the title attribute has the
+            full value), overlapping its neighbour is not. */}
+        <p className="nums mt-0.5 truncate text-sm font-bold leading-tight sm:text-lg" title={value}>{value}</p>
         <p className="nums mt-0.5 text-[11px] text-subtle">{hint}</p>
       </div>
     </Card>
