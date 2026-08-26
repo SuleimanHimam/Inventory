@@ -7,7 +7,7 @@ import {
   Package, Boxes, PackageX, ArrowDownLeft, ArrowUpRight, Wallet,
   ArrowLeft, ClipboardList, FileText, TrendingUp, TriangleAlert,
 } from 'lucide-react';
-import { Card, PageHeader, Skeleton, EmptyState, Button, Select } from '@/components/ui';
+import { Card, PageHeader, Skeleton, EmptyState, Button, Select, Input } from '@/components/ui';
 import { useDashboard, useMovements } from '@/hooks';
 import { fmtInt, fmtCurrency, fmtRelative, fmtDateShort } from '@/lib/format';
 import { MovementBadge, ItemLink, InvoiceLink } from '@/components/domain';
@@ -25,9 +25,20 @@ const PERIODS: Array<{ value: DashboardPeriod; label: string }> = [
   { value: 'month', label: 'هذا الشهر' },
   { value: '30d', label: 'آخر ٣٠ يوماً' },
   { value: 'all', label: 'كل الفترات' },
+  { value: 'custom', label: 'فترة مخصصة' },
 ];
 
 const PERIOD_KEY = 'inv.dash_period';
+const RANGE_KEY = 'inv.dash_range';
+
+const storedRange = (): { from: string; to: string } => {
+  try {
+    const saved = JSON.parse(localStorage.getItem(RANGE_KEY) ?? '{}');
+    return { from: String(saved.from ?? ''), to: String(saved.to ?? '') };
+  } catch {
+    return { from: '', to: '' };
+  }
+};
 const storedPeriod = (): DashboardPeriod => {
   try {
     const saved = localStorage.getItem(PERIOD_KEY);
@@ -46,7 +57,14 @@ export default function Dashboard() {
    * that one person's preference imposes on everyone.
    */
   const [period, setPeriod] = useState<DashboardPeriod>(storedPeriod);
-  const { data, isLoading } = useDashboard(true, period);
+  const [range, setRange] = useState(storedRange);
+  const custom = period === 'custom';
+  const { data, isLoading } = useDashboard(true, period, custom ? range : {});
+
+  const changeRange = (next: { from: string; to: string }) => {
+    setRange(next);
+    try { localStorage.setItem(RANGE_KEY, JSON.stringify(next)); } catch { /* private window */ }
+  };
   const { data: recent } = useMovements({ page: 1, limit: 8 });
   const { canSeePrices } = usePermissions();
   const theme = usePrefs((s) => s.theme);
@@ -140,20 +158,48 @@ export default function Dashboard() {
           for a staff account this would be three empty cards. */}
       {canSeePrices && (
         <div className="mt-4">
-          <div className="mb-2 flex items-center justify-between gap-3">
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
             <h2 className="text-sm font-bold">الحركة المالية</h2>
-            <Select
-              value={period}
-              onChange={(e) => {
-                const next = e.target.value as DashboardPeriod;
-                setPeriod(next);
-                try { localStorage.setItem(PERIOD_KEY, next); } catch { /* private window */ }
-              }}
-              className="w-auto min-w-36"
-              aria-label="الفترة"
-            >
-              {PERIODS.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
-            </Select>
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              {/* Only when a range is being chosen. Two date fields standing
+                  permanently beside a dropdown that already answers the
+                  question is three controls for one decision.
+
+                  Either end may be left empty on purpose: "everything since
+                  March" and "everything up to March" are both real questions,
+                  and the API applies the bounds independently. */}
+              {custom && (
+                <div className="flex items-center gap-1.5">
+                  <Input
+                    type="date"
+                    value={range.from}
+                    onChange={(e) => changeRange({ ...range, from: e.target.value })}
+                    className="nums w-auto"
+                    aria-label="من تاريخ"
+                  />
+                  <span className="text-xs text-subtle">إلى</span>
+                  <Input
+                    type="date"
+                    value={range.to}
+                    onChange={(e) => changeRange({ ...range, to: e.target.value })}
+                    className="nums w-auto"
+                    aria-label="إلى تاريخ"
+                  />
+                </div>
+              )}
+              <Select
+                value={period}
+                onChange={(e) => {
+                  const next = e.target.value as DashboardPeriod;
+                  setPeriod(next);
+                  try { localStorage.setItem(PERIOD_KEY, next); } catch { /* private window */ }
+                }}
+                className="w-auto min-w-36"
+                aria-label="الفترة"
+              >
+                {PERIODS.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
+              </Select>
+            </div>
           </div>
           <div className="stagger grid grid-cols-2 gap-4 lg:grid-cols-3">
             <KpiCard

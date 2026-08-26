@@ -14,10 +14,21 @@ const router = Router();
  * unrecognised value should fall back to the default, not produce a window
  * nobody asked for.
  */
+/** `invoice_date` is stored as an ISO day, and only that shape may reach it. */
+const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
+const day = (value) => (ISO_DAY.test(String(value ?? '')) ? String(value) : undefined);
+
 router.get('/dashboard', requireNotClerk, wrap(async (req, res) => {
   const asked = String(req.query.period ?? '');
   const period = DASHBOARD_PERIODS.includes(asked) ? asked : 'month';
-  res.json(await dashboardStats({ period }));
+  // Shape-checked rather than trusted. The values are bound as parameters
+  // either way, but a date that is not a date can only produce a window nobody
+  // asked for, and silently dropping it is the better failure.
+  res.json(await dashboardStats({
+    period,
+    from: day(req.query.from),
+    to: day(req.query.to),
+  }));
 }));
 
 /** Who am I, and which organisation am I in — drives the account menu. */

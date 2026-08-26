@@ -67,15 +67,23 @@ const listOptions = { placeholderData: keepPreviousData } as const;
  * bar and both navs read these stats, so without the gate every screen that
  * role opens fired a request that came back 403 and logged a console error.
  */
-export const useDashboard = (enabled = true, period: DashboardPeriod = 'month') =>
-  useQuery({
-    // The period is part of the key: two windows are two different answers,
-    // and sharing one cache entry would show the previous window's figures
-    // for as long as the new request took.
-    queryKey: [...keys.dashboard, period],
-    queryFn: () => api.get<DashboardStats>(`/dashboard?period=${period}`),
+export const useDashboard = (
+  enabled = true,
+  period: DashboardPeriod = 'month',
+  range: { from?: string; to?: string } = {},
+) => {
+  const query = new URLSearchParams({ period });
+  if (range.from) query.set('from', range.from);
+  if (range.to) query.set('to', range.to);
+  return useQuery({
+    // The whole window is part of the key: two windows are two different
+    // answers, and sharing one cache entry would show the previous window's
+    // figures for as long as the new request took.
+    queryKey: [...keys.dashboard, period, range.from ?? '', range.to ?? ''],
+    queryFn: () => api.get<DashboardStats>(`/dashboard?${query}`),
     enabled,
   });
+};
 
 export const useSettings = (options?: Partial<UseQueryOptions<Settings>>) =>
   useQuery({ queryKey: keys.settings, queryFn: () => api.get<Settings>('/settings'), ...options });
