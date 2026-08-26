@@ -94,26 +94,15 @@ export default function Items() {
 
   return (
     <>
-      {/* No page title here. The nav already says which page this is, and the
-          list says what it holds better than a sentence describing it could —
-          on a phone that row was already traded for another row of cards, and
-          the same argument holds on a desk.
+      {/* No page title and no header row: the nav says which page this is, and
+          the list says what it holds. Everything above the filter bar was a
+          band of chrome sitting on top of the one thing the screen is for, so
+          the two affordances that lived there moved into rows that already
+          exist — "صنف جديد" into the filter bar below, and on a phone the
+          floating button here. */}
 
-          What the header did carry is the "صنف جديد" button, so that stays:
-          the floating one below is `sm:hidden`, and removing this row without
-          it would leave a desktop with no way to add an item but the command
-          palette (Ctrl/Cmd+K → "صنف جديد"). */}
-      {canWriteItems && (
-        <div className="mb-4 hidden justify-end sm:flex">
-          <Button variant="primary" icon={<Plus className="size-4" />} onClick={openCreate}>
-            صنف جديد
-          </Button>
-        </div>
-      )}
-
-      {/* Phone-only replacement for that header button — floats above the
-          bottom nav so it stays reachable no matter how far the list is
-          scrolled. */}
+      {/* Phone: floats above the bottom nav, so it stays reachable no matter
+          how far the list is scrolled. */}
       {canWriteItems && (
         <button
           type="button"
@@ -136,12 +125,15 @@ export default function Items() {
         scroll: the filter bar and the pager stay pinned, and the sticky
         table header remains visible while scanning a long list.
 
-        16.5rem = ribbon (8.39) + main padding (2) + page header and its
-        margin (4.44) + status bar (1.75). Measured in the browser, not
-        guessed — the old value still reserved 3rem for a title bar that no
-        longer exists, which left a dead strip above the status bar.
+        The reserved height is ribbon (8.39) + main padding (2) + status bar
+        (1.75), and on pages that still show a title, its row and margin
+        (4.44). Measured in the browser, not guessed. This page no longer has
+        that row, which is what `list-pane-flush` says.
       */}
-      <Card className="list-pane flex flex-col">
+      {/* `list-pane-flush`: this page has no title row above it, so the pane
+          gets those 4.44rem back rather than leaving them blank under the
+          list — see --pane-offset in index.css. */}
+      <Card className="list-pane list-pane-flush flex flex-col">
         {/* Filter bar. On phone, category/sort/low-stock start collapsed
             behind the toggle button so the cards open right under the
             search box instead of below a tall filter row. Sticky so the
@@ -215,6 +207,20 @@ export default function Items() {
             >
               النواقص فقط
             </Button>
+            {/* The old header row's button, in a row that was already there.
+                `hidden sm:inline-flex` and not the `device-*` pair: this one is
+                purely about width — a tablet should have it, and the floating
+                button covers the phone. */}
+            {canWriteItems && (
+              <Button
+                variant="primary"
+                icon={<Plus className="size-4" />}
+                onClick={openCreate}
+                className="ms-auto hidden sm:inline-flex"
+              >
+                صنف جديد
+              </Button>
+            )}
             {/* Table or gallery -- offered only where both layouts exist. A
                 tablet is wide enough to pass a width test and still only ever
                 gets the grid, so the button would do nothing there; the pointer

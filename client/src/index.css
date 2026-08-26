@@ -590,10 +590,20 @@
    */
   .list-pane { min-height: 18rem; }
 
+  /*
+   * How much of the window is *not* this pane. Named rather than inlined
+   * because it is no longer one number: a page that has dropped its title row
+   * has 4.44rem more to give the list, and the pages that still carry one do
+   * not. `.list-pane-flush` is that page saying so, instead of the stylesheet
+   * guessing from the URL.
+   */
+  .list-pane { --pane-offset: 16.5rem; }
+  .list-pane-flush { --pane-offset: 12.1rem; }
+
   @media (min-width: 640px) and (min-height: 700px) {
     .list-pane {
       overflow: hidden;
-      max-height: calc(100dvh - 16.5rem);
+      max-height: calc(100dvh - var(--pane-offset, 16.5rem));
       /*
        * `overflow: hidden` clips what the pane *paints*, but it does not stop
        * the full height of the table inside it from counting towards the
