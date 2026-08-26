@@ -1,8 +1,8 @@
 import { useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, Navigate, useNavigate, useParams } from 'react-router-dom';
 import {
   Printer, ArrowRight, FileText, Lock, ClipboardList, Loader2,
-  Pencil, Undo2, TrendingUp, Info,
+  Pencil, Trash2, Undo2, TrendingUp, Info,
 } from 'lucide-react';
 import {
   Button, Card, PageHeader, Badge, EmptyState, Stat, ConfirmDialog,
@@ -51,10 +51,7 @@ export default function InvoiceDetail() {
   // there is no read-only view of one to land on — it goes back to the editor,
   // which is the only place it can be finished. The editor redirects the other
   // way for anything already saved, so the two guards do not chase each other.
-  if (invoice.status === 'DRAFT') {
-    navigate(`/invoices/${invoice.id}/edit`, { replace: true });
-    return null;
-  }
+  if (invoice.status === 'DRAFT') return <Navigate to={`/invoices/${invoice.id}/edit`} replace />;
 
   const config = INVOICE_TYPES[invoice.type];
 
@@ -74,12 +71,12 @@ export default function InvoiceDetail() {
         setConfirming(null);
         if (kind === 'reopen') {
           toast.success('فُتحت الفاتورة للتعديل', `أُعيد أثرها على المخزون. رقمها ${updated.number} كما هو.`);
-          navigate(`/invoices/${invoice.id}/edit`);
+          navigate(`/invoices/${invoice.id}/edit`, { replace: true });
         } else {
-          toast.success('تم عكس الفاتورة', 'أُعيد أثرها على المخزون، وبقيت في السجل موثّقة.');
+          toast.success('تم حذف الفاتورة', 'أُعيد أثرها على المخزون، وبقيت في السجل ملغاة وموثّقة.');
         }
       },
-      onError: (error) => toastError(error, kind === 'reopen' ? 'تعذّر فتح الفاتورة' : 'تعذّر عكس الفاتورة'),
+      onError: (error) => toastError(error, kind === 'reopen' ? 'تعذّر فتح الفاتورة' : 'تعذّر حذف الفاتورة'),
     });
   };
 
@@ -116,13 +113,19 @@ export default function InvoiceDetail() {
                 >
                   تعديل
                 </Button>
+                {/* "عكس" is the accountant's word for it. What the person
+                    holding a wrong invoice wants is to delete it, so the button
+                    says that -- and the dialog is where the difference gets
+                    explained, because the action really is a reversal: the
+                    stock comes back, the number stays spent, and the document
+                    stays in the record as ملغاة. */}
                 <Button
                   variant="danger"
-                  icon={<Undo2 className="size-4" />}
+                  icon={<Trash2 className="size-4" />}
                   onClick={() => setConfirming('reverse')}
                   loading={reverse.isPending}
                 >
-                  عكس الفاتورة
+                  حذف الفاتورة
                 </Button>
               </>
             )}
@@ -360,16 +363,17 @@ export default function InvoiceDetail() {
         open={confirming === 'reverse'}
         onClose={() => setConfirming(null)}
         onConfirm={() => correct('reverse')}
-        title="عكس الفاتورة؟"
-        confirmLabel="عكس الفاتورة"
+        title="حذف الفاتورة؟"
+        confirmLabel="حذف الفاتورة"
         loading={reverse.isPending}
         message={
           <>
             سيُعاد أثر الفاتورة
             <span className="nums font-semibold"> {invoice.number} </span>
-            على المخزون بالكامل، وتُعلَّم كملغاة مع بقائها في السجل.
+            على المخزون بالكامل: ما خرج يعود وما دخل يُخصم، وتُعلَّم الفاتورة كملغاة.
             <span className="mt-2 block text-xs">
-              الفاتورة لا تُحذف: رقمها مستهلك وحركاتها مسجّلة، فتبقى موثّقة مع قيود عكسها.
+              لا تُمحى من السجل: رقمها مستهلك وحركاتها مسجّلة، فتبقى ظاهرة كملغاة مع
+              قيود عكسها بجانبها — وهذا ما يجعل الجرد والتقارير تظل متطابقة.
             </span>
           </>
         }
