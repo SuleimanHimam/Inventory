@@ -554,6 +554,22 @@
   @media (min-width: 1024px) and (pointer: fine) {
     .device-cards { display: none; }
     .device-table { display: table; }
+
+    /*
+     * ...unless this screen has asked for the gallery. A table is the right
+     * default on a desk -- it compares rows, which is what a price list is for
+     * -- but the same person restocking a shelf is looking for a photograph,
+     * and both are the same list. The choice is per device (see prefs.ts) and
+     * lands on <html> before the first paint, so the page does not flash the
+     * table on its way to the grid.
+     */
+    :root[data-view='gallery'] .device-cards { display: grid; }
+    :root[data-view='gallery'] .device-table { display: none; }
+
+    /* The toggle that switches between the two is not hidden here but simply
+       not rendered -- see DEVICE_TABLE_QUERY in hooks/index.ts. A class could
+       not do it: Button carries its own `inline-flex`, a utility, and
+       utilities outrank this layer. */
   }
 
   /*

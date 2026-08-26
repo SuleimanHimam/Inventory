@@ -467,3 +467,27 @@ export function useImportMutations() {
     }),
   };
 }
+
+/**
+ * The screens that get the dense table: wide, and driven by a pointer.
+ *
+ * Kept identical to the media query behind `.device-table` in index.css --
+ * `pointer: fine` is the part a width-only test gets wrong, because a tablet in
+ * landscape is wide enough to pass one and is still a tablet.
+ */
+export const DEVICE_TABLE_QUERY = '(min-width: 1024px) and (pointer: fine)';
+
+/** Live answer to a media query, so a resize or a rotation is not stale. */
+export function useMediaQuery(query: string): boolean {
+  const [matches, setMatches] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia(query).matches,
+  );
+  useEffect(() => {
+    const list = window.matchMedia(query);
+    const onChange = () => setMatches(list.matches);
+    onChange();
+    list.addEventListener('change', onChange);
+    return () => list.removeEventListener('change', onChange);
+  }, [query]);
+  return matches;
+}

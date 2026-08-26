@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import {
   Plus, Package, Pencil, Trash2, SlidersHorizontal, PackageSearch, ImageOff, PackageCheck,
+  LayoutGrid, Rows3,
 } from 'lucide-react';
 import {
   Button, Card, PageHeader, Pagination, SearchInput, Select, EmptyState, TableSkeleton,
@@ -9,8 +10,11 @@ import {
 } from '@/components/ui';
 import { ItemFormModal } from '@/components/ItemFormModal';
 import { BarcodeChip, ItemLink, QuantityCell } from '@/components/domain';
-import { useCategories, useDebounced, useItemMutations, useItems } from '@/hooks';
+import {
+  useCategories, useDebounced, useItemMutations, useItems, useMediaQuery, DEVICE_TABLE_QUERY,
+} from '@/hooks';
 import { Thumb, useThumbFallback } from '@/components/ImagePicker';
+import { usePrefs } from '@/store/prefs';
 import { cn } from '@/lib/cn';
 import { usePermissions } from '@/lib/permissions';
 import { fmtCurrency } from '@/lib/format';
@@ -26,6 +30,9 @@ export default function Items() {
   const [onlyLow, setOnlyLow] = useState(false);
   /** "In stock" means quantity > 0 — independent of the low-stock threshold. */
   const [onlyInStock, setOnlyInStock] = useState(false);
+  const listView = usePrefs((state) => state.listView);
+  const setListView = usePrefs((state) => state.setListView);
+  const canUseTable = useMediaQuery(DEVICE_TABLE_QUERY);
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(25);
   /** Phone only — collapsed by default so the cards start right under the search box. */
@@ -205,6 +212,22 @@ export default function Items() {
             >
               النواقص فقط
             </Button>
+            {/* Table or gallery -- offered only where both layouts exist. A
+                tablet is wide enough to pass a width test and still only ever
+                gets the grid, so the button would do nothing there; the pointer
+                is the part that decides, and only a media query can ask. */}
+            {canUseTable && (
+            <Button
+              variant={listView === 'gallery' ? 'primary' : 'secondary'}
+              icon={listView === 'gallery'
+                ? <Rows3 className="size-4" />
+                : <LayoutGrid className="size-4" />}
+              onClick={() => setListView(listView === 'gallery' ? 'table' : 'gallery')}
+              title={listView === 'gallery' ? 'العرض كجدول' : 'العرض كمعرض صور'}
+            >
+              {listView === 'gallery' ? 'جدول' : 'معرض'}
+            </Button>
+            )}
           </div>
         </div>
 
@@ -236,7 +259,7 @@ export default function Items() {
                 eye wants the photo up front, like flipping through a shelf. */}
             {/* pb-28 clears the floating "+" button (bottom-[5.5rem] + size-14)
                 so the last row's action icons are never hidden under it. */}
-            <div className="device-cards grid-cols-2 gap-3 p-3 pb-28 sm:grid-cols-3 sm:pb-3">
+            <div className="device-cards grid-cols-2 gap-3 p-3 pb-28 sm:grid-cols-3 sm:pb-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">
               {items.map((item) => (
                 <Card key={item.id} className="flex flex-col overflow-hidden">
                   <Link to={`/items/${item.id}`} className="block">
