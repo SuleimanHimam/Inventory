@@ -273,6 +273,50 @@ test('profit is the sale less the cost snapshotted at posting time', inOrg(async
   assert.equal((await invoices.postInvoice(sell2.id)).cost_total, 22);
 }));
 
+test('an item with no purchase price is costed as an estimate, not as free goods', inOrg(async () => {
+  // purchase_price is NOT NULL DEFAULT 0, so this is what a quick-added or
+  // imported item looks like — not a good that genuinely cost nothing.
+  await items.createItem({ name: 'صنف بلا تكلفة', barcode: 'PROFIT-004', sale_price: 30 });
+
+  const sell = await invoices.createInvoice({ type: 'STOCK_OUT' });
+  await invoices.addLineByBarcode(sell.id, { barcode: 'PROFIT-004', quantity: 2 });
+  const sold = await invoices.postInvoice(sell.id);
+
+  // The arithmetic is unavoidable: there is no cost to subtract.
+  assert.equal(sold.cost_total, 0);
+  assert.equal(sold.profit, 60);
+  // What must not happen is the API calling that 100% margin a recorded fact.
+  assert.equal(sold.profit_exact, false);
+
+  const [line] = await invoices.getLines(sell.id);
+  assert.equal(line.cost_basis, 'ESTIMATED');
+}));
+
+test('an unposted sale reports no profit rather than its whole value', inOrg(async () => {
+  await items.createItem({
+    name: 'صنف مسودة', barcode: 'PROFIT-005', purchase_price: 6, sale_price: 15 });
+
+  const draft = await invoices.createInvoice({ type: 'STOCK_OUT' });
+  await invoices.addLineByBarcode(draft.id, { barcode: 'PROFIT-005', quantity: 3 });
+
+  /*
+   * Costs are snapshotted at posting, so a draft has none. Summing a NULL
+   * column yields 0, which would report the entire 45 as profit at a 100%
+   * margin — the figure the UI reads `profit != null` to rule out.
+   */
+  const unposted = await invoices.getInvoice(draft.id);
+  assert.equal(unposted.subtotal, 45);
+  assert.equal(unposted.profit, null);
+  assert.equal(unposted.cost_total, null);
+  assert.equal(unposted.margin_pct, null);
+  assert.equal((await invoices.getLines(draft.id))[0].line_profit, null);
+
+  // Posting is what makes the figure exist.
+  const posted = await invoices.postInvoice(draft.id);
+  assert.equal(posted.profit, 27);           // 45 - 3 x 6
+  assert.equal(posted.profit_exact, true);
+}));
+
 test('a discount reduces profit and tax does not', inOrg(async () => {
   await items.createItem({ name: 'صنف خصم', barcode: 'PROFIT-002', purchase_price: 10, sale_price: 20 });
   const buy = await invoices.createInvoice({ type: 'STOCK_IN' });

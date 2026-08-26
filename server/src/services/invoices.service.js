@@ -86,10 +86,24 @@ const SELECT_INVOICE = `
  * `exact` is what keeps the figure honest: false as soon as any line's cost
  * was reconstructed by migration 007 rather than recorded at posting time.
  */
+const NO_PROFIT = { cost_total: null, profit: null, margin_pct: null, profit_exact: null };
+
 function profitOf(r) {
-  if (r.type !== 'STOCK_OUT') {
-    return { cost_total: null, profit: null, margin_pct: null, profit_exact: null };
-  }
+  if (r.type !== 'STOCK_OUT') return { ...NO_PROFIT };
+  /*
+   * A line with no cost yet is not a line that cost nothing, and COST_TOTAL
+   * cannot tell them apart: SUM over an all-NULL column is NULL and the
+   * COALESCE turns it into 0, which would report a draft's entire value as
+   * profit at a 100% margin. `getLines` already answers null for exactly this
+   * case per line; this is the same answer for the document.
+   *
+   * It is reachable through the API rather than the UI -- the list excludes
+   * drafts and the status filter offers only POSTED and CANCELLED -- but
+   * InvoiceDetail.tsx reads `profit != null` as "this document is posted", and
+   * that has to be true where the value is produced, not only where today's
+   * callers happen to look.
+   */
+  if (r.missing_cost_lines > 0) return { ...NO_PROFIT };
   const revenue = money(money(r.subtotal) - money(r.discount_total));
   const cost = money(r.cost_total);
   const profit = money(revenue - cost);
@@ -608,7 +622,8 @@ async function shortages(lines) {
  *
  * Migration 007's backfill implements this identical rule, deliberately: a
  * reconstructed cost and a recorded one should differ in when they were taken,
- * not in what they mean.
+ * not in what they mean. That includes landing on zero the same way — see the
+ * basis chosen at the bottom of this function.
  */
 async function costForLine(invoice, line) {
   if (!INBOUND.has(invoice.type)) {
@@ -616,14 +631,29 @@ async function costForLine(invoice, line) {
       { id: line.item_id, org: orgId() });
     const base = money(item?.purchase_price);
 
+    let cost = base;
     if (line.unit_id) {
       const unit = await get(
         'SELECT purchase_price FROM item_units WHERE id = @id AND org_id = @org',
         { id: line.unit_id, org: orgId() });
       const own = money(unit?.purchase_price);
-      return { cost: own > 0 ? own : money(base * line.conversion_factor), basis: 'SNAPSHOT' };
+      cost = own > 0 ? own : money(base * line.conversion_factor);
     }
-    return { cost: base, basis: 'SNAPSHOT' };
+
+    /*
+     * Zero is not a cost, it is the absence of one. `items.purchase_price` is
+     * NOT NULL DEFAULT 0, so an item quick-added or imported without a cost
+     * carries 0 rather than NULL, and nothing above can tell that apart from a
+     * genuinely free good. Calling it SNAPSHOT would let `profit_exact` claim
+     * the resulting 100% margin was recorded fact.
+     *
+     * ESTIMATED is the honest label and costs nothing to apply: the counting in
+     * COST_ESTIMATED, the `profit_exact` flag and the UI's badge all already
+     * exist, and this is exactly the case they were built for. Migration 007's
+     * backfill reaches the same 0 by the same route, so the two now agree in
+     * meaning as well as in arithmetic.
+     */
+    return { cost, basis: cost > 0 ? 'SNAPSHOT' : 'ESTIMATED' };
   }
   return { cost: money(line.unit_price), basis: 'ACTUAL' };
 }
