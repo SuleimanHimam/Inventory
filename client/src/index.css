@@ -908,7 +908,9 @@
  * result not look like an invoice at all.
  */
 @media print {
-  @page { margin: 12mm; }
+  /* `@page` lives in lib/print.ts: the page box cannot be scoped to a
+     selector, so the format is switched by swapping that rule at print time.
+     Declaring one here as well would race it on source order. */
 
   /*
    * 1. Paper has no theme.
@@ -960,6 +962,9 @@
     overflow: visible !important;
   }
   .print-area { border: 1px solid var(--border) !important; }
+  /* The lines scroll horizontally on screen. Paper does not scroll, and an
+     `auto` overflow clips at the box edge instead of flowing. */
+  .doc-lines { overflow: visible !important; }
   .card { break-inside: auto; }
 
   /*
@@ -1004,6 +1009,86 @@
   /* Product photos are for finding things on a screen. On paper they cost a
      column, three lines of row height each, and a great deal of toner. */
   .data-table [data-thumb], .data-table th[aria-label='الصورة'] { display: none !important; }
+
+
+  /* =======================================================================
+   *  80mm roll.
+   *
+   *  Not a smaller A4. The printable width is about 72mm -- roughly 270px --
+   *  which is narrower than a phone, so the columns that make an invoice
+   *  readable on a sheet have nowhere to go. What works on a roll is one
+   *  field per line, and the responsive card layout the app already uses on
+   *  phones is exactly that: `.stacked` is left alone here rather than being
+   *  forced back into a table, and only its card chrome comes off.
+   * ======================================================================= */
+  :root[data-paper='receipt'] body { font-size: 8.5pt; line-height: 1.35; }
+  :root[data-paper='receipt'] .print-area { border: 0 !important; }
+
+  /* A receipt head is centred and stacked: shop first, then what this is. */
+  :root[data-paper='receipt'] .doc-head {
+    display: block !important;
+    padding: 0 0 0.4rem !important;
+    text-align: center;
+    border-bottom: 1px dashed var(--border) !important;
+  }
+  :root[data-paper='receipt'] .doc-meta {
+    display: block !important;
+    margin-top: 0.4rem;
+    text-align: start;
+  }
+  /* label ......... value, one per line, the way a slip reads. */
+  :root[data-paper='receipt'] .doc-meta > div {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.5rem;
+    border-bottom: 1px dotted var(--border);
+    padding: 0.1rem 0;
+  }
+  :root[data-paper='receipt'] .doc-meta > div > p { margin: 0 !important; font-size: 8pt !important; }
+
+  /* Restore the stacked layout the A4 rules above turn back into a table. */
+  :root[data-paper='receipt'] .data-table.stacked,
+  :root[data-paper='receipt'] .data-table.stacked tbody { display: block !important; }
+  :root[data-paper='receipt'] .data-table.stacked thead { display: none !important; }
+  :root[data-paper='receipt'] .data-table.stacked tbody tr {
+    display: block !important;
+    border: 0 !important;
+    border-bottom: 1px dashed var(--border) !important;
+    border-radius: 0 !important;
+    padding: 0.3rem 0 !important;
+    margin: 0 !important;
+  }
+  :root[data-paper='receipt'] .data-table.stacked tbody td {
+    display: flex !important;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0.05rem 0 !important;
+    border: 0 !important;
+  }
+  :root[data-paper='receipt'] .data-table.stacked tbody td::before {
+    content: attr(data-label) !important;
+    font-size: 7.5pt;
+    color: #000;
+  }
+  /* The item name owns its line; the label would only repeat the obvious. */
+  :root[data-paper='receipt'] .data-table.stacked tbody td[data-primary] {
+    display: block !important;
+    font-weight: 700;
+    padding-bottom: 0.15rem !important;
+  }
+  :root[data-paper='receipt'] .data-table.stacked tbody td[data-primary]::before { content: none !important; }
+  /* Two lines a roll cannot spare: the row number, and a barcode nobody
+     scans off a receipt. */
+  :root[data-paper='receipt'] .data-table.stacked tbody td:first-child,
+  :root[data-paper='receipt'] .data-table.stacked tbody td[data-label='الباركود'] { display: none !important; }
+
+  :root[data-paper='receipt'] .doc-totals {
+    display: block !important;
+    padding: 0.4rem 0 0 !important;
+    background: transparent !important;
+    border-top: 1px dashed var(--border) !important;
+  }
+  :root[data-paper='receipt'] .doc-totals > div { max-width: none !important; width: 100% !important; }
 
   /* Links are navigation. On paper an item name is just the item's name. */
   a { color: #000 !important; text-decoration: none !important; }
