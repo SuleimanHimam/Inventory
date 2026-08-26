@@ -80,6 +80,7 @@
   },
   "invoiceStatus": {
     "DRAFT": "Unsaved",
+    "REOPENED": "Being corrected",
     "POSTED": "Posted",
     "CANCELLED": "Cancelled"
   },

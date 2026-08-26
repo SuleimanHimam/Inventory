@@ -80,6 +80,7 @@
   },
   "invoiceStatus": {
     "DRAFT": "غير محفوظة",
+    "REOPENED": "قيد التعديل",
     "POSTED": "مرحّلة",
     "CANCELLED": "ملغاة"
   },

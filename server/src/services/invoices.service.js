@@ -164,13 +164,23 @@ export async function listInvoices({ type, status, party_id, source, search, dat
   if (type) { where.push('v.type = @type'); params.type = type; }
   if (status) { where.push('v.status = @status'); params.status = status; }
   else {
-    // A draft isn't a document worth surfacing as an invoice even with lines
-    // in it — it's still being built by a scanner mid-invoice, not a
-    // finished record. Excluded from every unfiltered list/search; still
-    // reachable by explicitly asking for status=DRAFT, since that's the one
-    // way to recover a specific in-progress draft after e.g. a dropped
-    // connection cut a session short.
-    where.push("v.status <> 'DRAFT'");
+    /*
+     * A draft isn't a document worth surfacing as an invoice even with lines
+     * in it — it's still being built by a scanner mid-invoice, not a
+     * finished record. Excluded from every unfiltered list/search; still
+     * reachable by explicitly asking for status=DRAFT, since that's the one
+     * way to recover a specific in-progress draft after e.g. a dropped
+     * connection cut a session short.
+     *
+     * A *reopened* draft is the exception, and it is not a fine distinction.
+     * That document was posted: it holds a spent number, it moved stock, and
+     * it is only a draft because someone pressed تعديل on it. Hiding it made
+     * a posted invoice vanish from the list the moment its correction was
+     * interrupted — which is exactly what happened to OUT-00017 — leaving no
+     * way back to it but its own URL. It stays listed, and the badge says
+     * قيد التعديل so it is never mistaken for a finished one.
+     */
+    where.push("(v.status <> 'DRAFT' OR v.reopened_at IS NOT NULL)");
   }
   if (source) { where.push('v.source = @source'); params.source = source; }
   if (party_id) {
@@ -919,6 +929,17 @@ export function reopenInvoice(invoiceId, { by } = {}) {
 export async function deleteInvoice(invoiceId) {
   const invoice = await loadRaw(invoiceId);
   if (invoice.status === 'POSTED') throw unprocessable('لا يمكن حذف فاتورة مرحّلة', 'INVOICE_POSTED');
+  /*
+   * A reopened invoice is DRAFT, which is what makes this guard necessary
+   * rather than redundant: without it, one row-level delete would erase a
+   * document that had been posted -- a spent number, and ledger entries the
+   * immutability triggers exist to protect. The route sends this case to
+   * cancelInvoice instead; this is the backstop for every other caller.
+   */
+  if (invoice.reopened_at) {
+    throw unprocessable(
+      'لا يمكن محو فاتورة سبق ترحيلها — تُلغى لتبقى موثّقة في السجل', 'INVOICE_WAS_POSTED');
+  }
   if (invoice.stock_count_id) {
     throw conflict('لا يمكن حذف فاتورة ناتجة عن جلسة جرد', 'INVOICE_FROM_STOCK_COUNT');
   }

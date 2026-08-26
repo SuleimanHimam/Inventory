@@ -99,6 +99,20 @@ router.patch('/:id', requireStockOutForClerk, wrap(async (req, res) => {
 router.delete('/:id', requireStockOutForClerk, wrap(async (req, res) => {
   const invoice = await invoices.getInvoice(req.params.id, { withDetail: false });
   if (invoice.status === 'DRAFT') {
+    /*
+     * A reopened draft is a posted document mid-correction, not a form. Its
+     * stock effect was already undone when it was reopened, so finishing the
+     * deletion means marking it cancelled — the number stays spent and the
+     * movements stay in the ledger, which is the same end state as reversing
+     * it outright. Erasing it would take a numbered document out of the
+     * record; manager-only, because only a manager could have reopened it.
+     */
+    if (invoice.reopened_at) {
+      if (!isManager(req.auth?.role)) {
+        throw forbidden('إلغاء فاتورة سبق ترحيلها صلاحية للمدير فقط', 'MANAGER_ONLY');
+      }
+      return res.json(await invoices.cancelInvoice(req.params.id));
+    }
     return res.json(await invoices.deleteInvoice(req.params.id));
   }
   if (invoice.status === 'POSTED') {

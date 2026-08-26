@@ -321,7 +321,7 @@ export default function Invoices() {
                       )}
                       <td>
                         <div className="flex flex-wrap items-center gap-1.5">
-                          <InvoiceStatusBadge status={invoice.status} />
+                          <InvoiceStatusBadge status={invoice.status} reopened={!!invoice.reopened_at} />
                           <SourceBadge source={invoice.source} />
                         </div>
                       </td>
@@ -455,6 +455,10 @@ function RowActions(
 ) {
   const navigate = useNavigate();
   const posted = invoice.status === 'POSTED';
+  // A draft that has been posted before is a document, not a form: it deletes
+  // as a cancellation, and only a manager may do it -- which is also the only
+  // role that could have reopened it in the first place.
+  const reopened = invoice.status === 'DRAFT' && !!invoice.reopened_at;
   const act = (state: Record<string, boolean>) =>
     navigate(`/invoices/${invoice.id}`, { state });
 
@@ -496,11 +500,11 @@ function RowActions(
         * offering to delete it again would suggest there is something further
         * to remove, and there is not.
         */}
-      {(invoice.status === 'DRAFT' || (isManager && posted)) && (
+      {((invoice.status === 'DRAFT' && (!reopened || isManager)) || (isManager && posted)) && (
         <Button
           size="icon"
           variant="ghost"
-          title={invoice.status === 'DRAFT' ? 'حذف المسودة' : 'حذف الفاتورة'}
+          title={invoice.status === 'DRAFT' && !reopened ? 'حذف المسودة' : 'حذف الفاتورة'}
           onClick={onDelete}
           className="hover:bg-accent-500/10 hover:text-accent-600 dark:hover:text-accent-400"
         >
@@ -512,23 +516,29 @@ function RowActions(
 }
 
 /**
- * Deleting from the list -- two different operations behind one word, exactly
- * as on the detail page.
+ * Deleting from the list -- three different operations behind one word, and
+ * the dialog says which one is about to happen, because the consequences
+ * differ and the button does not.
  *
- * A draft is erased: it moved no stock and consumed no number, so there is
- * nothing to preserve. A posted document cannot be erased by anyone; deleting
- * it means *reversing* it -- compensating ledger entries, and the document
- * stays in the record as ملغاة. The dialog says which of the two is about to
- * happen, because the consequences differ and the button does not.
+ *  • A plain draft is erased. It moved no stock and consumed no number, so
+ *    there is nothing to preserve.
+ *  • A posted document is *reversed*: compensating ledger entries, and it
+ *    stays in the record as ملغاة. Erasing it would take a spent number and
+ *    its movements out of the ledger.
+ *  • A *reopened* draft is a posted document mid-correction. Reopening
+ *    already undid its stock effect, so all that is left is to mark it
+ *    cancelled -- the same end state as reversing it, reached from halfway.
+ *    It must not fall into the first case: it has a number and a ledger.
  *
  * `reverse` rather than the `remove` route for a posted invoice, even though
  * DELETE /invoices/:id would reverse it too: `reverse` invalidates the stock
  * caches, and stock is precisely what a reversal changes.
  */
 function DeleteConfirm({ invoice, onClose }: { invoice: Invoice; onClose: () => void }) {
-  const { remove, reverse } = useInvoiceMutations(invoice.id);
-  const draft = invoice.status === 'DRAFT';
-  const mutation = draft ? remove : reverse;
+  const { remove, reverse, cancel } = useInvoiceMutations(invoice.id);
+  const reopened = invoice.status === 'DRAFT' && !!invoice.reopened_at;
+  const draft = invoice.status === 'DRAFT' && !reopened;
+  const mutation = draft ? remove : reopened ? cancel : reverse;
   return (
     <ConfirmDialog
       open
@@ -537,6 +547,7 @@ function DeleteConfirm({ invoice, onClose }: { invoice: Invoice; onClose: () => 
         onSuccess: () => {
           onClose();
           if (draft) toast.success('حُذفت المسودة', 'لم تكن مرحّلة، فلم يتأثر المخزون.');
+          else if (reopened) toast.success('أُلغيت الفاتورة', 'كان أثرها على المخزون قد أُعيد عند فتحها للتعديل.');
           else toast.success('تم حذف الفاتورة', 'أُعيد أثرها على المخزون، وبقيت في السجل ملغاة وموثّقة.');
         },
         onError: (error) => toastError(error, 'تعذّر حذف الفاتورة'),
@@ -551,6 +562,16 @@ function DeleteConfirm({ invoice, onClose }: { invoice: Invoice; onClose: () => 
           نهائياً بكل بنودها.
           <span className="mt-2 block text-xs">
             لم تُرحَّل بعد، فلا أثر لها على المخزون ولا شيء يُعكس.
+          </span>
+        </>
+      ) : reopened ? (
+        <>
+          الفاتورة
+          <span className="nums font-semibold"> {invoice.number} </span>
+          مفتوحة للتعديل، وأثرها على المخزون أُعيد مسبقاً عند فتحها. بتأكيد الحذف
+          تُعلَّم ملغاة نهائياً بدل إعادة ترحيلها.
+          <span className="mt-2 block text-xs">
+            لا تُمحى من السجل: رقمها مستهلك وحركاتها وقيود عكسها تبقى ظاهرة.
           </span>
         </>
       ) : (
