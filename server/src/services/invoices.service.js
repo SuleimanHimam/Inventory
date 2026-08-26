@@ -227,6 +227,7 @@ export async function listInvoices({ type, status, party_id, source, search, dat
        COALESCE(SUM(CASE WHEN v.type = 'STOCK_OUT' THEN t.net END), 0) AS out_total,
        COALESCE(SUM(CASE WHEN v.type = 'STOCK_IN'  THEN 1 ELSE 0 END), 0) AS in_count,
        COALESCE(SUM(CASE WHEN v.type = 'STOCK_OUT' THEN 1 ELSE 0 END), 0) AS out_count,
+       COALESCE(SUM(CASE WHEN v.type = 'STOCK_OUT' THEN t.cost END), 0) AS cost_total,
        COALESCE(SUM(CASE WHEN v.type = 'STOCK_OUT' THEN t.revenue - t.cost END), 0) AS profit_total,
        COALESCE(SUM(CASE WHEN v.type = 'STOCK_OUT' AND t.inexact_lines > 0 THEN 1 ELSE 0 END), 0)
          AS inexact_invoices
@@ -265,6 +266,15 @@ export async function listInvoices({ type, status, party_id, source, search, dat
      * is what was earned on the sales in it. A month with a large restock has
      * a poor net_total and a perfectly healthy profit_total.
      */
+    /*
+     * The cost side of that same subtraction, so the profit can be read as a
+     * result rather than taken on faith: what the goods sold in this range
+     * cost, against what they were sold for. Purchases in the range
+     * (`in_total`) are a different number entirely -- stock bought now may
+     * not be sold for months -- and the two get confused constantly, which is
+     * exactly why showing cost beside profit is worth the line.
+     */
+    cost_total: money(totals.cost_total),
     profit_total: money(totals.profit_total),
     profit_exact: totals.inexact_invoices === 0,
   };
