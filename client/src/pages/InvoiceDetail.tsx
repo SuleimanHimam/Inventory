@@ -132,7 +132,7 @@ export default function InvoiceDetail() {
       onSuccess: (updated) => {
         setConfirming(null);
         if (kind === 'reopen') {
-          toast.success('فُتحت الفاتورة للتعديل', `أُعيد أثرها على المخزون. رقمها ${updated.number} كما هو.`);
+          toast.success('فُتحت الفاتورة للتعديل', `أثرها على المخزون قائم كما هو، ولن يتغيّر إلا بما تعدّله. رقمها ${updated.number} لم يتغيّر.`);
           navigate(`/invoices/${invoice.id}/edit`, { replace: true });
         } else {
           toast.success('تم حذف الفاتورة', 'أُعيد أثرها على المخزون، وبقيت في السجل ملغاة وموثّقة.');
@@ -225,7 +225,7 @@ export default function InvoiceDetail() {
           <Lock className="size-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
           <span className="text-muted">
             {isManager
-              ? 'فاتورة مرحّلة. التعديل أو العكس يعيد أثرها على المخزون بقيود معاكسة — لا يُحذف من السجل شيء.'
+              ? 'فاتورة مرحّلة. التعديل يسجّل الفرق فقط، والحذف يعكس أثرها كاملاً — لا يُحذف من السجل شيء.'
               : 'فاتورة مرحّلة وغير قابلة للتعديل — أي تصحيح يتم عبر فاتورة جديدة.'}
             {invoice.posted_at && <span className="nums"> رُحّلت في {fmtDateTime(invoice.posted_at)}.</span>}
             {invoice.revision > 0 && (
@@ -432,11 +432,13 @@ export default function InvoiceDetail() {
         loading={reopen.isPending}
         message={
           <>
-            سيُعاد أثر الفاتورة على المخزون بقيود معاكسة، وتعود مسودة برقمها
+ستعود الفاتورة
             <span className="nums font-semibold"> {invoice.number} </span>
-            نفسه لتعديلها ثم ترحيلها من جديد.
+            مسودة برقمها نفسه لتعديلها ثم ترحيلها من جديد. أثرها على المخزون يبقى
+            قائماً أثناء التعديل.
             <span className="mt-2 block text-xs">
-              لا يُحذف من سجل الحركات شيء — تبقى القيود الأصلية وقيود العكس ظاهرة معاً.
+              عند إعادة الترحيل يُسجَّل الفرق وحده: صنف لم يتغيّر لا يُكتب له قيد،
+              وكمية من 5 إلى 7 تُكتب قيداً بـ 2 — لا قيود عكسية.
             </span>
           </>
         }

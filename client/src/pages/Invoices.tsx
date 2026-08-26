@@ -547,7 +547,7 @@ function DeleteConfirm({ invoice, onClose }: { invoice: Invoice; onClose: () => 
         onSuccess: () => {
           onClose();
           if (draft) toast.success('حُذفت المسودة', 'لم تكن مرحّلة، فلم يتأثر المخزون.');
-          else if (reopened) toast.success('أُلغيت الفاتورة', 'كان أثرها على المخزون قد أُعيد عند فتحها للتعديل.');
+          else if (reopened) toast.success('أُلغيت الفاتورة', 'أُعيد أثرها على المخزون، وبقيت في السجل ملغاة وموثّقة.');
           else toast.success('تم حذف الفاتورة', 'أُعيد أثرها على المخزون، وبقيت في السجل ملغاة وموثّقة.');
         },
         onError: (error) => toastError(error, 'تعذّر حذف الفاتورة'),
@@ -568,8 +568,8 @@ function DeleteConfirm({ invoice, onClose }: { invoice: Invoice; onClose: () => 
         <>
           الفاتورة
           <span className="nums font-semibold"> {invoice.number} </span>
-          مفتوحة للتعديل، وأثرها على المخزون أُعيد مسبقاً عند فتحها. بتأكيد الحذف
-          تُعلَّم ملغاة نهائياً بدل إعادة ترحيلها.
+مفتوحة للتعديل وأثرها على المخزون ما زال قائماً. بتأكيد الحذف يُعاد أثرها
+          كاملاً وتُعلَّم ملغاة نهائياً بدل إعادة ترحيلها.
           <span className="mt-2 block text-xs">
             لا تُمحى من السجل: رقمها مستهلك وحركاتها وقيود عكسها تبقى ظاهرة.
           </span>
@@ -603,7 +603,7 @@ function ReopenConfirm({ invoice, onClose }: { invoice: Invoice; onClose: () => 
       onConfirm={() => reopen.mutate(invoice.id, {
         onSuccess: () => {
           onClose();
-          toast.success('فُتحت الفاتورة للتعديل', `أُعيد أثرها على المخزون. رقمها ${invoice.number} كما هو.`);
+          toast.success('فُتحت الفاتورة للتعديل', `أثرها على المخزون قائم كما هو، ولن يتغيّر إلا بما تعدّله. رقمها ${invoice.number} لم يتغيّر.`);
           navigate(`/invoices/${invoice.id}/edit`);
         },
         onError: (error) => toastError(error, 'تعذّر فتح الفاتورة'),
@@ -614,11 +614,12 @@ function ReopenConfirm({ invoice, onClose }: { invoice: Invoice; onClose: () => 
       loading={reopen.isPending}
       message={(
         <>
-          سيُعاد أثر الفاتورة
+ستعود الفاتورة
           <span className="nums font-semibold"> {invoice.number} </span>
-          على المخزون بقيود معاكسة، وتعود مسودة برقمها نفسه لتعديلها ثم ترحيلها من جديد.
+          مسودة برقمها نفسه لتعديلها ثم ترحيلها من جديد، وأثرها على المخزون يبقى
+          قائماً أثناء التعديل.
           <span className="mt-2 block text-xs">
-            لا يُحذف من سجل الحركات شيء — تبقى القيود الأصلية وقيود العكس ظاهرة معاً.
+            عند إعادة الترحيل يُسجَّل الفرق وحده — لا قيود عكسية.
           </span>
         </>
       )}
