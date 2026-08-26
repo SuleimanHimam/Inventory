@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   Plus, FileText, Pencil, Eye, ChevronDown, ArrowDownLeft, ArrowUpRight, Scale,
+  TrendingUp,
 } from 'lucide-react';
 import {
   Button, Card, PageHeader, Pagination, SearchInput, Select, EmptyState, TableSkeleton, Input,
@@ -188,6 +189,7 @@ export default function Invoices() {
                     <th>الجهة</th>
                     <th className="text-center">الأصناف</th>
                     {canSeePrices && <th className="text-center">الإجمالي</th>}
+                    {canSeePrices && <th className="text-center">الربح</th>}
                     <th>الحالة</th>
                     <th className="w-px" />
                   </tr>
@@ -208,6 +210,19 @@ export default function Invoices() {
                       <td data-label="الأصناف" className="nums text-center text-muted">{fmtInt(invoice.line_count)}</td>
                       {canSeePrices && (
                         <td data-label="الإجمالي" className="nums text-center font-bold">{fmtCurrency(invoice.total)}</td>
+                      )}
+                      {/* Blank, not zero, on a purchase: a STOCK_IN has no
+                          margin, and a column of 0.00 would read as one. */}
+                      {canSeePrices && (
+                        <td
+                          data-label="الربح"
+                          className={cn('nums text-center font-bold',
+                            invoice.profit == null ? 'text-subtle'
+                              : invoice.profit < 0 ? 'text-accent-600 dark:text-accent-400'
+                                : 'text-emerald-600 dark:text-emerald-400')}
+                        >
+                          {invoice.profit == null ? '—' : fmtCurrency(invoice.profit)}
+                        </td>
                       )}
                       <td>
                         <div className="flex flex-wrap items-center gap-1.5">
@@ -282,18 +297,27 @@ function NewInvoiceMenu({ onPick }: { onPick: (type: InvoiceType) => void }) {
 
 
 /**
- * What the filtered range is worth: purchases, sales, and the difference.
+ * What the filtered range is worth: purchases, sales, the difference — and
+ * what was earned on the sales in it.
  *
  * Reads the same `summary` the list request already returned — no second
  * fetch, so the figures cannot lag the table they sit above. Every filter on
  * this page feeds it, the date range included, because the server computes it
  * from the identical WHERE clause.
+ *
+ * "الصافي" and "الربح" are the two most confusable numbers on this screen, so
+ * they are deliberately given different tones and hints: the net is money that
+ * moved, the profit is what the sales earned. A month with a large restock has
+ * a deeply negative net and a perfectly healthy profit, and a strip that let
+ * those read as the same kind of figure would be actively misleading.
  */
 function SummaryStrip({ summary, loading }: { summary: InvoiceSummary; loading: boolean }) {
   const net = summary.net_total ?? 0;
+  const profit = summary.profit_total;
 
   return (
-    <div className={cn('mb-4 grid grid-cols-2 gap-3 lg:grid-cols-3',
+    <div className={cn('mb-4 grid grid-cols-2 gap-3',
+      profit == null ? 'lg:grid-cols-3' : 'lg:grid-cols-4',
       loading && 'opacity-60 transition-opacity')}>
       <SummaryCard
         icon={<ArrowDownLeft className="size-4" />}
@@ -312,13 +336,24 @@ function SummaryStrip({ summary, loading }: { summary: InvoiceSummary; loading: 
       {/* Third card drops to full width on a phone: two above it, one below,
           rather than an orphan in a three-column grid that does not fit. */}
       <SummaryCard
-        className="max-lg:col-span-2"
+        className={cn(profit == null && 'max-lg:col-span-2')}
         icon={<Scale className="size-4" />}
         tone={net > 0 ? 'success' : net < 0 ? 'danger' : 'neutral'}
         label="الصافي"
         value={fmtCurrency(net)}
         hint="المبيعات − المشتريات · المرحّلة فقط"
       />
+      {profit != null && (
+        <SummaryCard
+          icon={<TrendingUp className="size-4" />}
+          tone={profit > 0 ? 'success' : profit < 0 ? 'danger' : 'neutral'}
+          label="الربح"
+          value={fmtCurrency(profit)}
+          hint={summary.profit_exact === false
+            ? 'المبيعات − التكلفة · يتضمن تكلفة تقديرية'
+            : 'المبيعات − تكلفة البضاعة المباعة'}
+        />
+      )}
     </div>
   );
 }

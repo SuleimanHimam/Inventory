@@ -117,6 +117,20 @@ const MONEY_KEYS = new Set([
   'in_total',         // invoices list summary — purchases in the filtered range
   'out_total',        // invoices list summary — sales in the filtered range
   'net_total',        // invoices list summary — the difference
+  // Profitability (migration 007). Deliberately absent from SALE_PRICE_KEYS
+  // below, which is what makes it manager-only: a clerk reads sale prices and
+  // the totals built from them, but what those goods cost — and therefore
+  // what the business earns — is not its account's business. `cost_price` in
+  // particular is a purchase price wearing a different name, and leaking it
+  // per line would defeat the boundary the whole file exists to hold.
+  'cost_price',       // invoice_lines — the snapshot taken at posting
+  'line_cost',        // invoice_lines (derived)
+  'line_profit',      // invoice_lines (derived)
+  'cost_total',       // invoices (derived)
+  'profit',           // invoices (derived)
+  'margin_pct',       // invoices (derived) — a ratio, but it reconstructs cost from the total
+  'profit_exact',     // invoices — meaningless once `profit` is gone, and noise if kept
+  'profit_total',     // invoices list summary
 ]);
 
 /**

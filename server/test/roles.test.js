@@ -93,6 +93,73 @@ test('invoice lines lose price and line total but keep quantities', () => {
   assert.equal('line_total' in out.lines[0], false);
 });
 
+/*
+ * Profitability (migration 007) is manager-only, and stricter than the rest of
+ * the money set: a clerk keeps sale prices and totals, but never cost or
+ * profit. `cost_price` is the one to watch — it is a purchase price under
+ * another name, so a clerk keeping it would defeat the boundary these tests
+ * exist to hold.
+ */
+const PROFIT_KEYS = ['cost_total', 'profit', 'margin_pct', 'profit_exact'];
+const PROFIT_LINE_KEYS = ['cost_price', 'line_cost', 'line_profit'];
+
+const profitInvoice = () => ({
+  id: 'v1', number: 'OUT-00007', status: 'POSTED', type: 'STOCK_OUT',
+  subtotal: 120, discount_total: 0, tax_total: 0, total: 120,
+  cost_total: 70, profit: 50, margin_pct: 41.7, profit_exact: true,
+  lines: [
+    {
+      id: 'l1', item_name: 'أ', quantity: 3, unit_price: 20, line_total: 60,
+      cost_price: 12, line_cost: 36, line_profit: 24,
+    },
+  ],
+});
+
+test('a staff account loses profit, cost and margin', () => {
+  const out = scrubMoney(profitInvoice());
+  for (const key of PROFIT_KEYS) {
+    assert.equal(key in out, false, `${key} must be dropped`);
+  }
+  for (const key of PROFIT_LINE_KEYS) {
+    assert.equal(key in out.lines[0], false, `lines[].${key} must be dropped`);
+  }
+  assert.equal(out.lines[0].quantity, 3, 'quantities still survive');
+});
+
+test('a clerk keeps sale prices but still loses cost and profit', () => {
+  const out = scrubMoney(profitInvoice(), { keepSalePrice: true });
+  // What a clerk is meant to keep, so it can tell a customer what to pay.
+  assert.equal(out.total, 120);
+  assert.equal(out.lines[0].unit_price, 20);
+  assert.equal(out.lines[0].line_total, 60);
+  // What it must not learn: what the goods cost, or what was made on them.
+  for (const key of PROFIT_KEYS) {
+    assert.equal(key in out, false, `${key} must be dropped for a clerk too`);
+  }
+  for (const key of PROFIT_LINE_KEYS) {
+    assert.equal(key in out.lines[0], false, `lines[].${key} must be dropped for a clerk too`);
+  }
+});
+
+test('the summary loses profit_total alongside the other money', () => {
+  const body = {
+    data: [],
+    meta: { page: 1, limit: 25, total: 0, pages: 1 },
+    summary: {
+      in_total: 400, out_total: 950, net_total: 550,
+      profit_total: 310, profit_exact: true, in_count: 2, out_count: 1,
+    },
+  };
+  for (const keep of [false, true]) {
+    const out = scrubMoney(body, { keepSalePrice: keep });
+    assert.equal('profit_total' in out.summary, false,
+      `profit_total must be dropped (keepSalePrice: ${keep})`);
+    assert.equal('profit_exact' in out.summary, false,
+      `profit_exact must be dropped (keepSalePrice: ${keep})`);
+    assert.equal(out.summary.out_count, 1, 'counts still survive');
+  }
+});
+
 test('the invoices summary loses its money but keeps its counts', () => {
   // The shape of GET /invoices: a paginated envelope plus a totals block for
   // the current filter. The counts are how many documents, which is not a
