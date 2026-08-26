@@ -96,10 +96,10 @@ export default function InvoiceForm() {
     );
   }
 
-  if (invoice.status !== 'DRAFT') {
-    navigate(`/invoices/${invoice.id}`, { replace: true });
-    return null;
-  }
+  // Rendered, not called: navigate() during render updates the router while
+  // React is rendering this component. `Navigate` does the same job as an
+  // element, the way blockedForClerk above already does.
+  if (invoice.status !== 'DRAFT') return <Navigate to={`/invoices/${invoice.id}`} replace />;
 
   // Keyed by id: a new invoice must start with clean editor state, or the
   // "already decided to leave" flag would carry over and disarm its guard.
@@ -239,7 +239,14 @@ function InvoiceEditor({ invoice }: { invoice: Invoice }) {
       const posted = await mutations.post.mutateAsync(invoice.id);
       decidedRef.current = true;
       toast.success(`تم حفظ الفاتورة ${posted.number}`, 'تم تسجيل حركات المخزون وتحديث الأرصدة');
-      navigate(`/invoices/${posted.id}`);
+      /*
+       * `replace`, not a push. Once this invoice is posted the editor URL is no
+       * longer a page anyone can be on -- the guard below sends a non-draft
+       * straight to the detail view. Pushing left /edit sitting in the history
+       * behind us, so Back landed there, was redirected forward again, and the
+       * button looked broken: you had to press it twice to reach the list.
+       */
+      navigate(`/invoices/${posted.id}`, { replace: true });
     } catch (error) {
       inFlightRef.current = false;
       decidedRef.current = false;
