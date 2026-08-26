@@ -398,9 +398,14 @@ export function PageHeader({
   );
 }
 
-export function Card({ className, children }: { className?: string; children: ReactNode }) {
-  return <div className={cn('card', className)}>{children}</div>;
-}
+/* Forwards its ref so a caller can hand the card itself to something that
+   reads the DOM -- the invoice does, to rasterise the document into a PDF. */
+export const Card = forwardRef<HTMLDivElement, { className?: string; children: ReactNode }>(
+  ({ className, children }, ref) => (
+    <div ref={ref} className={cn('card', className)}>{children}</div>
+  ),
+);
+Card.displayName = 'Card';
 
 /* ------------------------------------------------------------ Empty state */
 /**
