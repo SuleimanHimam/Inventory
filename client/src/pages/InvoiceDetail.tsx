@@ -38,10 +38,20 @@ export default function InvoiceDetail() {
    * and is spent on arrival. `replace` clears it, so a refresh or a Back into
    * this entry does not print a second time.
    */
-  const wantsPrint = (location.state as { print?: boolean } | null)?.print === true;
+  const arrivedWith = location.state as { print?: boolean; pdf?: boolean } | null;
+  const wantsPrint = arrivedWith?.print === true;
+  const wantsPdf = arrivedWith?.pdf === true;
   const printedRef = useRef(false);
+  /*
+   * The PDF action is defined below the early returns -- it needs a loaded
+   * invoice -- but the effect that may fire it is a hook and must stay above
+   * them. A ref is the seam: the effect reads whatever the last completed
+   * render assigned, and a render that got far enough to assign it is exactly
+   * a render that had an invoice to work with.
+   */
+  const sharePdfRef = useRef<(() => Promise<void>) | null>(null);
   useEffect(() => {
-    if (!wantsPrint || isLoading || printedRef.current) return undefined;
+    if ((!wantsPrint && !wantsPdf) || isLoading || printedRef.current) return undefined;
     /*
      * The ref, not the router state, is what prevents a second print. Clearing
      * the state here instead would re-run this effect with `wantsPrint` false,
@@ -52,10 +62,13 @@ export default function InvoiceDetail() {
     // A beat, so the document is painted before the dialog freezes the page.
     const timer = window.setTimeout(() => {
       navigate(location.pathname, { replace: true, state: null });
-      printAs(lastPaper());
+      // The invoice list hands both actions over the same way -- the document
+      // only exists on this page, so this is where either one can happen.
+      if (wantsPdf) void sharePdfRef.current?.();
+      else printAs(lastPaper());
     }, 200);
     return () => window.clearTimeout(timer);
-  }, [wantsPrint, isLoading, navigate, location.pathname]);
+  }, [wantsPrint, wantsPdf, isLoading, navigate, location.pathname]);
 
   if (isLoading) {
     return (
@@ -111,6 +124,7 @@ export default function InvoiceDetail() {
       setPdfBusy(false);
     }
   };
+  sharePdfRef.current = sharePdf;
 
   const correct = (kind: 'reverse' | 'reopen') => {
     const mutation = kind === 'reverse' ? reverse : reopen;

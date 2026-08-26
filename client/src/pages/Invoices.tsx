@@ -1,21 +1,22 @@
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   Plus, FileText, Pencil, Eye, ChevronDown, ArrowDownLeft, ArrowUpRight, Scale,
-  TrendingUp,
+  TrendingUp, Printer, FileDown, Loader2,
 } from 'lucide-react';
 import {
   Button, Card, PageHeader, Pagination, SearchInput, Select, EmptyState, TableSkeleton, Input,
-  Menu, MenuItem,
+  Menu, MenuItem, ConfirmDialog,
 } from '@/components/ui';
+import { toast, toastError } from '@/store/toast';
 import {
   INVOICE_TYPES, InvoiceStatusBadge, InvoiceTypeBadge, SourceBadge,
 } from '@/components/domain';
-import { useDebounced, useInvoices } from '@/hooks';
+import { useDebounced, useInvoice, useInvoiceMutations, useInvoices } from '@/hooks';
 import { fmtCurrency, fmtDateShort, fmtInt } from '@/lib/format';
 import { usePermissions } from '@/lib/permissions';
 import { cn } from '@/lib/cn';
-import type { InvoiceSummary, InvoiceType } from '@/lib/types';
+import type { Invoice, InvoiceSummary, InvoiceType } from '@/lib/types';
 
 const TYPE_TABS: Array<{ value: string; label: string }> = [
   { value: '', label: 'الكل' },
@@ -25,7 +26,10 @@ const TYPE_TABS: Array<{ value: string; label: string }> = [
 
 export default function Invoices() {
   const navigate = useNavigate();
-  const { canSeePrices } = usePermissions();
+  const { canSeePrices, isManager } = usePermissions();
+  /** One row open at a time: two open lists is a worse view of both. */
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const [reopening, setReopening] = useState<Invoice | null>(null);
   const [type, setType] = useState('');
   const [status, setStatus] = useState('');
   const [search, setSearch] = useState('');
@@ -196,8 +200,8 @@ export default function Invoices() {
                 </thead>
                 <tbody>
                   {invoices.map((invoice) => (
+                    <Fragment key={invoice.id}>
                     <tr
-                      key={invoice.id}
                       className="cursor-pointer"
                       onClick={() => navigate(`/invoices/${invoice.id}`)}
                     >
@@ -207,7 +211,17 @@ export default function Invoices() {
                       <td data-label="الجهة" className="max-w-[14rem] truncate">
                         {invoice.party_name || <span className="text-xs text-subtle">—</span>}
                       </td>
-                      <td data-label="الأصناف" className="nums text-center text-muted">{fmtInt(invoice.line_count)}</td>
+                      {/* What the invoice is for, not how many rows it has.
+                          "1" answers a question nobody asked; the first item
+                          and its quantity is the thing a person scanning this
+                          list is actually looking for. */}
+                      <td data-label="الأصناف" className="max-w-[18rem]">
+                        <ItemsCell
+                          invoice={invoice}
+                          expanded={expanded === invoice.id}
+                          onToggle={() => setExpanded(expanded === invoice.id ? null : invoice.id)}
+                        />
+                      </td>
                       {canSeePrices && (
                         <td data-label="الإجمالي" className="nums text-center font-bold">{fmtCurrency(invoice.total)}</td>
                       )}
@@ -231,23 +245,24 @@ export default function Invoices() {
                         </div>
                       </td>
                       <td onClick={(e) => e.stopPropagation()}>
-                        <div className="flex justify-end">
-                          {invoice.status === 'DRAFT' ? (
-                            <Link to={`/invoices/${invoice.id}/edit`}>
-                              <Button size="icon" variant="ghost" title="متابعة التحرير">
-                                <Pencil className="size-4" />
-                              </Button>
-                            </Link>
-                          ) : (
-                            <Link to={`/invoices/${invoice.id}`}>
-                              <Button size="icon" variant="ghost" title="عرض">
-                                <Eye className="size-4" />
-                              </Button>
-                            </Link>
-                          )}
-                        </div>
+                        <RowActions
+                          invoice={invoice}
+                          isManager={isManager}
+                          onReopen={() => setReopening(invoice)}
+                        />
                       </td>
                     </tr>
+                    {/* A sibling row, not a nested one: a <tr> cannot contain
+                        another <tr>, and a browser handed one silently moves
+                        it out of the table. */}
+                    {expanded === invoice.id && (
+                      <tr className="bg-surface-2">
+                        <td colSpan={canSeePrices ? 9 : 7} className="p-0">
+                          <ExpandedLines id={invoice.id} />
+                        </td>
+                      </tr>
+                    )}
+                    </Fragment>
                   ))}
                 </tbody>
               </table>
@@ -262,6 +277,10 @@ export default function Invoices() {
           />
         )}
       </Card>
+
+      {reopening && (
+        <ReopenConfirm invoice={reopening} onClose={() => setReopening(null)} />
+      )}
     </>
   );
 }
@@ -386,5 +405,162 @@ function SummaryCard({
         <p className="nums mt-0.5 text-[11px] text-subtle">{hint}</p>
       </div>
     </Card>
+  );
+}
+
+
+/* ------------------------------------------------------------ row contents */
+
+/**
+ * What the invoice is for, in one line.
+ *
+ * The first item and its quantity, and a count of the rest that opens them.
+ * The count alone used to be the whole cell, which told a reader scanning for
+ * a particular sale nothing at all.
+ */
+function ItemsCell(
+  { invoice, expanded, onToggle }:
+  { invoice: Invoice; expanded: boolean; onToggle: () => void },
+) {
+  const others = Math.max(0, (invoice.line_count ?? 0) - 1);
+  if (!invoice.first_item_name) {
+    return <span className="text-xs text-subtle">—</span>;
+  }
+  return (
+    <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
+      <span className="truncate text-sm font-medium">{invoice.first_item_name}</span>
+      <span className="nums shrink-0 text-xs font-bold text-muted">
+        × {fmtInt(invoice.first_item_qty ?? 0)}
+      </span>
+      {others > 0 && (
+        <button
+          type="button"
+          // The row itself navigates; opening the lines must not.
+          onClick={(e) => { e.stopPropagation(); onToggle(); }}
+          className="nums shrink-0 rounded-full bg-surface-3 px-2 py-0.5 text-[11px] font-semibold text-muted transition hover:bg-brand-500/15 hover:text-brand-700 dark:hover:text-brand-300"
+        >
+          {expanded ? 'إخفاء' : `+${fmtInt(others)} أخرى`}
+        </button>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Every line of one invoice, fetched only when its row is opened.
+ *
+ * `useInvoice` is the same query the detail page uses, so opening a row here
+ * warms the cache for the page it links to rather than duplicating a request.
+ */
+function ExpandedLines({ id }: { id: string }) {
+  const { data, isLoading } = useInvoice(id);
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center gap-2 p-4 text-xs text-muted">
+        <Loader2 className="size-4 animate-spin" /> جارٍ التحميل…
+      </div>
+    );
+  }
+  if (!data?.lines?.length) {
+    return <div className="p-4 text-xs text-subtle">لا توجد أصناف.</div>;
+  }
+  return (
+    <ul className="divide-y divide-line px-4 py-1.5">
+      {data.lines.map((line) => (
+        <li key={line.id} className="flex items-center justify-between gap-3 py-1.5 text-sm">
+          <span className="min-w-0 truncate">{line.item_name}</span>
+          <span className="nums shrink-0 font-bold">× {fmtInt(line.quantity)}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/**
+ * The things you want to do to an invoice without opening it.
+ *
+ * Print and PDF hand the work to the detail page through router state: the
+ * document only exists where it is rendered, and re-rendering it invisibly
+ * here would be a second copy of the same markup to keep in step.
+ *
+ * A draft edits in place. A posted one can only be *reopened*, which undoes
+ * its stock effect -- manager-only, and behind a confirmation, so it is raised
+ * to the page rather than fired from a row.
+ */
+function RowActions(
+  { invoice, isManager, onReopen }:
+  { invoice: Invoice; isManager: boolean; onReopen: () => void },
+) {
+  const navigate = useNavigate();
+  const posted = invoice.status === 'POSTED';
+  const act = (state: Record<string, boolean>) =>
+    navigate(`/invoices/${invoice.id}`, { state });
+
+  return (
+    <div className="flex items-center justify-end gap-0.5">
+      {invoice.status === 'DRAFT' ? (
+        <Link to={`/invoices/${invoice.id}/edit`}>
+          <Button size="icon" variant="ghost" title="متابعة التحرير">
+            <Pencil className="size-4" />
+          </Button>
+        </Link>
+      ) : (
+        <>
+          {isManager && posted && (
+            <Button size="icon" variant="ghost" title="تعديل الفاتورة" onClick={onReopen}>
+              <Pencil className="size-4" />
+            </Button>
+          )}
+          <Button size="icon" variant="ghost" title="طباعة" onClick={() => act({ print: true })}>
+            <Printer className="size-4" />
+          </Button>
+          <Button size="icon" variant="ghost" title="ملف PDF" onClick={() => act({ pdf: true })}>
+            <FileDown className="size-4" />
+          </Button>
+        </>
+      )}
+      <Link to={`/invoices/${invoice.id}`}>
+        <Button size="icon" variant="ghost" title="عرض">
+          <Eye className="size-4" />
+        </Button>
+      </Link>
+    </div>
+  );
+}
+
+/**
+ * Reopening from the list. Owns the mutation for one invoice, so the page does
+ * not have to hold a hook per row.
+ */
+function ReopenConfirm({ invoice, onClose }: { invoice: Invoice; onClose: () => void }) {
+  const navigate = useNavigate();
+  const { reopen } = useInvoiceMutations(invoice.id);
+  return (
+    <ConfirmDialog
+      open
+      onClose={onClose}
+      onConfirm={() => reopen.mutate(invoice.id, {
+        onSuccess: () => {
+          onClose();
+          toast.success('فُتحت الفاتورة للتعديل', `أُعيد أثرها على المخزون. رقمها ${invoice.number} كما هو.`);
+          navigate(`/invoices/${invoice.id}/edit`);
+        },
+        onError: (error) => toastError(error, 'تعذّر فتح الفاتورة'),
+      })}
+      title="فتح الفاتورة للتعديل؟"
+      tone="primary"
+      confirmLabel="فتح للتعديل"
+      loading={reopen.isPending}
+      message={(
+        <>
+          سيُعاد أثر الفاتورة
+          <span className="nums font-semibold"> {invoice.number} </span>
+          على المخزون بقيود معاكسة، وتعود مسودة برقمها نفسه لتعديلها ثم ترحيلها من جديد.
+          <span className="mt-2 block text-xs">
+            لا يُحذف من سجل الحركات شيء — تبقى القيود الأصلية وقيود العكس ظاهرة معاً.
+          </span>
+        </>
+      )}
+    />
   );
 }
