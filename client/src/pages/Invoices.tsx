@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
-  FileText, Pencil, Eye, Printer, FileDown, Loader2,
+  FileText, Pencil, Eye, Printer, FileDown, Trash2, Loader2,
 } from 'lucide-react';
 import {
   Button, Card, Pagination, SearchInput, Select, EmptyState, TableSkeleton, Input,
@@ -29,6 +29,7 @@ export default function Invoices() {
   /** One row open at a time: two open lists is a worse view of both. */
   const [expanded, setExpanded] = useState<string | null>(null);
   const [reopening, setReopening] = useState<Invoice | null>(null);
+  const [deleting, setDeleting] = useState<Invoice | null>(null);
   const [type, setType] = useState('');
   const [status, setStatus] = useState('');
   const [search, setSearch] = useState('');
@@ -203,6 +204,7 @@ export default function Invoices() {
                       invoice={invoice}
                       isManager={isManager}
                       onReopen={() => setReopening(invoice)}
+                      onDelete={() => setDeleting(invoice)}
                     />
                   </div>
 
@@ -328,6 +330,7 @@ export default function Invoices() {
                           invoice={invoice}
                           isManager={isManager}
                           onReopen={() => setReopening(invoice)}
+                          onDelete={() => setDeleting(invoice)}
                         />
                       </td>
                     </tr>
@@ -359,6 +362,9 @@ export default function Invoices() {
 
       {reopening && (
         <ReopenConfirm invoice={reopening} onClose={() => setReopening(null)} />
+      )}
+      {deleting && (
+        <DeleteConfirm invoice={deleting} onClose={() => setDeleting(null)} />
       )}
     </>
   );
@@ -440,11 +446,12 @@ function ExpandedLines({ id }: { id: string }) {
  *
  * A draft edits in place. A posted one can only be *reopened*, which undoes
  * its stock effect -- manager-only, and behind a confirmation, so it is raised
- * to the page rather than fired from a row.
+ * to the page rather than fired from a row. Deleting is raised the same way,
+ * and for the same reason.
  */
 function RowActions(
-  { invoice, isManager, onReopen }:
-  { invoice: Invoice; isManager: boolean; onReopen: () => void },
+  { invoice, isManager, onReopen, onDelete }:
+  { invoice: Invoice; isManager: boolean; onReopen: () => void; onDelete: () => void },
 ) {
   const navigate = useNavigate();
   const posted = invoice.status === 'POSTED';
@@ -479,7 +486,85 @@ function RowActions(
           <Eye className="size-4" />
         </Button>
       </Link>
+      {/*
+        * Last in the row, which in this layout puts it at the far end, away
+        * from the four things you meant to do. Grey at rest and red only on
+        * approach: a row of icons one of which is permanently red reads as an
+        * alarm, and this one is a normal, if final, action.
+        *
+        * A cancelled invoice gets no button. It has already been undone --
+        * offering to delete it again would suggest there is something further
+        * to remove, and there is not.
+        */}
+      {(invoice.status === 'DRAFT' || (isManager && posted)) && (
+        <Button
+          size="icon"
+          variant="ghost"
+          title={invoice.status === 'DRAFT' ? 'حذف المسودة' : 'حذف الفاتورة'}
+          onClick={onDelete}
+          className="hover:bg-accent-500/10 hover:text-accent-600 dark:hover:text-accent-400"
+        >
+          <Trash2 className="size-4" />
+        </Button>
+      )}
     </div>
+  );
+}
+
+/**
+ * Deleting from the list -- two different operations behind one word, exactly
+ * as on the detail page.
+ *
+ * A draft is erased: it moved no stock and consumed no number, so there is
+ * nothing to preserve. A posted document cannot be erased by anyone; deleting
+ * it means *reversing* it -- compensating ledger entries, and the document
+ * stays in the record as ملغاة. The dialog says which of the two is about to
+ * happen, because the consequences differ and the button does not.
+ *
+ * `reverse` rather than the `remove` route for a posted invoice, even though
+ * DELETE /invoices/:id would reverse it too: `reverse` invalidates the stock
+ * caches, and stock is precisely what a reversal changes.
+ */
+function DeleteConfirm({ invoice, onClose }: { invoice: Invoice; onClose: () => void }) {
+  const { remove, reverse } = useInvoiceMutations(invoice.id);
+  const draft = invoice.status === 'DRAFT';
+  const mutation = draft ? remove : reverse;
+  return (
+    <ConfirmDialog
+      open
+      onClose={onClose}
+      onConfirm={() => mutation.mutate(invoice.id, {
+        onSuccess: () => {
+          onClose();
+          if (draft) toast.success('حُذفت المسودة', 'لم تكن مرحّلة، فلم يتأثر المخزون.');
+          else toast.success('تم حذف الفاتورة', 'أُعيد أثرها على المخزون، وبقيت في السجل ملغاة وموثّقة.');
+        },
+        onError: (error) => toastError(error, 'تعذّر حذف الفاتورة'),
+      })}
+      title={draft ? 'حذف المسودة؟' : 'حذف الفاتورة؟'}
+      confirmLabel={draft ? 'حذف المسودة' : 'حذف الفاتورة'}
+      loading={mutation.isPending}
+      message={draft ? (
+        <>
+          ستُحذف المسودة
+          <span className="nums font-semibold"> {invoice.number} </span>
+          نهائياً بكل بنودها.
+          <span className="mt-2 block text-xs">
+            لم تُرحَّل بعد، فلا أثر لها على المخزون ولا شيء يُعكس.
+          </span>
+        </>
+      ) : (
+        <>
+          سيُعاد أثر الفاتورة
+          <span className="nums font-semibold"> {invoice.number} </span>
+          على المخزون بالكامل: ما خرج يعود وما دخل يُخصم، وتُعلَّم الفاتورة كملغاة.
+          <span className="mt-2 block text-xs">
+            لا تُمحى من السجل: رقمها مستهلك وحركاتها مسجّلة، فتبقى ظاهرة كملغاة مع
+            قيود عكسها بجانبها — وهذا ما يجعل الجرد والتقارير تظل متطابقة.
+          </span>
+        </>
+      )}
+    />
   );
 }
 
