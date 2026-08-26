@@ -23,6 +23,16 @@ export const unprocessable = (msg, code, details) => new AppError(422, msg, code
 export const unavailable = (msg, code, details) => new AppError(503, msg, code, details);
 
 /**
+ * Tedious connection-layer error codes, as opposed to errors from a statement
+ * the server actually ran. ESOCKET is "could not reach the instance" (service
+ * stopped, wrong port, SQL Browser down); ECONNCLOSED is a connection dropped
+ * mid-flight, which is what every in-flight request sees when the instance
+ * shuts down; ETIMEOUT is the connect timeout; ELOGIN is a rejected login;
+ * ENOTOPEN is a query issued against a pool that never connected.
+ */
+const DB_UNREACHABLE = new Set(['ESOCKET', 'ECONNCLOSED', 'ETIMEOUT', 'ELOGIN', 'ENOTOPEN']);
+
+/**
  * Translate raw SQL Server failures into meaningful API errors.
  *
  * mssql/Tedious gives no `.constraint` field the way `pg` did — the numeric
@@ -41,6 +51,18 @@ export function mapDbError(err) {
 
   const message = String(err?.message || '');
   const number = err?.number;
+
+  // Connection-level failures: the instance is down, unreachable, or refusing
+  // the login. Nothing about the request is wrong, so a 500 misdirects whoever
+  // is looking — it sends them into the application when the answer is that
+  // SQL Server is not running. These codes come from Tedious, not from a
+  // completed statement, so they carry no `err.number`.
+  if (DB_UNREACHABLE.has(err?.code)) {
+    return unavailable(
+      'قاعدة البيانات غير متاحة حالياً — تأكد من تشغيل خدمة SQL Server ثم أعد المحاولة.',
+      'DB_UNREACHABLE',
+    );
+  }
 
   // Raised by the barcode-uniqueness triggers (cross-table), or hit directly
   // on one of the three tables' own unique index (same-table duplicate).
