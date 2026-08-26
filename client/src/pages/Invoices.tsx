@@ -138,15 +138,20 @@ export default function Invoices() {
                 operator actually scans for, so it gets its own prominent
                 line rather than sharing weight with six other fields. */}
             <div className="stagger space-y-2 p-2.5 lg:hidden">
+              {/*
+                * A <div>, not a <button>. The card carries real controls now --
+                * print, PDF, edit -- and a button inside a button is invalid
+                * markup that browsers resolve by guessing. The tap target that
+                * opens the invoice is the Link over the information; the
+                * controls sit outside it and answer for themselves.
+                */}
               {invoices.map((invoice) => (
-                <button
-                  key={invoice.id}
-                  type="button"
-                  onClick={() => navigate(`/invoices/${invoice.id}`)}
-                  className="card card-interactive block w-full p-3 text-start"
-                >
+                <div key={invoice.id} className="card w-full p-3 text-start">
                   <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
+                    <Link
+                      to={`/invoices/${invoice.id}`}
+                      className="-m-1 min-w-0 flex-1 rounded-lg p-1 transition active:bg-surface-2"
+                    >
                       <div className="flex flex-wrap items-center gap-1.5">
                         <span className="nums font-mono text-xs font-bold">{invoice.number}</span>
                         <InvoiceTypeBadge type={invoice.type} />
@@ -154,18 +159,29 @@ export default function Invoices() {
                       <p className="mt-1 truncate text-xs text-muted">
                         {fmtDateShort(invoice.invoice_date)}
                         {invoice.party_name ? ` · ${invoice.party_name}` : ''}
-                        {' · '}{fmtInt(invoice.line_count)} صنف
                       </p>
-                    </div>
-                    <Link
-                      to={invoice.status === 'DRAFT' ? `/invoices/${invoice.id}/edit` : `/invoices/${invoice.id}`}
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <Button size="icon" variant="ghost" title={invoice.status === 'DRAFT' ? 'متابعة التحرير' : 'عرض'}>
-                        {invoice.status === 'DRAFT' ? <Pencil className="size-4" /> : <Eye className="size-4" />}
-                      </Button>
                     </Link>
+                    <RowActions
+                      invoice={invoice}
+                      isManager={isManager}
+                      onReopen={() => setReopening(invoice)}
+                    />
                   </div>
+
+                  {/* What the invoice is for, on the phone too: the count on
+                      its own said as little here as it did in the table. */}
+                  <div className="mt-1.5">
+                    <ItemsCell
+                      invoice={invoice}
+                      expanded={expanded === invoice.id}
+                      onToggle={() => setExpanded(expanded === invoice.id ? null : invoice.id)}
+                    />
+                  </div>
+                  {expanded === invoice.id && (
+                    <div className="mt-1.5 rounded-lg bg-surface-2">
+                      <ExpandedLines id={invoice.id} />
+                    </div>
+                  )}
 
                   <div className="mt-2.5 flex items-center justify-between gap-2 border-t border-line pt-2.5">
                     <div className="flex flex-wrap items-center gap-1.5">
@@ -178,7 +194,7 @@ export default function Invoices() {
                       </span>
                     )}
                   </div>
-                </button>
+                </div>
               ))}
             </div>
 
