@@ -13,6 +13,8 @@
     "dev:client": "npm --prefix client run dev",
     "db:up": "docker compose up -d db",
     "db:down": "docker compose down",
+    "_comment_db_provision": "Creates the development database inside the container, so a dev machine needs no local sqlcmd. Arabic_CI_AS matches what provision-mssql.sql gives the server; the collation is worth having right in development, since it decides how Arabic names sort and compare.",
+    "db:provision": "docker exec inventory-db /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P DevPassw0rd! -C -Q \"IF DB_ID('inventory') IS NULL CREATE DATABASE inventory COLLATE Arabic_CI_AS\"",
     "migrate": "npm --prefix server run migrate",
     "seed": "npm --prefix server run seed",
     "_comment_build": "Installs the client's dependencies first, so a host that builds from the repository root (rather than with its root directory set to client/) still finds tsc and vite.",

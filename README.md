@@ -33,14 +33,24 @@ Version 6.0 · React + TypeScript · Node/Express · SQL Server
 ```bash
 npm run setup          # install server + client dependencies
 npm run db:up          # local SQL Server 2022 in Docker (host port 14330)
-sqlcmd -S 127.0.0.1,14330 -U sa -P 'DevPassw0rd!' -i server/provision-mssql.sql
-cp server/.env.example server/.env   # fill in DB_PASSWORD (app_api's, from provision-mssql.sql)
+npm run db:provision   # create the `inventory` database inside that container
+cp server/.env.example server/.env   # DB_SERVER=127.0.0.1,14330  DB_USER=sa  DB_PASSWORD=DevPassw0rd!
 npm run migrate        # apply server/migrations-mssql
 npm run seed           # load realistic Arabic sample data (optional)
 npm run dev            # API on :4317, UI on :5173
 ```
 
-Open <http://127.0.0.1:5173>.
+Open <http://127.0.0.1:5173> — not `localhost`, which resolves to `::1` on
+Windows and would reach a different origin than the one Vite binds.
+
+`db:provision` runs `sqlcmd` inside the container, so a development machine
+needs no SQL client of its own and connects as `sa`. The least-privilege
+`app_api` login that production uses comes from `server/provision-mssql.sql`
+instead — run that against the container the same way if you want development
+to mirror the server's permissions.
+
+Working from a second machine — the full setup, in Arabic:
+**[`docs/DEV-SETUP-AR.md`](docs/DEV-SETUP-AR.md)**.
 
 The example env sets `AUTH_MODE=none`, so development needs no Supabase project:
 there is no login screen and every request runs as one local development user
