@@ -109,6 +109,41 @@ export default function Invoices() {
           </div>
         </div>
 
+        {/*
+          * The profit on whatever is currently filtered.
+          *
+          * This is the one figure that belongs on a list rather than on the
+          * dashboard, and for the reason the four-card strip did not: the
+          * dashboard answers "how are we doing", over a window chosen there,
+          * while this answers "what did *these* invoices earn" -- this
+          * customer, last week, that supplier. It moves when the filters move,
+          * which is exactly what made it wrong as a headline and right here.
+          *
+          * One line, not a card: it is a footnote to the filters above it, and
+          * the manager-only figures the strip used to carry now live on the
+          * dashboard where they are not competing with a list for attention.
+          */}
+        {canSeePrices && data?.summary?.profit_total != null && (
+          <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 border-b border-line bg-surface-2 px-3.5 py-2 text-xs">
+            {/* "المرحّلة فقط" is not padding: the summary counts posted
+                documents only, so filtering to ملغاة would otherwise show a
+                profit that does not match the list under it. */}
+            <span className="text-muted">
+              ربح الفواتير المعروضة · المرحّلة فقط
+              {data.summary.profit_exact === false && (
+                <span className="text-subtle"> · يتضمن تكلفة تقديرية</span>
+              )}
+            </span>
+            <span className={cn('nums text-sm font-bold',
+              (data.summary.profit_total ?? 0) < 0
+                ? 'text-accent-600 dark:text-accent-400'
+                : 'text-emerald-600 dark:text-emerald-400')}
+            >
+              {fmtCurrency(data.summary.profit_total)}
+            </span>
+          </div>
+        )}
+
         {isLoading ? (
           <TableSkeleton cols={7} />
         ) : invoices.length === 0 ? (
