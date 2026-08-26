@@ -1,8 +1,7 @@
 import { Fragment, useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
-  FileText, Pencil, Eye, ArrowDownLeft, ArrowUpRight, Scale,
-  TrendingUp, Printer, FileDown, Loader2,
+  FileText, Pencil, Eye, Printer, FileDown, Loader2,
 } from 'lucide-react';
 import {
   Button, Card, Pagination, SearchInput, Select, EmptyState, TableSkeleton, Input,
@@ -16,7 +15,7 @@ import { useDebounced, useInvoice, useInvoiceMutations, useInvoices } from '@/ho
 import { fmtCurrency, fmtDateShort, fmtInt } from '@/lib/format';
 import { usePermissions } from '@/lib/permissions';
 import { cn } from '@/lib/cn';
-import type { Invoice, InvoiceSummary } from '@/lib/types';
+import type { Invoice } from '@/lib/types';
 
 const TYPE_TABS: Array<{ value: string; label: string }> = [
   { value: '', label: 'الكل' },
@@ -61,12 +60,6 @@ export default function Invoices() {
           twice over in the shell: the ribbon carries إدخال and إخراج as its two
           largest buttons on a desktop, and the bottom nav carries the same pair
           on a phone. Nothing here was the only way to reach anything. */}
-      {/* Totals for the current filter. Manager-only — the API strips the
-          numbers for anyone else, so this would render three blanks. */}
-      {canSeePrices && data?.summary && (
-        <SummaryStrip summary={data.summary} loading={isFetching} />
-      )}
-
       <Card className="overflow-hidden">
         {/* Type tabs */}
         <div className="flex flex-wrap items-center gap-1 border-b border-line px-3.5 pt-3">
@@ -297,109 +290,6 @@ export default function Invoices() {
         <ReopenConfirm invoice={reopening} onClose={() => setReopening(null)} />
       )}
     </>
-  );
-}
-
-/**
- * What the filtered range is worth: purchases, sales, the difference — and
- * what was earned on the sales in it.
- *
- * Reads the same `summary` the list request already returned — no second
- * fetch, so the figures cannot lag the table they sit above. Every filter on
- * this page feeds it, the date range included, because the server computes it
- * from the identical WHERE clause.
- *
- * "الصافي" and "الربح" are the two most confusable numbers on this screen, so
- * they are deliberately given different tones and hints: the net is money that
- * moved, the profit is what the sales earned. A month with a large restock has
- * a deeply negative net and a perfectly healthy profit, and a strip that let
- * those read as the same kind of figure would be actively misleading.
- */
-function SummaryStrip({ summary, loading }: { summary: InvoiceSummary; loading: boolean }) {
-  const net = summary.net_total ?? 0;
-  const profit = summary.profit_total;
-
-  return (
-    <div className={cn('mb-4 grid grid-cols-2 gap-3',
-      profit == null ? 'lg:grid-cols-3' : 'lg:grid-cols-4',
-      loading && 'opacity-60 transition-opacity')}>
-      <SummaryCard
-        icon={<ArrowDownLeft className="size-4" />}
-        tone="brand"
-        label="مشتريات (إدخال)"
-        value={fmtCurrency(summary.in_total)}
-        hint={`${fmtInt(summary.in_count)} فاتورة`}
-      />
-      <SummaryCard
-        icon={<ArrowUpRight className="size-4" />}
-        tone="success"
-        label="مبيعات (إخراج)"
-        value={fmtCurrency(summary.out_total)}
-        hint={`${fmtInt(summary.out_count)} فاتورة`}
-      />
-      {/* Third card drops to full width on a phone: two above it, one below,
-          rather than an orphan in a three-column grid that does not fit. */}
-      <SummaryCard
-        className={cn(profit == null && 'max-lg:col-span-2')}
-        icon={<Scale className="size-4" />}
-        tone={net > 0 ? 'success' : net < 0 ? 'danger' : 'neutral'}
-        label="الصافي"
-        value={fmtCurrency(net)}
-        hint="المبيعات − المشتريات · المرحّلة فقط"
-      />
-      {profit != null && (
-        <SummaryCard
-          icon={<TrendingUp className="size-4" />}
-          tone={profit > 0 ? 'success' : profit < 0 ? 'danger' : 'neutral'}
-          label="الربح"
-          value={fmtCurrency(profit)}
-          hint={summary.profit_exact === false
-            ? 'المبيعات − التكلفة · يتضمن تكلفة تقديرية'
-            : 'المبيعات − تكلفة البضاعة المباعة'}
-        />
-      )}
-    </div>
-  );
-}
-
-const SUMMARY_TONES = {
-  brand: 'text-brand-700 dark:text-brand-300 bg-brand-500/12',
-  success: 'text-emerald-700 dark:text-emerald-300 bg-emerald-500/12',
-  danger: 'text-accent-600 dark:text-accent-300 bg-accent-500/12',
-  neutral: 'text-muted bg-surface-3',
-};
-
-function SummaryCard({
-  icon, tone, label, value, hint, className,
-}: {
-  icon: React.ReactNode;
-  tone: keyof typeof SUMMARY_TONES;
-  label: string;
-  value: string;
-  hint: string;
-  className?: string;
-}) {
-  return (
-    /*
-     * Two of these sit side by side on a phone, which leaves each about 160px
-     * -- and "961,004.61 ILS" does not fit that at text-lg next to a 36px
-     * icon, so the number the card exists to show was the part that got the
-     * ellipsis. The icon and the type both come down a step below `sm:`, which
-     * is where there is room for them again.
-     */
-    <Card className={cn('flex items-start gap-2 p-3 sm:gap-3 sm:p-3.5', className)}>
-      <span className={cn('grid size-8 shrink-0 place-items-center rounded-xl sm:size-9', SUMMARY_TONES[tone])}>
-        {icon}
-      </span>
-      <div className="min-w-0">
-        <p className="text-[11px] font-medium text-subtle">{label}</p>
-        {/* `truncate` stays as the backstop for a number bigger than any of
-            this reasoning: clipped is recoverable (the title attribute has the
-            full value), overlapping its neighbour is not. */}
-        <p className="nums mt-0.5 truncate text-sm font-bold leading-tight sm:text-lg" title={value}>{value}</p>
-        <p className="nums mt-0.5 text-[11px] text-subtle">{hint}</p>
-      </div>
-    </Card>
   );
 }
 

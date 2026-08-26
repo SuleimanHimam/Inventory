@@ -131,6 +131,12 @@ const MONEY_KEYS = new Set([
   'margin_pct',       // invoices (derived) — a ratio, but it reconstructs cost from the total
   'profit_exact',     // invoices — meaningless once `profit` is gone, and noise if kept
   'profit_total',     // invoices list summary
+  // Dashboard trading window. `profit` and `profit_exact` above already cover
+  // two of the four; these are the other two, and they are money that changed
+  // hands over a period -- exactly what a staff account does not see anywhere
+  // else in this file.
+  'purchases',        // dashboard trading (derived)
+  'sales',            // dashboard trading (derived)
 ]);
 
 /**
