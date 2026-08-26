@@ -1,22 +1,22 @@
 import { Fragment, useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
-  Plus, FileText, Pencil, Eye, ChevronDown, ArrowDownLeft, ArrowUpRight, Scale,
+  FileText, Pencil, Eye, ArrowDownLeft, ArrowUpRight, Scale,
   TrendingUp, Printer, FileDown, Loader2,
 } from 'lucide-react';
 import {
-  Button, Card, PageHeader, Pagination, SearchInput, Select, EmptyState, TableSkeleton, Input,
-  Menu, MenuItem, ConfirmDialog,
+  Button, Card, Pagination, SearchInput, Select, EmptyState, TableSkeleton, Input,
+  ConfirmDialog,
 } from '@/components/ui';
 import { toast, toastError } from '@/store/toast';
 import {
-  INVOICE_TYPES, InvoiceStatusBadge, InvoiceTypeBadge, SourceBadge,
+  InvoiceStatusBadge, InvoiceTypeBadge, SourceBadge,
 } from '@/components/domain';
 import { useDebounced, useInvoice, useInvoiceMutations, useInvoices } from '@/hooks';
 import { fmtCurrency, fmtDateShort, fmtInt } from '@/lib/format';
 import { usePermissions } from '@/lib/permissions';
 import { cn } from '@/lib/cn';
-import type { Invoice, InvoiceSummary, InvoiceType } from '@/lib/types';
+import type { Invoice, InvoiceSummary } from '@/lib/types';
 
 const TYPE_TABS: Array<{ value: string; label: string }> = [
   { value: '', label: 'الكل' },
@@ -56,12 +56,11 @@ export default function Invoices() {
 
   return (
     <>
-      <PageHeader
-        title="الفواتير"
-        subtitle="فواتير إدخال وإخراج المخزون"
-        actions={<NewInvoiceMenu onPick={(t) => navigate(`/invoices/new?type=${t}`)} />}
-      />
-
+      {/* No header row. The title said which page this is, which the nav
+          already answers, and "فاتورة جديدة" duplicated a control that exists
+          twice over in the shell: the ribbon carries إدخال and إخراج as its two
+          largest buttons on a desktop, and the bottom nav carries the same pair
+          on a phone. Nothing here was the only way to reach anything. */}
       {/* Totals for the current filter. Manager-only — the API strips the
           numbers for anyone else, so this would render three blanks. */}
       {canSeePrices && data?.summary && (
@@ -301,36 +300,6 @@ export default function Invoices() {
   );
 }
 
-function NewInvoiceMenu({ onPick }: { onPick: (type: InvoiceType) => void }) {
-  const order: InvoiceType[] = ['STOCK_IN', 'STOCK_OUT'];
-  return (
-    <Menu
-      trigger={({ open, toggle }) => (
-        <Button variant="primary" icon={<Plus className="size-4" />} onClick={toggle}
-          aria-haspopup="menu" aria-expanded={open}>
-          فاتورة جديدة
-          <ChevronDown className={cn('size-3.5 opacity-70 transition-transform', open && 'rotate-180')} />
-        </Button>
-      )}
-    >
-      {(close) => order.map((type) => {
-        const config = INVOICE_TYPES[type];
-        const Icon = config.icon;
-        return (
-          <MenuItem
-            key={type}
-            onClick={() => { close(); onPick(type); }}
-            icon={<Icon className="size-4 text-subtle" />}
-          >
-            {config.label}
-          </MenuItem>
-        );
-      })}
-    </Menu>
-  );
-}
-
-
 /**
  * What the filtered range is worth: purchases, sales, the difference — and
  * what was earned on the sales in it.
@@ -433,7 +402,6 @@ function SummaryCard({
     </Card>
   );
 }
-
 
 /* ------------------------------------------------------------ row contents */
 
