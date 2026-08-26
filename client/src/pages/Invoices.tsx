@@ -181,9 +181,26 @@ export default function Invoices() {
                       <SourceBadge source={invoice.source} />
                     </div>
                     {canSeePrices && (
-                      <span className="nums text-lg font-bold text-brand-600 dark:text-brand-400">
-                        {fmtCurrency(invoice.total)}
-                      </span>
+                      <div className="shrink-0 text-end">
+                        <span className="nums block text-lg font-bold leading-tight text-brand-600 dark:text-brand-400">
+                          {fmtCurrency(invoice.total)}
+                        </span>
+                        {/* Under the total, not beside it: the total is what
+                            the customer pays and the profit is what the shop
+                            keeps, and a phone card is exactly where two
+                            currency figures on one line would be read as one.
+                            Absent on a purchase and on anything not yet
+                            costed, where `profit` is null by design. */}
+                        {invoice.profit != null && (
+                          <span className={cn('nums mt-0.5 block text-[11px] font-bold',
+                            invoice.profit < 0
+                              ? 'text-accent-600 dark:text-accent-400'
+                              : 'text-emerald-600 dark:text-emerald-400')}
+                          >
+                            ربح {fmtCurrency(invoice.profit)}
+                          </span>
+                        )}
+                      </div>
                     )}
                   </div>
                 </div>
