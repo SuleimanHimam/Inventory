@@ -601,6 +601,64 @@ export async function removeLine(invoiceId, lineId) {
 
 // -------------------------------------------------------------------- post
 /**
+ * What the ledger already holds for one invoice, per item, as a signed
+ * base-unit quantity: `+` is stock this invoice put on the shelf, `-` is
+ * stock it took off.
+ *
+ * Only movements still in force count. A reversed entry and the entry that
+ * reversed it cancel out by construction, and `liveMovements` drops both, so
+ * an invoice reversed under the old edit path reads as zero applied — which
+ * is exactly right, and is what lets a document written before this change
+ * be edited after it.
+ */
+async function appliedQuantities(invoiceId) {
+  const applied = new Map();
+  for (const m of await liveMovements(invoiceId)) {
+    const signed = m.type === 'IN' ? m.quantity : -m.quantity;
+    applied.set(m.item_id, (applied.get(m.item_id) || 0) + signed);
+  }
+  return applied;
+}
+
+/** The signed base-unit effect the lines *should* have, per item. */
+export function desiredQuantities(lines, invoiceType) {
+  const sign = directionOf(invoiceType) === 'IN' ? 1 : -1;
+  const desired = new Map();
+  for (const l of lines) {
+    desired.set(l.item_id, (desired.get(l.item_id) || 0) + sign * baseQuantity(l));
+  }
+  return desired;
+}
+
+/**
+ * The entries that carry the ledger from what it holds to what the document
+ * now says — the whole of "edit in place".
+ *
+ * Posting used to be write-once: a reopened invoice had its effect reversed
+ * on the way out and re-applied on the way back, so a five-piece sale amended
+ * twice left six entries describing one sale of five. Correct, and unreadable.
+ *
+ * The ledger is still append-only — nothing here updates or deletes a
+ * movement, and the immutability triggers still stand. What changed is that
+ * only the *difference* is written: an untouched line produces no entry at
+ * all, and 5 → 7 produces one entry for 2. The stock lands in the same place
+ * either way; the difference is that the history now reads as what happened.
+ *
+ * Pure, and exported, because this is the arithmetic that decides whether a
+ * warehouse balance is right — it is worth being able to test it directly,
+ * without a database.
+ */
+export function planLedgerDelta(applied, desired) {
+  const plan = [];
+  for (const itemId of new Set([...applied.keys(), ...desired.keys()])) {
+    const diff = (desired.get(itemId) || 0) - (applied.get(itemId) || 0);
+    if (diff === 0) continue;
+    plan.push({ item_id: itemId, type: diff > 0 ? 'IN' : 'OUT', quantity: Math.abs(diff) });
+  }
+  return plan;
+}
+
+/**
  * Validate a draft without mutating anything — powers the Post button's
  * inline "why is this disabled" reason.
  */
@@ -612,33 +670,56 @@ export async function validateForPost(invoiceId) {
   if (invoice.status !== 'DRAFT') problems.push({ code: 'NOT_DRAFT', message: 'الفاتورة ليست مسودة' });
   if (!lines.length) problems.push({ code: 'NO_LINES', message: 'أضف صنفاً واحداً على الأقل' });
 
-  if (directionOf(invoice.type) === 'OUT') {
-    for (const s of await shortages(lines)) {
-      problems.push({
-        code: 'INSUFFICIENT_STOCK', line_id: s.line_id, item_id: s.item_id,
-        message: `${s.item_name}: المتوفر ${s.available} والمطلوب ${s.requested}`,
-        ...s,
-      });
-    }
+  /*
+   * The balance guard is no longer a property of the invoice's direction.
+   *
+   * It used to be: a STOCK_OUT took stock away and needed checking, a
+   * STOCK_IN only ever added. With edits applied as a difference, a purchase
+   * amended downward — 10 received, corrected to 3 — takes 7 off the shelf,
+   * and those 7 may already have been sold. So what gets checked is the
+   * difference itself, in whichever direction it falls, which is the same
+   * rule as before on a first posting and a real one on a re-posting.
+   */
+  for (const s of await shortages(invoiceId, invoice, lines)) {
+    problems.push({
+      code: 'INSUFFICIENT_STOCK', line_id: s.line_id, item_id: s.item_id,
+      message: `${s.item_name}: المتوفر ${s.available} والمطلوب ${s.requested}`,
+      ...s,
+    });
   }
   return { ok: problems.length === 0, problems };
 }
 
-/** Aggregate demand per item (converted to base-unit quantities) and compare against the live balance. */
-async function shortages(lines) {
-  const needed = new Map();
-  for (const l of lines) {
-    const cur = needed.get(l.item_id)
-      || { requested: 0, item_name: l.item_name, line_id: l.id, item_id: l.item_id };
-    cur.requested += baseQuantity(l);
-    needed.set(l.item_id, cur);
-  }
+/**
+ * Items the ledger delta would drive below zero.
+ *
+ * `requested` is what must come *off* the shelf for this posting — the whole
+ * line quantity on a first post, only the increase on a re-post — so the
+ * message reads the same in both cases and states the amount actually at
+ * stake rather than a total the shelf has already absorbed.
+ */
+async function shortages(invoiceId, invoice, lines) {
+  const plan = planLedgerDelta(
+    await appliedQuantities(invoiceId), desiredQuantities(lines, invoice.type));
+  const lineOf = new Map();
+  for (const l of lines) if (!lineOf.has(l.item_id)) lineOf.set(l.item_id, l);
+
   const out = [];
-  for (const [itemId, agg] of needed) {
-    const row = await get('SELECT quantity FROM items WHERE id = @id AND org_id = @org',
-      { id: itemId, org: orgId() });
+  for (const step of plan) {
+    if (step.type !== 'OUT') continue;
+    const row = await get('SELECT name, quantity FROM items WHERE id = @id AND org_id = @org',
+      { id: step.item_id, org: orgId() });
     const available = row?.quantity ?? 0;
-    if (agg.requested > available) out.push({ ...agg, available });
+    if (step.quantity > available) {
+      const line = lineOf.get(step.item_id);
+      out.push({
+        item_id: step.item_id,
+        item_name: line?.item_name ?? row?.name ?? 'الصنف',
+        line_id: line?.id ?? null,
+        requested: step.quantity,
+        available,
+      });
+    }
   }
   return out;
 }
@@ -717,7 +798,6 @@ export function postInvoice(invoiceId, { referenceType } = {}) {
     }
 
     const lines = await getLines(invoiceId);
-    const type = directionOf(invoice.type);
     const priceCol = priceColumnOf(invoice.type);
     const reference = referenceType
       || (invoice.source === 'STOCK_COUNT' ? 'STOCK_COUNT'
@@ -726,8 +806,6 @@ export function postInvoice(invoiceId, { referenceType } = {}) {
     const now = nowIso();
 
     for (const line of lines) {
-      const ledgerQty = baseQuantity(line);
-
       // Cost first, then effect. Nothing in a posting run moves a *purchase*
       // price for the document it is costing — an outbound line propagates to
       // sale_price, an inbound one is its own cost — so the read is stable
@@ -738,21 +816,6 @@ export function postInvoice(invoiceId, { referenceType } = {}) {
         'UPDATE invoice_lines SET cost_price = @cost, cost_basis = @basis WHERE id = @id AND org_id = @org',
         { cost, basis, id: line.id, org: orgId() });
 
-      await run(
-        `INSERT INTO stock_movements (id, org_id, item_id, type, quantity, invoice_id,
-                                      reference_type, note, created_at)
-         VALUES (@id, @org, @item_id, @type, @qty, @invoice_id, @reference, @note, @now)`,
-        {
-          id: newId(),
-          org: orgId(),
-          item_id: line.item_id,
-          type,
-          qty: ledgerQty,
-          invoice_id: invoiceId,
-          reference,
-          note: line.note || invoice.note || null,
-          now,
-        });
       if (line.update_item_price) {
         // A non-base-unit line propagates to that unit's own price, never the
         // base item's — a carton price and a piece price are unrelated numbers.
@@ -764,6 +827,45 @@ export function postInvoice(invoiceId, { referenceType } = {}) {
             { price: money(line.unit_price), now, id: line.item_id, org: orgId() });
         }
       }
+    }
+
+    /*
+     * The stock effect, written as the difference between what the ledger
+     * already holds for this invoice and what its lines now say.
+     *
+     * On a first posting nothing is applied yet, so the plan is one entry per
+     * item for the full quantity — byte for byte what the per-line loop wrote
+     * before, except that two lines of the same item now merge into one entry
+     * (the balance is identical, and the guard already aggregated per item).
+     *
+     * On a re-posting after an edit the plan holds only what changed, and an
+     * invoice re-saved untouched writes nothing at all.
+     */
+    const applied = await appliedQuantities(invoiceId);
+    const plan = planLedgerDelta(applied, desiredQuantities(lines, invoice.type));
+    const amending = applied.size > 0;
+    const noteFor = (line) => (amending
+      ? `تعديل الفاتورة ${invoice.number}`
+      : (line?.note || invoice.note || null));
+    const firstLineOf = new Map();
+    for (const line of lines) if (!firstLineOf.has(line.item_id)) firstLineOf.set(line.item_id, line);
+
+    for (const step of plan) {
+      await run(
+        `INSERT INTO stock_movements (id, org_id, item_id, type, quantity, invoice_id,
+                                      reference_type, note, created_at)
+         VALUES (@id, @org, @item_id, @type, @qty, @invoice_id, @reference, @note, @now)`,
+        {
+          id: newId(),
+          org: orgId(),
+          item_id: step.item_id,
+          type: step.type,
+          qty: step.quantity,
+          invoice_id: invoiceId,
+          reference,
+          note: noteFor(firstLineOf.get(step.item_id)),
+          now,
+        });
     }
 
     // The number is minted here, inside the posting transaction, so the
@@ -778,15 +880,25 @@ export function postInvoice(invoiceId, { referenceType } = {}) {
   });
 }
 
-export async function cancelInvoice(invoiceId) {
-  const invoice = await loadRaw(invoiceId);
-  if (invoice.status === 'POSTED') {
-    throw unprocessable(
-      'لا يمكن إلغاء فاتورة مرحّلة — أنشئ فاتورة عكسية لتصحيح الأثر', 'INVOICE_POSTED');
-  }
-  await run("UPDATE invoices SET status = 'CANCELLED' WHERE id = @id AND org_id = @org",
-    { id: invoiceId, org: orgId() });
-  return getInvoice(invoiceId);
+/**
+ * → CANCELLED. A plain draft has no ledger effect to undo; a reopened one
+ * does, now that reopening leaves the original entries in force, so this
+ * writes the compensating entries before it flips the status. Without that,
+ * abandoning an edit by cancelling would leave a cancelled document still
+ * holding stock off the shelf.
+ */
+export function cancelInvoice(invoiceId) {
+  return tx(async () => {
+    const invoice = await loadRaw(invoiceId);
+    if (invoice.status === 'POSTED') {
+      throw unprocessable(
+        'لا يمكن إلغاء فاتورة مرحّلة — أنشئ فاتورة عكسية لتصحيح الأثر', 'INVOICE_POSTED');
+    }
+    await reverseLedger(invoiceId, { note: `إلغاء الفاتورة ${invoice.number || ''}`.trim() });
+    await run("UPDATE invoices SET status = 'CANCELLED' WHERE id = @id AND org_id = @org",
+      { id: invoiceId, org: orgId() });
+    return getInvoice(invoiceId);
+  });
 }
 
 /* ==========================================================================
@@ -894,15 +1006,28 @@ export function reverseInvoice(invoiceId, { by } = {}) {
 }
 
 /**
- * POSTED → DRAFT, with the ledger effect undone: the "edit" half.
+ * POSTED → DRAFT: the "edit" half.
  *
  * Reopening deliberately reuses the whole existing draft machinery rather than
  * adding a parallel edit path — once the status is DRAFT again, every line
  * endpoint, `assertDraft`, `validateForPost` and `postInvoice` already do the
  * right thing, and re-posting mints no new number because `postInvoice` only
- * mints when there isn't one. So an edited invoice keeps its identity, and the
- * ledger shows the original entries, their reversal, and the new entries, in
- * that order.
+ * mints when there isn't one. So an edited invoice keeps its identity.
+ *
+ * What reopening no longer does is touch the ledger. It used to reverse the
+ * invoice on the way out and re-apply it on the way back, which was correct
+ * and unreadable: one sale amended twice left six entries. Now the effect
+ * stays in force while the document is being edited and `postInvoice` writes
+ * only the difference, so the history says what happened.
+ *
+ * Two consequences worth stating, both improvements:
+ *
+ *  • Stock is right throughout the edit, and an edit that is never finished
+ *    leaves the balance exactly as the posted invoice left it — where before
+ *    an abandoned edit silently un-did a real movement.
+ *  • Reopening can no longer fail. Reversing a purchase whose goods had since
+ *    been sold used to be refused outright; the balance question now arrives
+ *    at re-posting, which is the moment it is actually being asked.
  *
  * `revision` counts the round trips, so "this document has been amended twice"
  * is a fact the UI can state rather than infer.
@@ -916,7 +1041,6 @@ export function reopenInvoice(invoiceId, { by } = {}) {
     if (invoice.stock_count_id) {
       throw conflict('لا يمكن تعديل فاتورة ناتجة عن جلسة جرد', 'INVOICE_FROM_STOCK_COUNT');
     }
-    await reverseLedger(invoiceId, { note: `فتح الفاتورة ${invoice.number} للتعديل` });
     await run(
       `UPDATE invoices SET status = 'DRAFT', posted_at = NULL, reopened_at = @now,
                           reopened_by = @by, revision = revision + 1

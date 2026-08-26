@@ -14,8 +14,8 @@
     "doctor": "node --env-file-if-exists=.env src/db/doctor.js",
     "doctor:prod": "node --env-file=.env.prod src/db/doctor.js",
     "seed": "node --env-file-if-exists=.env src/db/seed.js",
-    "test": "node --env-file-if-exists=.env --test --test-concurrency=1 test/api.test.js test/roles.test.js",
-    "test:roles": "node --test test/roles.test.js"
+    "test": "node --env-file-if-exists=.env --test --test-concurrency=1 test/api.test.js test/roles.test.js test/ledger-delta.test.js",
+    "test:roles": "node --test test/roles.test.js test/ledger-delta.test.js"
   },
   "dependencies": {
     "archiver": "^5.3.2",
