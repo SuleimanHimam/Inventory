@@ -53,6 +53,7 @@ export function NotesModal({ open, onClose }: { open: boolean; onClose: () => vo
     <Modal
       open={open}
       onClose={onClose}
+      size="full"
       title={(
         <div className="flex flex-col gap-2.5 pe-2">
           <span>ملاحظاتي</span>
@@ -93,7 +94,7 @@ export function NotesModal({ open, onClose }: { open: boolean; onClose: () => vo
           message={debounced || pinnedOnly ? undefined : 'أضف أول ملاحظة بزر «ملاحظة جديدة».'}
         />
       ) : (
-        <ul className="space-y-2">
+        <ul className="mx-auto max-w-3xl space-y-2">
           {notes.map((note) => (
             <NoteRow key={note.id} note={note} onEdit={() => setEditing(note)} />
           ))}
@@ -188,6 +189,7 @@ function NoteEditor(
     <Modal
       open
       onClose={onClose}
+      size="full"
       title={note ? 'تعديل ملاحظة' : 'ملاحظة جديدة'}
       footer={(
         <>
@@ -200,7 +202,7 @@ function NoteEditor(
         </>
       )}
     >
-      <form onSubmit={submit} className="space-y-3">
+      <form onSubmit={submit} className="mx-auto max-w-3xl space-y-3">
         <Input
           value={title}
           onChange={(e) => setTitle(e.target.value)}
