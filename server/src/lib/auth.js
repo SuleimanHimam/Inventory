@@ -25,8 +25,9 @@
  * the `memberships` table. An org id is never read from the request itself.
  */
 import { createRemoteJWKSet, jwtVerify, SignJWT } from 'jose';
-import { runInOrg } from '../db/index.js';
+import { runInOrg, bindFile, DB_NAME } from '../db/index.js';
 import { resolveOrg, DEV_USER_ID, DEV_USER_EMAIL } from './orgs.js';
+import { isFileDb } from './files.js';
 import { unauthorized, unavailable } from './errors.js';
 
 const SUPABASE_URL = process.env.SUPABASE_URL?.replace(/\/$/, '');
@@ -81,9 +82,17 @@ const jwks = SUPABASE_URL
   : null;
 const localKey = AUTH_SECRET ? new TextEncoder().encode(AUTH_SECRET) : null;
 
-/** Sign a local access token for a user who just registered or logged in. */
-export async function issueLocalToken({ userId, email }) {
-  return new SignJWT({ email })
+/**
+ * Sign a local access token for a user who just registered or logged in.
+ *
+ * The `file` claim is what makes multi-file work: an account exists inside one
+ * file's database and nowhere else, so a token is only meaningful against the
+ * file it was issued for. It is signed rather than sent alongside, because a
+ * file id the client could edit would be a way to point a valid session at
+ * somebody else's data.
+ */
+export async function issueLocalToken({ userId, email, file }) {
+  return new SignJWT({ email, file })
     .setProtectedHeader({ alg: 'HS256' })
     .setSubject(userId)
     .setIssuedAt()
@@ -128,7 +137,7 @@ export async function authenticate(req, _res, next) {
 
     if (AUTH_MODE === 'none') {
       const { orgId, role } = await resolveOrg({ userId: DEV_USER_ID, email: DEV_USER_EMAIL });
-      req.auth = { userId: DEV_USER_ID, email: DEV_USER_EMAIL, orgId, role };
+      req.auth = { userId: DEV_USER_ID, email: DEV_USER_EMAIL, orgId, role, file: DB_NAME };
       return next();
     }
 
@@ -143,12 +152,48 @@ export async function authenticate(req, _res, next) {
     }
     if (!claims.sub) throw unauthorized('رمز دخول غير صالح', 'AUTH_INVALID');
 
-    const { orgId, role } = await resolveOrg({ userId: claims.sub, email: claims.email });
-    req.auth = { userId: claims.sub, email: claims.email ?? null, orgId, role };
+    /*
+     * Which file this token belongs to.
+     *
+     * Tokens issued before multi-file carry no `file` claim; they mean the
+     * configured database, which is exactly what that deployment's single
+     * file is. So an operator's session survives the upgrade instead of every
+     * device being signed out at once.
+     *
+     * `isFileDb` is not a formality. The claim is signed, so it cannot be
+     * forged — but it is still a database name on its way into a connection
+     * string, and a name this app did not mint has no business being one.
+     */
+    const file = claims.file ?? DB_NAME;
+    if (!isFileDb(file)) throw unauthorized('رمز دخول غير صالح', 'AUTH_INVALID');
+
+    // Resolved *inside* the file: `memberships` lives in each file's own
+    // database now, so asking who this user is means asking their file.
+    const { orgId, role } = await bindFile(file, () => resolveOrg({
+      userId: claims.sub, email: claims.email,
+    }));
+    req.auth = { userId: claims.sub, email: claims.email ?? null, orgId, role, file };
     return next();
   } catch (err) {
     return next(err);
   }
+}
+
+/**
+ * Bind the file, and nothing else.
+ *
+ * `orgContext` below is the full treatment — file, organisation and one
+ * transaction per request — and it is what every data route uses. The account
+ * routes in auth.routes.js need less than that and must not have more: they
+ * run before an organisation is relevant, but they still read and write
+ * `users`, which now lives inside each file's own database. Without this they
+ * would quietly operate on the configured file no matter who was signed in,
+ * so a manager in the second file changing their password would change
+ * nothing, or worse, somebody else's.
+ */
+export function fileContext(req, _res, next) {
+  if (!req.auth?.file) return next(new Error('fileContext used without authenticate'));
+  return bindFile(req.auth.file, () => next());
 }
 
 /**
@@ -204,13 +249,13 @@ export function orgContext(req, res, next) {
     return undefined;
   });
 
-  runInOrg(req.auth.orgId, () => {
+  bindFile(req.auth.file, () => runInOrg(req.auth.orgId, () => {
     // Gone already: `finished` is resolved, so the transaction is opened and
     // released without running a handler for a response nobody will read.
     if (closed) return finished;
     next();
     return finished;
-  }).catch((err) => {
+  })).catch((err) => {
     // Route errors are handled by the error middleware; anything arriving here
     // is a failure of the context itself, and the response is already gone.
     console.error('[db] request context failed', err);

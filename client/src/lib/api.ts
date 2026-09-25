@@ -99,7 +99,17 @@ export const api = {
     request<T>(path, { method: 'POST', body: body === undefined ? undefined : JSON.stringify(body) }),
   patch: <T,>(path: string, body?: unknown) =>
     request<T>(path, { method: 'PATCH', body: JSON.stringify(body ?? {}) }),
-  delete: <T,>(path: string) => request<T>(path, { method: 'DELETE' }),
+  /*
+   * A body on DELETE is unusual but correct here, and Express parses it: it
+   * carries the manager's password when deleting a file, which is a
+   * credential and has no business sitting in a URL where it would reach the
+   * access log.
+   */
+  delete: <T,>(path: string, body?: unknown) =>
+    request<T>(path, {
+      method: 'DELETE',
+      body: body === undefined ? undefined : JSON.stringify(body),
+    }),
   upload: <T,>(path: string, files: File | File[], field = 'file') => {
     const form = new FormData();
     for (const file of Array.isArray(files) ? files : [files]) form.append(field, file);

@@ -36,6 +36,7 @@ const Parties = lazy(() => import('@/pages/Parties'));
 const LowStock = lazy(() => import('@/pages/LowStock'));
 const SettingsPage = lazy(() => import('@/pages/Settings'));
 const UsersPage = lazy(() => import('@/pages/Users'));
+const FilesPage = lazy(() => import('@/pages/Files'));
 const BackupPage = lazy(() => import('@/pages/Backup'));
 const Login = lazy(() => import('@/pages/Login'));
 // Not lazy: an error screen that has to fetch a chunk before it can render is
@@ -111,6 +112,7 @@ const router = createHashRouter([
           { path: 'settings', element: <SettingsPage /> },
           // Manager-only, guarded here and on the API — see RequireManager.
           { path: 'users', element: <RequireManager><UsersPage /></RequireManager> },
+          { path: 'files', element: <RequireManager><FilesPage /></RequireManager> },
           // Manager-only for the same reason, and with the same double guard:
           // the API refuses `/backup` outright for anyone else.
           { path: 'backup', element: <RequireManager><BackupPage /></RequireManager> },

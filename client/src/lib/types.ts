@@ -382,6 +382,26 @@ export type DashboardStats = {
 export type DashboardPeriod = 'today' | 'month' | '30d' | 'all' | 'custom';
 
 /** A member of the signed-in user's organisation — Settings › المستخدمون. */
+/**
+ * A file (ملف) — one database of its own, with its own items, invoices, users
+ * and backups. Nothing is shared between two of them.
+ */
+export type AppFile = {
+  id: string;
+  name: string;
+  created_at?: string;
+  /** The file this session is signed into — it cannot be deleted from inside itself. */
+  is_current: boolean;
+};
+
+export type FileList = {
+  data: AppFile[];
+  can_create: boolean;
+  can_delete: boolean;
+  /** Why not, when the server may not create or drop databases. */
+  reason: string | null;
+};
+
 export type OrgUser = {
   id: string;
   email: string;

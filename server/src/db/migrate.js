@@ -18,7 +18,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import sql from 'mssql';
-import { pool, configError } from './index.js';
+import { DB_NAME, configError, connectFile, close } from './index.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const MIGRATIONS_DIR = path.join(__dirname, '../../migrations-mssql');
@@ -35,11 +35,20 @@ function splitBatches(sqlText) {
     .filter(Boolean);
 }
 
-export async function migrate({ log = console.log } = {}) {
+/**
+ * Apply every pending migration to one file's database.
+ *
+ * `database` defaults to the configured one, which is what `npm run migrate`
+ * and the boot-time run mean. Creating a file passes the new database's name
+ * instead: a file is only a file once this has run against it, so the same
+ * runner builds both, and a migration added later reaches every file rather
+ * than only the original.
+ */
+export async function migrate({ log = console.log, database = DB_NAME } = {}) {
   if (configError) throw configError;
   const files = fs.readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith('.sql')).sort();
 
-  await pool.connect();
+  const pool = await connectFile(database);
   const transaction = new sql.Transaction(pool);
   const applied = [];
   await transaction.begin();
@@ -107,7 +116,7 @@ export async function migrate({ log = console.log } = {}) {
 // Run directly: `node src/db/migrate.js`
 if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
   migrate()
-    .then(() => pool.close())
+    .then(() => close())
     .catch((err) => {
       console.error(err);
       process.exit(1);

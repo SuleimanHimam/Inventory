@@ -15,6 +15,7 @@ import importRoutes from './routes/importItems.routes.js';
 import metaRoutes from './routes/meta.routes.js';
 import authRoutes from './routes/auth.routes.js';
 import usersRoutes from './routes/users.routes.js';
+import filesRoutes from './routes/files.routes.js';
 import backupRoutes from './routes/backup.routes.js';
 import { partiesRouter } from './routes/parties.routes.js';
 import { redactMoney, stripMoneyFromBody, requireManager } from './lib/roles.js';
@@ -130,6 +131,10 @@ export function createApp() {
   api.use(redactMoney, stripMoneyFromBody);
 
   api.use('/users', usersRoutes);
+  // Creating a file creates a whole database; deleting one drops it. Both are
+  // manager-only, and files.routes.js demands the manager's password again
+  // before the second.
+  api.use('/files', filesRoutes);
 
   // Bulk import both reads and writes prices — its Excel template has the two
   // price columns in it — so it belongs to the role that is allowed to see them.

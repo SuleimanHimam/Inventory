@@ -70,14 +70,29 @@ export const DB_OPTIONS = {
   enableArithAbort: true,
 };
 
-export const pool = configError ? null : new sql.ConnectionPool({
+/**
+ * One pool per file, opened on demand.
+ *
+ * A "file" (ملف) is a whole database of its own — its own items, its own
+ * users, its own backups — so there is no single application database any
+ * more and `pool` cannot be a module-level constant. Pools are cached by
+ * database name and live for the process; opening one costs a connection, and
+ * a deployment has a handful of files, not thousands.
+ *
+ * `DB_NAME` remains the default: it is what the tests, the seed script, the
+ * migration runner and anything outside a request context bind to, and on an
+ * existing deployment it is simply the first file.
+ */
+const poolConfig = (database) => ({
   server: DB_SERVER,
-  database: DB_NAME,
+  database,
   user: DB_USER,
   password: DB_PASSWORD,
   options: DB_OPTIONS,
   // The API runs as a single instance against a local SQL Server — a small
-  // pool leaves headroom for the migration runner and sqlcmd/SSMS.
+  // pool leaves headroom for the migration runner and sqlcmd/SSMS. It is per
+  // file now, so the ceiling is per file too: one busy file cannot starve
+  // another of connections, which is the whole point of separating them.
   pool: {
     max: Number(process.env.DB_POOL_MAX ?? 8),
     idleTimeoutMillis: 30_000,
@@ -102,12 +117,43 @@ export const pool = configError ? null : new sql.ConnectionPool({
   connectionTimeout: 15_000,
 });
 
-pool?.on('error', (err) => console.error('[mssql] pool error', err));
-
-let connectPromise = null;
+/**
+ * @typedef {object} Entry
+ * @property {import('mssql').ConnectionPool} pool
+ * @property {Promise<unknown>|null} connectPromise
+ * @property {string|null} maintenance  set while this file is being restored
+ */
+/** @type {Map<string, Entry>} */
+const pools = new Map();
 
 /**
- * Set while the database is being replaced underneath us (see lib/backup.js).
+ * The pool for one database, created (not yet connected) on first use.
+ *
+ * Deliberately unexported: everything inside a request reaches its pool
+ * through the ambient context, and anything that wants another file's
+ * database should say so by name through `bindFile` rather than by holding a
+ * pool object it could accidentally outlive.
+ */
+function entryFor(database) {
+  let entry = pools.get(database);
+  if (!entry) {
+    entry = { pool: new sql.ConnectionPool(poolConfig(database)), connectPromise: null, maintenance: null };
+    entry.pool.on('error', (err) => console.error(`[mssql] pool error (${database})`, err));
+    pools.set(database, entry);
+  }
+  return entry;
+}
+
+/**
+ * The default file's pool, for the callers that predate multi-file and
+ * correctly still mean "the database this process was configured with": the
+ * migration runner and `db/doctor.js`.
+ */
+export const pool = configError ? null : entryFor(DB_NAME).pool;
+
+/**
+ * Set on one file while its database is being replaced underneath us (see
+ * lib/backup.js).
  *
  * A RESTORE needs `SINGLE_USER WITH ROLLBACK IMMEDIATE`, which evicts every
  * session on the database — including this pool's. Closing the pool is not
@@ -115,47 +161,66 @@ let connectPromise = null;
  * connection single-user mode allows, and the RESTORE would fail with
  * "database is in use" having already killed everything.
  *
- * So the gate does both halves. While it is set, no connection is handed out
- * at all and every request that touches data fails with a 503 that says why,
- * which is a far better answer than a connection error nobody can interpret.
+ * So the gate does both halves. While it is set, no connection to *that file*
+ * is handed out at all and every request touching its data fails with a 503
+ * that says why, which is a far better answer than a connection error nobody
+ * can interpret. Other files keep answering: restoring one is no longer an
+ * outage for the rest, which is the main operational reason to separate them.
  */
-let maintenanceReason = null;
 
-/** Connect the pool once, lazily, and retry on a later call if it failed. */
+/** The file (database) the current call is bound to. */
+export const currentDb = () => store.getStore()?.dbName ?? DB_NAME;
+
+/** Connect a file's pool once, lazily, and retry on a later call if it failed. */
 async function activePool() {
   if (configError) throw configError;
-  if (maintenanceReason) {
-    throw new AppError(503, maintenanceReason, 'DB_MAINTENANCE');
+  const entry = entryFor(currentDb());
+  if (entry.maintenance) {
+    throw new AppError(503, entry.maintenance, 'DB_MAINTENANCE');
   }
-  if (!connectPromise) {
-    connectPromise = pool.connect().catch((err) => {
-      connectPromise = null;
+  if (!entry.connectPromise) {
+    entry.connectPromise = entry.pool.connect().catch((err) => {
+      entry.connectPromise = null;
       throw err;
     });
   }
-  await connectPromise;
-  return pool;
+  await entry.connectPromise;
+  return entry.pool;
 }
 
 /**
- * Close the pool and refuse new connections until `endMaintenance` runs.
+ * Close one file's pool and refuse new connections to it until
+ * `endMaintenance` runs.
  *
  * Deliberately not exported as a general-purpose "close" — `close()` below is
- * that, and leaves the pool able to reconnect. This one latches.
+ * that, and leaves the pools able to reconnect. This one latches.
  */
-export async function beginMaintenance(reason) {
-  maintenanceReason = reason;
-  connectPromise = null;
-  await pool?.close().catch(() => {});
+export async function beginMaintenance(reason, database = currentDb()) {
+  const entry = entryFor(database);
+  entry.maintenance = reason;
+  entry.connectPromise = null;
+  await entry.pool.close().catch(() => {});
 }
 
-/** Re-open for business. The next query reconnects to whatever is there now. */
-export function endMaintenance() {
-  maintenanceReason = null;
-  connectPromise = null;
+/** Re-open one file for business. The next query reconnects to whatever is there now. */
+export function endMaintenance(database = currentDb()) {
+  const entry = entryFor(database);
+  entry.maintenance = null;
+  entry.connectPromise = null;
 }
 
-export const inMaintenance = () => maintenanceReason;
+export const inMaintenance = (database = currentDb()) => entryFor(database).maintenance;
+
+/**
+ * Forget a file's pool entirely — used when its database is dropped, so a
+ * later file created under the same name does not inherit a dead pool.
+ */
+export async function forgetPool(database) {
+  const entry = pools.get(database);
+  if (!entry) return;
+  pools.delete(database);
+  await entry.pool.close().catch(() => {});
+}
 
 /**
  * Turn a pool-acquire timeout into something that names itself.
@@ -163,15 +228,17 @@ export const inMaintenance = () => maintenanceReason;
  * When `acquireTimeoutMillis` fires, tedious reports "operation timed out for
  * an unknown reason", which is true and useless — it is precisely the message
  * that made the original pool exhaustion so hard to diagnose. This says what
- * happened and prints the pool counters, so the next occurrence is one log
- * line rather than an investigation.
+ * happened, which file it happened on, and prints the pool counters, so the
+ * next occurrence is one log line rather than an investigation.
  */
 function mapPoolError(err) {
   if (!/timed out/i.test(err?.message ?? '') || err instanceof AppError) return err;
-  const tarn = pool?.pool;
-  console.error('[db] could not acquire a connection: '
+  const database = currentDb();
+  const { pool: filePool } = entryFor(database);
+  const tarn = filePool?.pool;
+  console.error(`[db] could not acquire a connection (${database}): `
     + `used=${tarn?.numUsed?.()} free=${tarn?.numFree?.()} `
-    + `pendingAcquire=${tarn?.numPendingAcquires?.()} max=${pool?.config?.pool?.max}`);
+    + `pendingAcquire=${tarn?.numPendingAcquires?.()} max=${filePool?.config?.pool?.max}`);
   return new AppError(503,
     'الخادم مشغول حالياً — تعذّر الحصول على اتصال بقاعدة البيانات. حاول بعد قليل.',
     'DB_POOL_BUSY');
@@ -180,11 +247,26 @@ function mapPoolError(err) {
 // ---------------------------------------------------------------- ambient context
 /**
  * @typedef {object} Ctx
+ * @property {string} dbName  the file (database) every query is sent to
  * @property {string|null} orgId  organisation every query is scoped to
  * @property {import('mssql').Transaction|null} transaction  ambient transaction, if any
  * @property {boolean} inTx  whether that transaction is open
  */
 const store = new AsyncLocalStorage();
+
+/**
+ * Build a context, inheriting the file from whatever context we are already
+ * in. Every `store.run` below goes through this, so a nested call can change
+ * the organisation or open a transaction without silently falling back to the
+ * default database — which would send a write to the wrong customer's file.
+ */
+const ctx = (patch) => ({
+  dbName: store.getStore()?.dbName ?? DB_NAME,
+  orgId: null,
+  transaction: null,
+  inTx: false,
+  ...patch,
+});
 
 /** The organisation every query in the current request is scoped to. */
 export function orgId() {
@@ -310,7 +392,7 @@ export async function tx(fn) {
     throw mapPoolError(err);
   }
   try {
-    const result = await store.run({ orgId: current?.orgId ?? null, transaction, inTx: true }, fn);
+    const result = await store.run(ctx({ orgId: current?.orgId ?? null, transaction, inTx: true }), fn);
     await settle(transaction, 'commit');
     return result;
   } catch (err) {
@@ -371,11 +453,11 @@ async function settle(transaction, action) {
  */
 export async function runInOrg(org, fn) {
   if (!org) throw new Error('runInOrg requires an organisation id');
-  return store.run({ orgId: org, transaction: null, inTx: false }, () => tx(fn));
+  return store.run(ctx({ orgId: org }), () => tx(fn));
 }
 
 /** Escape hatch for work that has no organisation yet (auth, provisioning). */
-export const runWithoutOrg = (fn) => store.run({ orgId: null, transaction: null, inTx: false }, fn);
+export const runWithoutOrg = (fn) => store.run(ctx({}), fn);
 
 /**
  * Bind an organisation to `fn` without opening a transaction — every write
@@ -391,7 +473,26 @@ export const runWithoutOrg = (fn) => store.run({ orgId: null, transaction: null,
  * the suite instead simulates one request per service call — which is what
  * each of those calls actually corresponds to in production anyway.
  */
-export const bindOrg = (org, fn) => store.run({ orgId: org, transaction: null, inTx: false }, fn);
+export const bindOrg = (org, fn) => store.run(ctx({ orgId: org }), fn);
+
+/**
+ * Send everything `fn` does to one file's database.
+ *
+ * The outermost binding of a request: `authenticate` resolves which file the
+ * token names, wraps the rest of the request in this, and `runInOrg` inside it
+ * inherits the file. Also how one file's code reaches another's — creating a
+ * file, listing them for the login screen — which is deliberately explicit,
+ * because crossing that boundary by accident is the one bug this whole design
+ * exists to prevent.
+ */
+export const bindFile = (database, fn) => store.run(ctx({ dbName: database }), fn);
+
+/**
+ * Connect one file's pool and hand it back, for the two callers that need the
+ * pool object itself rather than the ambient context: the migration runner
+ * (which drives its own transaction) and `db/doctor.js`.
+ */
+export const connectFile = (database = DB_NAME) => bindFile(database, () => activePool());
 
 // ---------------------------------------------------------------------- utils
 /**
@@ -491,4 +592,8 @@ export async function setSettings(patch) {
 export const lowStockThreshold = async () => Number(await getSetting('low_stock_threshold') ?? 5);
 
 /** Close the pool — used by the test suite and the graceful shutdown path. */
-export const close = () => (pool ? pool.close() : Promise.resolve());
+export const close = async () => {
+  const open = [...pools.values()];
+  pools.clear();
+  await Promise.all(open.map((entry) => entry.pool.close().catch(() => {})));
+};
