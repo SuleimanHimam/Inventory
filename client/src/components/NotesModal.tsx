@@ -39,7 +39,7 @@ export function NotesModal({ open, onClose }: { open: boolean; onClose: () => vo
     setSearch(''); setPinnedOnly(false); setEditing(null);
   }, [open]);
 
-  if (editing !== null) {
+  if (open && editing !== null) {
     return (
       <NoteEditor
         note={editing === 'new' ? null : editing}
@@ -169,6 +169,8 @@ function NoteEditor(
   { note, onClose, onBack }:
   { note: ManagerNote | null; onClose: () => void; onBack: () => void },
 ) {
+  // Rendered only while the sheet is open (see the guard in NotesModal), so the
+  // Modal is simply open here; the X calls onClose, which closes the sheet.
   const { create, update } = useNoteMutations();
   const [title, setTitle] = useState(note?.title ?? '');
   const [body, setBody] = useState(note?.body ?? '');
