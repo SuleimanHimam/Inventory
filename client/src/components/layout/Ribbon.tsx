@@ -136,7 +136,7 @@ export function Ribbon() {
             ] : []),
             // Refused for a clerk both client- and API-side — see RequireNotClerk.
             ...(canSeeFullNav ? [
-              { label: 'لوحة المعلومات', icon: LayoutDashboard, run: go('/'), tone: 'teal' as const },
+              { label: 'لوحة المعلومات', icon: LayoutDashboard, run: go('/dashboard'), tone: 'teal' as const },
             ] : []),
           ],
         },

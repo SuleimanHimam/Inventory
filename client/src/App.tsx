@@ -21,6 +21,7 @@ import { useSession } from '@/lib/session';
  * component, because `useBlocker` — which guards an unposted invoice against
  * being navigated away from — is only available on a data router.
  */
+const Home = lazy(() => import('@/pages/Home'));
 const Dashboard = lazy(() => import('@/pages/Dashboard'));
 const Items = lazy(() => import('@/pages/Items'));
 const ItemDetail = lazy(() => import('@/pages/ItemDetail'));
@@ -90,7 +91,11 @@ const router = createHashRouter([
       {
         element: <Shell />,
         children: [
-          { index: true, element: <RequireNotClerk><Dashboard /></RequireNotClerk> },
+          // The launcher home. A clerk is redirected to its one screen; see
+          // RequireNotClerk. The analytics dashboard moved to /dashboard, one
+          // tap away from a tile here and from the ribbon.
+          { index: true, element: <RequireNotClerk><Home /></RequireNotClerk> },
+          { path: 'dashboard', element: <RequireNotClerk><Dashboard /></RequireNotClerk> },
           { path: 'items', element: <Items /> },
           { path: 'items/:id', element: <ItemDetail /> },
           { path: 'categories', element: <Categories /> },

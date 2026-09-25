@@ -98,6 +98,7 @@ export function MobileNav() {
   // Everything in the "more" sheet is off-limits to a clerk; the sheet itself
   // is not rendered for it (see `more` below).
   const rest: Dest[] = canSeeFullNav ? [
+    { label: 'لوحة المعلومات', icon: LayoutDashboard, to: '/dashboard', tone: 'teal' },
     { label: 'الفواتير', icon: FileText, to: '/invoices', tone: 'violet' },
     {
       label: 'الجرد', icon: ClipboardList, to: '/stock-counts',

@@ -31,7 +31,7 @@ export function RequireManager({ children }: { children: React.ReactNode }) {
           icon={<Lock className="size-8" />}
           title="هذه الصفحة للمدير فقط"
           message="حسابك لا يملك صلاحية الوصول إلى هذه الشاشة. تواصل مع مدير النظام إذا كنت تحتاجها."
-          action={<Link to="/"><Button variant="primary">العودة إلى لوحة المعلومات</Button></Link>}
+          action={<Link to="/"><Button variant="primary">العودة إلى الرئيسية</Button></Link>}
         />
       </Card>
     );
