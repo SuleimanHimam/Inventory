@@ -16,7 +16,7 @@ import {
   useInvoice, useInvoiceMutations, useInvoiceValidation, useItemSearch, useParties,
 } from '@/hooks';
 import { ApiError } from '@/lib/api';
-import { fmtCurrency, fmtInt, fmtDateShort, todayIso } from '@/lib/format';
+import { fmtCurrency, fmtInt, todayIso } from '@/lib/format';
 import { toast, toastError } from '@/store/toast';
 import { cn } from '@/lib/cn';
 import { usePermissions } from '@/lib/permissions';
@@ -149,6 +149,7 @@ function InvoiceEditor({ invoice }: { invoice: Invoice }) {
   const inFlightRef = useRef(false);
 
   const lines = invoice.lines ?? [];
+  const previewUnits = lines.reduce((sum, l) => sum + l.quantity * l.conversion_factor, 0);
   const focusBarcode = useCallback(() => setTimeout(() => barcodeRef.current?.focus(), 30), []);
 
   // Name/barcode lookahead. Pure digits are almost always a scan in progress,
@@ -766,8 +767,24 @@ function InvoiceEditor({ invoice }: { invoice: Invoice }) {
       <Modal
         open={confirmPost}
         onClose={() => setConfirmPost(false)}
-        size="lg"
-        title="معاينة الفاتورة"
+        size="full"
+        title={(
+          <div className="flex items-center justify-between gap-3 pe-2">
+            <span className="min-w-0 truncate">
+              {selectedParty?.name ?? (partyKind === 'customers' ? 'بدون عميل' : 'بدون مورد')}
+            </span>
+            <span className="flex flex-col items-start leading-none">
+              {canSeeSalePrice && (
+                <span className="nums text-xl font-bold text-brand-600 dark:text-brand-400">
+                  {fmtCurrency(invoice.total)}
+                </span>
+              )}
+              <span className="mt-0.5 text-[11px] font-normal text-muted">
+                {fmtInt(lines.length)} أصناف · {fmtInt(previewUnits)} وحدة
+              </span>
+            </span>
+          </div>
+        )}
         footer={(
           <>
             <Button onClick={() => setConfirmPost(false)} disabled={mutations.post.isPending}>
@@ -778,80 +795,43 @@ function InvoiceEditor({ invoice }: { invoice: Invoice }) {
               icon={<Save className="size-4" />}
               loading={mutations.post.isPending}
               onClick={post}
+              className="flex-1 sm:flex-none"
             >
-              حفظ نهائي
+              {config.direction === 'OUT' ? 'حفظ مبيع' : 'حفظ شراء'}
             </Button>
           </>
         )}
       >
-        <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <span className="font-bold">
-            {config.label}
-            {invoice.number && <span className="nums font-mono text-sm"> — {invoice.number}</span>}
-          </span>
-          <span className="nums text-xs text-muted">{fmtDateShort(invoice.invoice_date)}</span>
-        </div>
-
-        {selectedParty && (
-          <div className="mt-1 text-xs text-muted">
-            {partyKind === 'customers' ? 'العميل' : 'المورد'}:{' '}
-            <span className="font-medium text-ink">{selectedParty.name}</span>
-            {selectedParty.phone && <> · <span className="nums" dir="ltr">{selectedParty.phone}</span></>}
-            {selectedParty.address && <> · {selectedParty.address}</>}
-          </div>
-        )}
-
-        <div className="mt-3 overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-line text-xs text-muted">
-                <th className="p-2 text-center">#</th>
-                <th className="p-2 text-start">الصنف</th>
-                <th className="p-2 text-center">الكمية</th>
-                {canSeeSalePrice && <th className="p-2 text-center">السعر</th>}
-                {canSeeSalePrice && <th className="p-2 text-center">الإجمالي</th>}
-              </tr>
-            </thead>
-            <tbody>
-              {lines.map((line, i) => (
-                <tr key={line.id} className="border-b border-line/60">
-                  <td className="nums p-2 text-center text-subtle">{fmtInt(i + 1)}</td>
-                  <td className="p-2">
-                    {line.item_name}
-                    {line.unit_name && <span className="text-xs text-subtle"> / {line.unit_name}</span>}
-                  </td>
-                  <td className="nums p-2 text-center font-bold">{fmtInt(line.quantity)}</td>
-                  {canSeeSalePrice && (
-                    <td className="nums p-2 text-center">{fmtCurrency(line.unit_price ?? 0)}</td>
-                  )}
-                  {canSeeSalePrice && (
-                    <td className="nums p-2 text-center font-bold">{fmtCurrency(line.line_total ?? 0)}</td>
-                  )}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-
-        {canSeeSalePrice && (
-          <div className="mt-3 flex items-baseline justify-end gap-2 border-t border-line pt-3">
-            <span className="text-sm font-bold">الصافي</span>
-            <span className="nums text-2xl font-bold text-brand-600 dark:text-brand-400">
-              {fmtCurrency(invoice.total)}
-            </span>
-          </div>
-        )}
-
-        <p className="mt-3 rounded-lg bg-surface-2 p-2.5 text-xs leading-relaxed text-muted">
-          {amending ? (
-            <>سيُسجَّل <strong className="text-ink">الفرق وحده</strong> في حركات المخزون: صنف لم تغيّر
-              كميته لا يُكتب له قيد. وتُحدَّث أسعار الأصناف المحددة.</>
-          ) : (
-            <>سيتم تسجيل {fmtInt(lines.length)} حركة مخزون
-              {config.direction === 'IN' ? ' واردة' : ' صادرة'} وتحديث الأرصدة، وتحديث أسعار الأصناف
-              المحددة.</>
+        <div className="mx-auto max-w-2xl space-y-2.5">
+          {selectedParty && (selectedParty.phone || selectedParty.address) && (
+            <p className="px-1 text-xs text-muted">
+              {selectedParty.phone && <span className="nums" dir="ltr">{selectedParty.phone}</span>}
+              {selectedParty.phone && selectedParty.address && ' · '}
+              {selectedParty.address}
+            </p>
           )}
-        </p>
+
+          {lines.map((line) => (
+            <PreviewLine
+              key={line.id}
+              line={line}
+              invoiceId={invoice.id}
+              canEditPrices={canEditPrices}
+              canSeeSalePrice={canSeeSalePrice}
+            />
+          ))}
+
+          <p className="rounded-lg bg-surface-2 p-2.5 text-xs leading-relaxed text-muted">
+            {amending ? (
+              <>سيُسجَّل <strong className="text-ink">الفرق وحده</strong> في حركات المخزون: صنف لم تغيّر
+                كميته لا يُكتب له قيد. وتُحدَّث أسعار الأصناف المحددة.</>
+            ) : (
+              <>سيتم تسجيل {fmtInt(lines.length)} حركة مخزون
+                {config.direction === 'IN' ? ' واردة' : ' صادرة'} وتحديث الأرصدة، وتحديث أسعار الأصناف
+                المحددة.</>
+            )}
+          </p>
+        </div>
       </Modal>
 
       <ConfirmDialog
@@ -864,6 +844,108 @@ function InvoiceEditor({ invoice }: { invoice: Invoice }) {
         message="سيتم حذف هذه الفاتورة نهائياً. لم تؤثر على المخزون بعد."
       />
     </>
+  );
+}
+
+/**
+ * A line in the preview, as a card: quantity and price editable in place, the
+ * line total, and a delete. It drives the same draft as the form's table --
+ * useInvoiceMutations on the same invoice -- so an edit here shows there and in
+ * the running total the moment it commits. Values commit on blur or Enter, not
+ * per keystroke, the same contract LineRow uses.
+ */
+function PreviewLine({
+  line, invoiceId, canEditPrices, canSeeSalePrice,
+}: {
+  line: InvoiceLine;
+  invoiceId: string;
+  canEditPrices: boolean;
+  canSeeSalePrice: boolean;
+}) {
+  const mutations = useInvoiceMutations(invoiceId);
+  const [qty, setQty] = useState(String(line.quantity));
+  const [price, setPrice] = useState(String(line.unit_price ?? 0));
+  useEffect(() => { setQty(String(line.quantity)); }, [line.quantity]);
+  useEffect(() => { setPrice(String(line.unit_price ?? 0)); }, [line.unit_price]);
+
+  const commitQty = () => {
+    const q = Math.max(1, Math.floor(Number(qty) || 0));
+    if (q !== line.quantity) mutations.updateLine.mutate({ id: invoiceId, lineId: line.id, quantity: q });
+    else setQty(String(line.quantity));
+  };
+  const commitPrice = () => {
+    const p = Math.max(0, Number(price) || 0);
+    if (p !== (line.unit_price ?? 0)) mutations.updateLine.mutate({ id: invoiceId, lineId: line.id, unit_price: p });
+    else setPrice(String(line.unit_price ?? 0));
+  };
+  const remove = () => mutations.removeLine.mutate({ id: invoiceId, lineId: line.id });
+
+  const box = 'block text-center';
+  const boxLabel = 'mb-1 block text-[11px] text-muted';
+
+  return (
+    <div className="card p-3">
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="font-bold leading-tight">{line.item_name}</p>
+          {line.unit_name && <p className="mt-0.5 text-xs text-subtle">{line.unit_name}</p>}
+        </div>
+      </div>
+
+      <div className="mt-2.5 flex items-end gap-2">
+        <label className={cn(box, 'flex-1')}>
+          <span className={boxLabel}>الكمية</span>
+          <Input
+            type="number" min="1" step="1" inputMode="numeric"
+            value={qty}
+            onChange={(e) => setQty(e.target.value)}
+            onBlur={commitQty}
+            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); e.currentTarget.blur(); } }}
+            className="h-10 text-center font-bold"
+            aria-label={`الكمية — ${line.item_name}`}
+          />
+        </label>
+
+        {canSeeSalePrice && (
+          <label className={cn(box, 'flex-1')}>
+            <span className={boxLabel}>السعر</span>
+            <Input
+              type="number" min="0" step="0.01" inputMode="decimal"
+              value={price}
+              readOnly={!canEditPrices}
+              onChange={(e) => setPrice(e.target.value)}
+              onBlur={commitPrice}
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); e.currentTarget.blur(); } }}
+              className={cn('h-10 text-center', !canEditPrices && 'bg-surface-2 text-muted')}
+              aria-label={`السعر — ${line.item_name}`}
+            />
+          </label>
+        )}
+
+        {canSeeSalePrice && (
+          <div className={cn(box, 'flex-1')}>
+            <span className={boxLabel}>إجمالي السطر</span>
+            <div className="nums flex h-10 items-center justify-center rounded-lg bg-surface-2 font-bold">
+              {fmtCurrency(line.line_total ?? 0)}
+            </div>
+          </div>
+        )}
+
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={remove}
+          aria-label={`حذف ${line.item_name}`}
+          className="h-10 shrink-0 bg-accent-500/10 text-accent-600 hover:bg-accent-500/20 dark:text-accent-400"
+        >
+          <Trash2 className="size-4" />
+        </Button>
+      </div>
+
+      {line.note && (
+        <p className="mt-2 rounded-lg bg-surface-2 px-2.5 py-1.5 text-xs text-muted">{line.note}</p>
+      )}
+    </div>
   );
 }
 
