@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import type { ComponentType } from 'react';
+import type { ComponentType, CSSProperties } from 'react';
 import {
   Package, PackagePlus, PackageMinus, Tags, ArrowLeftRight,
   TriangleAlert, Settings, LayoutDashboard, FileText, Users,
@@ -12,7 +12,7 @@ import { useDashboard } from '@/hooks';
 import { fmtInt } from '@/lib/format';
 import { Button, Modal, Toggle } from '@/components/ui';
 import { NotesModal } from '@/components/NotesModal';
-import { useSignOut } from '@/components/layout/SignOut';
+import { signOut } from '@/lib/session';
 
 /**
  * The launcher home.
@@ -155,7 +155,7 @@ type Tile = {
  * `color` (a hex string) wins over `tone` when set, which is how the RGB picker
  * escapes the seven presets.
  */
-type Pref = { hidden?: boolean; tone?: Tone; color?: string };
+type Pref = { hidden?: boolean; tone?: Tone; color?: string; fg?: string };
 type Prefs = Record<string, Pref>;
 
 const PREFS_KEY = 'inv.home_prefs';
@@ -178,7 +178,6 @@ export default function Home() {
   } = usePermissions();
   const { data: stats } = useDashboard(canSeeDashboard);
   const [notesOpen, setNotesOpen] = useState(false);
-  const { askToSignOut, dialog: signOutDialog } = useSignOut();
 
   const [customizing, setCustomizing] = useState(false);
   const [prefs, setPrefs] = useState<Prefs>(loadPrefs);
@@ -209,7 +208,7 @@ export default function Home() {
     { id: 'notes', label: 'ملاحظات', icon: StickyNote, onClick: () => setNotesOpen(true), tone: 'violet', show: isManager },
     { id: 'users', label: 'المستخدمون', icon: Users, to: '/users', tone: 'blue', show: canManageUsers },
     { id: 'settings', label: 'الإعدادات', icon: Settings, to: '/settings', tone: 'slate', show: true },
-    { id: 'signout', label: 'تسجيل الخروج', icon: LogOut, onClick: () => askToSignOut(), tone: 'red', show: true },
+    { id: 'signout', label: 'تسجيل الخروج', icon: LogOut, onClick: () => signOut(), tone: 'red', show: true },
   ];
 
   // Role first, then the user's own preference. `permitted` is the set the
@@ -217,10 +216,24 @@ export default function Home() {
   const permitted = all.filter((t) => t.show);
   const toneOf = (t: Tile): Tone => prefs[t.id]?.tone ?? t.tone;
   const customColor = (t: Tile) => prefs[t.id]?.color;
+  const customFg = (t: Tile) => prefs[t.id]?.fg;
   const isHidden = (t: Tile) => !!prefs[t.id]?.hidden;
   // A custom colour is an inline background; otherwise the tone's utility class.
+  // Background is the tone class unless a custom colour replaces it; a custom
+  // foreground (icon + text, via currentColor) overrides the tone's white.
   const colorClass = (t: Tile) => (customColor(t) ? 'text-white' : TONE[toneOf(t)]);
-  const colorStyle = (t: Tile) => (customColor(t) ? { backgroundColor: customColor(t) } : undefined);
+  const colorStyle = (t: Tile) => {
+    const st: CSSProperties = {};
+    if (customColor(t)) st.backgroundColor = customColor(t);
+    if (customFg(t)) st.color = customFg(t);
+    return Object.keys(st).length ? st : undefined;
+  };
+  const resetTile = (id: string) => setPrefs((prev) => {
+    const next = { ...prev };
+    delete next[id];
+    savePrefs(next);
+    return next;
+  });
   // Customizing shows everything (so a hidden tile can be brought back); the
   // normal grid shows only what is not hidden.
   const shown = customizing ? permitted : permitted.filter((t) => !isHidden(t));
@@ -294,25 +307,39 @@ export default function Home() {
           title={editing.label}
           footer={<Button variant="primary" onClick={() => setEditing(null)}>تم</Button>}
         >
-          <div className="space-y-4">
-            <Toggle
-              checked={!isHidden(editing)}
-              onChange={(v) => patchPref(editing.id, { hidden: !v })}
-              label="إظهار على الشاشة الرئيسية"
-            />
+          <div className="space-y-5">
+            <div className="flex items-center justify-between gap-3">
+              <Toggle
+                checked={!isHidden(editing)}
+                onChange={(v) => patchPref(editing.id, { hidden: !v })}
+                label="إظهار على الشاشة الرئيسية"
+              />
+            </div>
 
+            {/* Live preview of this tile with the current choices. */}
+            <div className="flex justify-center">
+              <div
+                className={cn(
+                  'flex aspect-square w-28 flex-col items-center justify-center gap-2 rounded-2xl p-2 text-center shadow-sm',
+                  colorClass(editing),
+                )}
+                style={colorStyle(editing)}
+              >
+                <editing.icon className="size-7" />
+                <span className="text-xs font-bold leading-tight">{editing.label}</span>
+              </div>
+            </div>
+
+            {/* Background: quick presets, then the full picker. */}
             <div>
-              <span className="mb-2 block text-sm font-medium">اللون</span>
-              {/* Quick presets first, then the full picker for anything else. */}
+              <span className="mb-2 block text-sm font-medium">لون الخلفية</span>
               <div className="mb-3 flex flex-wrap items-center gap-2">
                 {TONES.map((tone) => {
-                  // A preset is the choice only when no custom colour overrides it.
                   const active = !prefs[editing.id]?.color && toneOf(editing) === tone;
                   return (
                     <button
                       key={tone}
                       type="button"
-                      // Picking a preset clears any custom colour.
                       onClick={() => patchPref(editing.id, { tone, color: undefined })}
                       aria-label={tone}
                       className={cn(
@@ -326,18 +353,43 @@ export default function Home() {
                   );
                 })}
               </div>
-
               <ColorPicker
                 value={prefs[editing.id]?.color ?? TONE_HEX[toneOf(editing)]}
                 onChange={(hex) => patchPref(editing.id, { color: hex })}
               />
             </div>
+
+            {/* Foreground: the icon and label colour. White by default. */}
+            <div>
+              <div className="mb-2 flex items-center gap-2">
+                <span className="text-sm font-medium">لون الأيقونة والنص</span>
+                <button
+                  type="button"
+                  onClick={() => patchPref(editing.id, { fg: '#ffffff' })}
+                  className="grid size-6 place-items-center rounded-full bg-white ring-1 ring-line"
+                  aria-label="أبيض"
+                  title="أبيض"
+                >
+                  {(prefs[editing.id]?.fg ?? '#ffffff').toLowerCase() === '#ffffff' && (
+                    <Check className="size-3.5 text-slate-700" />
+                  )}
+                </button>
+              </div>
+              <ColorPicker
+                value={prefs[editing.id]?.fg ?? '#ffffff'}
+                onChange={(hex) => patchPref(editing.id, { fg: hex })}
+              />
+            </div>
+
+            {/* Back to this one button's designed colours, without touching the rest. */}
+            <Button variant="ghost" className="w-full" onClick={() => resetTile(editing.id)}>
+              <RotateCcw className="size-4" /> إعادة هذا الزر إلى ألوانه الافتراضية
+            </Button>
           </div>
         </Modal>
       )}
 
       {isManager && <NotesModal open={notesOpen} onClose={() => setNotesOpen(false)} />}
-      {signOutDialog}
     </>
   );
 }
