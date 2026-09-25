@@ -16,7 +16,7 @@
 CREATE TABLE file_info (
   id         int NOT NULL PRIMARY KEY CHECK (id = 1),
   name       nvarchar(200) NOT NULL,
-  created_at nvarchar(40) NOT NULL DEFAULT (iso_now())
+  created_at nvarchar(40) NOT NULL DEFAULT (dbo.iso_now())
 );
 GO
 
