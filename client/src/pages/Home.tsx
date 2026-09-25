@@ -1,10 +1,10 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { ComponentType } from 'react';
 import {
   Package, PackagePlus, PackageMinus, Tags, ArrowLeftRight,
   TriangleAlert, Settings, LayoutDashboard, FileText, Users,
-  Truck, StickyNote, LogOut, SlidersHorizontal, Check, EyeOff, RotateCcw,
+  Truck, StickyNote, LogOut, SlidersHorizontal, Check, EyeOff, RotateCcw, Palette,
 } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { usePermissions } from '@/lib/permissions';
@@ -63,8 +63,12 @@ type Tile = {
   badge?: number;
 };
 
-/** Per-tile user preference: hidden, and/or a colour other than the default. */
-type Pref = { hidden?: boolean; tone?: Tone };
+/**
+ * Per-tile user preference: hidden, a preset tone, or a custom colour.
+ * `color` (a hex string) wins over `tone` when set, which is how the RGB picker
+ * escapes the seven presets.
+ */
+type Pref = { hidden?: boolean; tone?: Tone; color?: string };
 type Prefs = Record<string, Pref>;
 
 const PREFS_KEY = 'inv.home_prefs';
@@ -103,6 +107,26 @@ export default function Home() {
   };
   const resetPrefs = () => { setPrefs({}); savePrefs({}); };
 
+  /*
+   * Long-press to customise, the way an Android home screen does it: hold
+   * anywhere on the grid for ~500ms and it flips into edit mode. `pressed`
+   * marks that a long-press fired so the release that follows does not also
+   * open a tile -- suppressed in onClickCapture below. The تخصيص button stays
+   * for discoverability and for anyone who would rather tap than hold.
+   */
+  const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pressed = useRef(false);
+  const startHold = () => {
+    if (customizing) return;
+    holdTimer.current = setTimeout(() => { pressed.current = true; setCustomizing(true); }, 500);
+  };
+  const cancelHold = () => {
+    if (holdTimer.current) { clearTimeout(holdTimer.current); holdTimer.current = null; }
+  };
+  const suppressClickAfterHold = (e: React.MouseEvent) => {
+    if (pressed.current) { e.preventDefault(); e.stopPropagation(); pressed.current = false; }
+  };
+
   // One flat list; the order runs from the daily operations down to the tools.
   const all: Tile[] = [
     { id: 'buy', label: 'شراء', icon: PackagePlus, to: '/invoices/new?type=STOCK_IN', tone: 'green', show: true },
@@ -125,7 +149,11 @@ export default function Home() {
   // account may see at all; hiding only ever narrows within it.
   const permitted = all.filter((t) => t.show);
   const toneOf = (t: Tile): Tone => prefs[t.id]?.tone ?? t.tone;
+  const customColor = (t: Tile) => prefs[t.id]?.color;
   const isHidden = (t: Tile) => !!prefs[t.id]?.hidden;
+  // A custom colour is an inline background; otherwise the tone's utility class.
+  const colorClass = (t: Tile) => (customColor(t) ? 'text-white' : TONE[toneOf(t)]);
+  const colorStyle = (t: Tile) => (customColor(t) ? { backgroundColor: customColor(t) } : undefined);
   // Customizing shows everything (so a hidden tile can be brought back); the
   // normal grid shows only what is not hidden.
   const shown = customizing ? permitted : permitted.filter((t) => !isHidden(t));
@@ -160,15 +188,23 @@ export default function Home() {
         </Button>
       </div>
 
-      <div className="grid grid-cols-3 gap-2.5 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8">
+      <div
+        className="grid grid-cols-3 gap-2.5 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8"
+        onPointerDown={startHold}
+        onPointerUp={cancelHold}
+        onPointerLeave={cancelHold}
+        onPointerMove={cancelHold}
+        onClickCapture={suppressClickAfterHold}
+      >
         {shown.map((tile) => {
-          const cls = cn(tileClass, TONE[toneOf(tile)], customizing && isHidden(tile) && 'opacity-40');
+          const cls = cn(tileClass, colorClass(tile), customizing && isHidden(tile) && 'opacity-40');
+          const style = colorStyle(tile);
 
           // Customizing: every tile is a button that opens its editor, whatever
           // it normally does, so tapping شراء here does not start an invoice.
           if (customizing) {
             return (
-              <button key={tile.id} type="button" onClick={() => setEditing(tile)} className={cls}>
+              <button key={tile.id} type="button" onClick={() => setEditing(tile)} className={cls} style={style}>
                 {isHidden(tile) && (
                   <span className="absolute end-1.5 top-1.5 rounded-full bg-black/30 p-1">
                     <EyeOff className="size-3.5" />
@@ -180,9 +216,9 @@ export default function Home() {
           }
 
           return tile.to ? (
-            <Link key={tile.id} to={tile.to} className={cls}>{inner(tile)}</Link>
+            <Link key={tile.id} to={tile.to} className={cls} style={style}>{inner(tile)}</Link>
           ) : (
-            <button key={tile.id} type="button" onClick={tile.onClick} className={cls}>{inner(tile)}</button>
+            <button key={tile.id} type="button" onClick={tile.onClick} className={cls} style={style}>{inner(tile)}</button>
           );
         })}
       </div>
@@ -207,23 +243,55 @@ export default function Home() {
 
             <div>
               <span className="mb-2 block text-sm font-medium">اللون</span>
-              <div className="flex flex-wrap gap-2.5">
-                {TONES.map((tone) => (
-                  <button
-                    key={tone}
-                    type="button"
-                    onClick={() => patchPref(editing.id, { tone })}
-                    aria-label={tone}
-                    className={cn(
-                      'grid size-10 place-items-center rounded-full transition',
-                      TONE[tone],
-                      toneOf(editing) === tone ? 'ring-2 ring-offset-2 ring-ink ring-offset-surface' : 'hover:scale-105',
-                    )}
-                  >
-                    {toneOf(editing) === tone && <Check className="size-4" />}
-                  </button>
-                ))}
+              <div className="flex flex-wrap items-center gap-2.5">
+                {TONES.map((tone) => {
+                  // A preset is the choice only when no custom colour overrides it.
+                  const active = !prefs[editing.id]?.color && toneOf(editing) === tone;
+                  return (
+                    <button
+                      key={tone}
+                      type="button"
+                      // Picking a preset clears any custom colour.
+                      onClick={() => patchPref(editing.id, { tone, color: undefined })}
+                      aria-label={tone}
+                      className={cn(
+                        'grid size-10 place-items-center rounded-full transition',
+                        TONE[tone],
+                        active ? 'ring-2 ring-offset-2 ring-ink ring-offset-surface' : 'hover:scale-105',
+                      )}
+                    >
+                      {active && <Check className="size-4" />}
+                    </button>
+                  );
+                })}
+
+                {/* Any colour at all — the native RGB picker. The swatch shows
+                    the chosen custom colour, or a rainbow when none is set yet. */}
+                <label
+                  className={cn(
+                    'relative grid size-10 cursor-pointer place-items-center overflow-hidden rounded-full text-white transition hover:scale-105',
+                    prefs[editing.id]?.color && 'ring-2 ring-offset-2 ring-ink ring-offset-surface',
+                  )}
+                  style={prefs[editing.id]?.color
+                    ? { backgroundColor: prefs[editing.id]?.color }
+                    : { background: 'conic-gradient(red,orange,yellow,lime,cyan,blue,magenta,red)' }}
+                  title="لون مخصص"
+                >
+                  <input
+                    type="color"
+                    value={prefs[editing.id]?.color ?? '#0e6b64'}
+                    onChange={(e) => patchPref(editing.id, { color: e.target.value })}
+                    className="absolute inset-0 cursor-pointer opacity-0"
+                    aria-label="اختيار لون مخصص"
+                  />
+                  {prefs[editing.id]?.color
+                    ? <Check className="size-4 drop-shadow" />
+                    : <Palette className="size-4 text-white drop-shadow" />}
+                </label>
               </div>
+              {prefs[editing.id]?.color && (
+                <p className="nums mt-2 text-xs text-muted" dir="ltr">{prefs[editing.id]?.color}</p>
+              )}
             </div>
           </div>
         </Modal>
