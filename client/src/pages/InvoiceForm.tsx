@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, Navigate, useBlocker, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
-  Loader2, Save, AlertCircle, X, Trash2, LogOut, Printer, Phone, MapPin,
+  Loader2, Save, Eye, AlertCircle, X, Trash2, LogOut, Printer, Phone, MapPin,
 } from 'lucide-react';
 import {
   Button, Card, Input, Select, ConfirmDialog, Modal, Badge,
@@ -16,7 +16,7 @@ import {
   useInvoice, useInvoiceMutations, useInvoiceValidation, useItemSearch, useParties,
 } from '@/hooks';
 import { ApiError } from '@/lib/api';
-import { fmtCurrency, fmtInt, todayIso } from '@/lib/format';
+import { fmtCurrency, fmtInt, fmtDateShort, todayIso } from '@/lib/format';
 import { toast, toastError } from '@/store/toast';
 import { cn } from '@/lib/cn';
 import { usePermissions } from '@/lib/permissions';
@@ -237,7 +237,7 @@ function InvoiceEditor({ invoice }: { invoice: Invoice }) {
     mutations.update.mutate({ id: invoice.id, ...patch });
 
   /*
-   * Set by "حفظ وطباعة" and read once, when the save succeeds. A ref rather
+   * Set by "معاينة وطباعة" and read once, when the save succeeds. A ref rather
    * than state because nothing renders from it -- it only has to survive the
    * trip through the confirmation dialog.
    */
@@ -607,13 +607,13 @@ function InvoiceEditor({ invoice }: { invoice: Invoice }) {
           <div className="sm:hidden">
             <Button
               variant="primary"
-              icon={<Save className="size-4" />}
+              icon={<Eye className="size-4" />}
               disabled={!canPost}
               onClick={() => { printAfterSave.current = false; setConfirmPost(true); }}
               title={blockingReason}
               className="w-full"
             >
-              حفظ الفاتورة
+              معاينة الفاتورة
             </Button>
             <Button
               variant="secondary"
@@ -623,7 +623,7 @@ function InvoiceEditor({ invoice }: { invoice: Invoice }) {
               title={blockingReason}
               className="mt-2 w-full"
             >
-              حفظ وطباعة
+              معاينة وطباعة
             </Button>
 
             {!canPost && blockingReason && (
@@ -661,12 +661,12 @@ function InvoiceEditor({ invoice }: { invoice: Invoice }) {
           <div className="hidden flex-wrap items-center gap-2 sm:flex">
             <Button
               variant="primary"
-              icon={<Save className="size-4" />}
+              icon={<Eye className="size-4" />}
               disabled={!canPost}
               onClick={() => { printAfterSave.current = false; setConfirmPost(true); }}
               title={blockingReason}
             >
-              حفظ الفاتورة
+              معاينة الفاتورة
             </Button>
             {/* Saving and printing is one action at a counter, and making it
                 two invites the half that gets forgotten. */}
@@ -677,7 +677,7 @@ function InvoiceEditor({ invoice }: { invoice: Invoice }) {
               onClick={() => { printAfterSave.current = true; setConfirmPost(true); }}
               title={blockingReason}
             >
-              حفظ وطباعة
+              معاينة وطباعة
             </Button>
 
             {/* The banner that used to carry this is gone, but a disabled button
@@ -759,31 +759,100 @@ function InvoiceEditor({ invoice }: { invoice: Invoice }) {
         onCreated={(item) => addCreatedItem(item.id)}
       />
 
-      <ConfirmDialog
+      {/* Preview, then save. The primary action opens this rather than a plain
+          confirm: the operator sees the whole invoice as it will be recorded --
+          party, lines, totals -- and commits it from here. printAfterSave was
+          set by whichever button opened it, so the one save button honours it. */}
+      <Modal
         open={confirmPost}
         onClose={() => setConfirmPost(false)}
-        onConfirm={post}
-        loading={mutations.post.isPending}
-        tone="success"
-        title="حفظ الفاتورة"
-        confirmLabel="حفظ نهائي"
-        message={
+        size="lg"
+        title="معاينة الفاتورة"
+        footer={(
           <>
-            {amending ? (
-              <>
-                سيُسجَّل <strong className="text-ink">الفرق وحده</strong> في حركات المخزون: صنف لم
-                تغيّر كميته لا يُكتب له قيد. وتُحدَّث أسعار الأصناف المحددة.
-              </>
-            ) : (
-              <>
-                سيتم تسجيل {fmtInt(lines.length)} حركة مخزون
-                {config.direction === 'IN' ? ' واردة' : ' صادرة'} وتحديث الأرصدة، وتحديث أسعار
-                الأصناف المحددة.
-              </>
-            )}
+            <Button onClick={() => setConfirmPost(false)} disabled={mutations.post.isPending}>
+              رجوع
+            </Button>
+            <Button
+              variant="success"
+              icon={<Save className="size-4" />}
+              loading={mutations.post.isPending}
+              onClick={post}
+            >
+              حفظ نهائي
+            </Button>
           </>
-        }
-      />
+        )}
+      >
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <span className="font-bold">
+            {config.label}
+            {invoice.number && <span className="nums font-mono text-sm"> — {invoice.number}</span>}
+          </span>
+          <span className="nums text-xs text-muted">{fmtDateShort(invoice.invoice_date)}</span>
+        </div>
+
+        {selectedParty && (
+          <div className="mt-1 text-xs text-muted">
+            {partyKind === 'customers' ? 'العميل' : 'المورد'}:{' '}
+            <span className="font-medium text-ink">{selectedParty.name}</span>
+            {selectedParty.phone && <> · <span className="nums" dir="ltr">{selectedParty.phone}</span></>}
+            {selectedParty.address && <> · {selectedParty.address}</>}
+          </div>
+        )}
+
+        <div className="mt-3 overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-line text-xs text-muted">
+                <th className="p-2 text-center">#</th>
+                <th className="p-2 text-start">الصنف</th>
+                <th className="p-2 text-center">الكمية</th>
+                {canSeeSalePrice && <th className="p-2 text-center">السعر</th>}
+                {canSeeSalePrice && <th className="p-2 text-center">الإجمالي</th>}
+              </tr>
+            </thead>
+            <tbody>
+              {lines.map((line, i) => (
+                <tr key={line.id} className="border-b border-line/60">
+                  <td className="nums p-2 text-center text-subtle">{fmtInt(i + 1)}</td>
+                  <td className="p-2">
+                    {line.item_name}
+                    {line.unit_name && <span className="text-xs text-subtle"> / {line.unit_name}</span>}
+                  </td>
+                  <td className="nums p-2 text-center font-bold">{fmtInt(line.quantity)}</td>
+                  {canSeeSalePrice && (
+                    <td className="nums p-2 text-center">{fmtCurrency(line.unit_price ?? 0)}</td>
+                  )}
+                  {canSeeSalePrice && (
+                    <td className="nums p-2 text-center font-bold">{fmtCurrency(line.line_total ?? 0)}</td>
+                  )}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {canSeeSalePrice && (
+          <div className="mt-3 flex items-baseline justify-end gap-2 border-t border-line pt-3">
+            <span className="text-sm font-bold">الصافي</span>
+            <span className="nums text-2xl font-bold text-brand-600 dark:text-brand-400">
+              {fmtCurrency(invoice.total)}
+            </span>
+          </div>
+        )}
+
+        <p className="mt-3 rounded-lg bg-surface-2 p-2.5 text-xs leading-relaxed text-muted">
+          {amending ? (
+            <>سيُسجَّل <strong className="text-ink">الفرق وحده</strong> في حركات المخزون: صنف لم تغيّر
+              كميته لا يُكتب له قيد. وتُحدَّث أسعار الأصناف المحددة.</>
+          ) : (
+            <>سيتم تسجيل {fmtInt(lines.length)} حركة مخزون
+              {config.direction === 'IN' ? ' واردة' : ' صادرة'} وتحديث الأرصدة، وتحديث أسعار الأصناف
+              المحددة.</>
+          )}
+        </p>
+      </Modal>
 
       <ConfirmDialog
         open={confirmDiscard}
