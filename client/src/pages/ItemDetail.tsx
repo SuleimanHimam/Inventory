@@ -365,10 +365,10 @@ export default function ItemDetail() {
           <EmptyState
             icon={<History className="size-6" />}
             title="لا توجد حركات على هذا الصنف"
-            message="أنشئ فاتورة إدخال لبدء تتبّع الرصيد — كل حركة مخزون تمر عبر فاتورة."
+            message="أنشئ فاتورة شراء لبدء تتبّع الرصيد — كل حركة مخزون تمر عبر فاتورة."
             action={(
               <Link to="/invoices/new?type=STOCK_IN">
-                <Button variant="primary">إنشاء فاتورة إدخال</Button>
+                <Button variant="primary">إنشاء فاتورة شراء</Button>
               </Link>
             )}
           />

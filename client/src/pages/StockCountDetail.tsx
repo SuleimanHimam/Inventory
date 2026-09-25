@@ -222,7 +222,7 @@ export default function StockCountDetail() {
           <p className="nums mt-2 text-3xl font-bold text-emerald-600 dark:text-emerald-400">
             {fmtInt(summary.surplus.length)}
           </p>
-          <p className="nums mt-1 text-xs text-muted">{fmtInt(summary.surplus_units)} وحدة ← فاتورة إدخال</p>
+          <p className="nums mt-1 text-xs text-muted">{fmtInt(summary.surplus_units)} وحدة ← فاتورة شراء</p>
         </Card>
 
         <Card className="p-5">
@@ -233,7 +233,7 @@ export default function StockCountDetail() {
           <p className="nums mt-2 text-3xl font-bold text-accent-600 dark:text-accent-400">
             {fmtInt(summary.shortage.length)}
           </p>
-          <p className="nums mt-1 text-xs text-muted">{fmtInt(summary.shortage_units)} وحدة ← فاتورة إخراج</p>
+          <p className="nums mt-1 text-xs text-muted">{fmtInt(summary.shortage_units)} وحدة ← فاتورة مبيع</p>
         </Card>
       </div>
 
@@ -329,13 +329,13 @@ export default function StockCountDetail() {
               {summary.surplus.length > 0 && (
                 <li className="flex items-center gap-2">
                   <ArrowDownLeft className="size-3.5 text-emerald-500" />
-                  فاتورة إدخال بـ {fmtInt(summary.surplus.length)} صنف ({fmtInt(summary.surplus_units)} وحدة)
+                  فاتورة شراء بـ {fmtInt(summary.surplus.length)} صنف ({fmtInt(summary.surplus_units)} وحدة)
                 </li>
               )}
               {summary.shortage.length > 0 && (
                 <li className="flex items-center gap-2">
                   <ArrowUpRight className="size-3.5 text-accent-600 dark:text-accent-400" />
-                  فاتورة إخراج بـ {fmtInt(summary.shortage.length)} صنف ({fmtInt(summary.shortage_units)} وحدة)
+                  فاتورة مبيع بـ {fmtInt(summary.shortage.length)} صنف ({fmtInt(summary.shortage_units)} وحدة)
                 </li>
               )}
               {!summary.surplus.length && !summary.shortage.length && (

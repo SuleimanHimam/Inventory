@@ -88,10 +88,10 @@ export function MobileNav() {
   const primary: Dest[] = canSeeFullNav ? [
     { label: 'الرئيسية', icon: LayoutDashboard, to: '/', match: /^\/$/, tone: 'teal' },
     { label: 'الأصناف', icon: Package, to: '/items', match: /^\/items/, tone: 'blue' },
-    { label: 'إدخال', icon: PackagePlus, to: '/invoices/new?type=STOCK_IN', tone: 'green' },
-    { label: 'إخراج', icon: PackageMinus, to: '/invoices/new?type=STOCK_OUT', tone: 'red' },
+    { label: 'شراء', icon: PackagePlus, to: '/invoices/new?type=STOCK_IN', tone: 'green' },
+    { label: 'مبيع', icon: PackageMinus, to: '/invoices/new?type=STOCK_OUT', tone: 'red' },
   ] : [
-    { label: 'إخراج', icon: PackageMinus, to: '/invoices/new?type=STOCK_OUT', tone: 'red' },
+    { label: 'مبيع', icon: PackageMinus, to: '/invoices/new?type=STOCK_OUT', tone: 'red' },
     { label: 'الأصناف', icon: Package, to: '/items', match: /^\/items/, tone: 'blue' },
   ];
 

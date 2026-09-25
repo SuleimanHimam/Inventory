@@ -30,7 +30,7 @@ async function requireStockOutForClerk(req, _res, next) {
       ? (await invoices.getInvoice(req.params.id, { withDetail: false })).type
       : req.body?.type;
     if (type !== 'STOCK_OUT') {
-      return next(forbidden('حساب موظف الإخراج يعمل على فواتير الإخراج فقط', 'CLERK_STOCK_OUT_ONLY'));
+      return next(forbidden('حساب موظف المبيع يعمل على فواتير المبيع فقط', 'CLERK_STOCK_OUT_ONLY'));
     }
     return next();
   } catch (err) { return next(err); }

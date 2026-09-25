@@ -32,7 +32,7 @@ const explain = (error: unknown) => {
 
 const FEATURES = [
   { icon: PackageSearch, text: 'تتبّع الأصناف والمخزون لحظة بلحظة' },
-  { icon: FileText, text: 'فواتير دخول وإخراج منظّمة وقابلة للتتبع' },
+  { icon: FileText, text: 'فواتير شراء ومبيع منظّمة وقابلة للتتبع' },
   { icon: TrendingUp, text: 'تقارير نواقص وحركات مخزون فورية' },
 ];
 

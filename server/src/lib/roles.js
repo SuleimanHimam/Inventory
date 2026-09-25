@@ -41,7 +41,7 @@ export const CLERK = 'CLERK';
 export const ROLES = [MANAGER, STAFF, CLERK];
 
 /** Arabic labels — the API is the only place that knows the internal names. */
-export const ROLE_LABELS = { [MANAGER]: 'مدير', [STAFF]: 'موظف', [CLERK]: 'موظف إخراج' };
+export const ROLE_LABELS = { [MANAGER]: 'مدير', [STAFF]: 'موظف', [CLERK]: 'موظف مبيع' };
 
 export const isManager = (role) => role === MANAGER;
 

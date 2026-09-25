@@ -71,11 +71,11 @@
     "notes": "ملاحظات"
   },
   "invoiceType": {
-    "STOCK_IN": "إدخال مخزون",
-    "STOCK_OUT": "إخراج مخزون",
+    "STOCK_IN": "شراء",
+    "STOCK_OUT": "مبيع",
     "short": {
-      "STOCK_IN": "إدخال",
-      "STOCK_OUT": "إخراج"
+      "STOCK_IN": "شراء",
+      "STOCK_OUT": "مبيع"
     }
   },
   "invoiceStatus": {

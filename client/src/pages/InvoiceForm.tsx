@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, Navigate, useBlocker, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
-  Loader2, Save, AlertCircle, X, Trash2, LogOut, Printer,
+  Loader2, Save, AlertCircle, X, Trash2, LogOut, Printer, Phone, MapPin,
 } from 'lucide-react';
 import {
   Button, Card, Input, Select, ConfirmDialog, Modal, Badge,
@@ -115,6 +115,10 @@ function InvoiceEditor({ invoice }: { invoice: Invoice }) {
   const config = INVOICE_TYPES[invoice.type];
   const partyKind = config.direction === 'OUT' ? 'customers' : 'suppliers';
   const { data: parties } = useParties(partyKind, { limit: 200, is_active: 'true', page: 1 });
+  // The chosen party, so its phone and address fill in the moment it is
+  // picked -- read straight from the list already loaded, no extra request.
+  const partyId = partyKind === 'customers' ? invoice.customer_id : invoice.supplier_id;
+  const selectedParty = parties?.data.find((p) => p.id === partyId) ?? null;
 
   const [barcode, setBarcode] = useState('');
   const [quantity, setQuantity] = useState('1');
@@ -364,7 +368,7 @@ function InvoiceEditor({ invoice }: { invoice: Invoice }) {
           {/* The party field is a rarely-needed optional note (see partyKind
               above) — on phone it costs a whole row for something most
               invoices leave empty, so it only shows from `sm:` up. */}
-          <div className="hidden space-y-2 sm:block">
+          <div className="space-y-2">
             <FormRow label={partyKind === 'customers' ? 'حـ/العميل' : 'حـ/المورد'}>
               <Select
                 value={(partyKind === 'customers' ? invoice.customer_id : invoice.supplier_id) ?? ''}
@@ -381,6 +385,27 @@ function InvoiceEditor({ invoice }: { invoice: Invoice }) {
                 ))}
               </Select>
             </FormRow>
+
+            {/* Auto-filled from the chosen account: its phone and address show
+                the moment it is picked, read-only, so the operator confirms who
+                the invoice is for without retyping anything. Nothing shows when
+                the account has neither on file, or when none is chosen. */}
+            {selectedParty && (selectedParty.phone || selectedParty.address) && (
+              <div className="flex flex-wrap gap-x-6 gap-y-1 ps-1 text-xs text-muted sm:ps-[7.5rem]">
+                {selectedParty.phone && (
+                  <span className="flex items-center gap-1.5">
+                    <Phone className="size-3.5 shrink-0 text-subtle" />
+                    <span className="nums" dir="ltr">{selectedParty.phone}</span>
+                  </span>
+                )}
+                {selectedParty.address && (
+                  <span className="flex items-center gap-1.5">
+                    <MapPin className="size-3.5 shrink-0 text-subtle" />
+                    {selectedParty.address}
+                  </span>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Asymmetric, not 50/50 — the number is a short fixed-width label,

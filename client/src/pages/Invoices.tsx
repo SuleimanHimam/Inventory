@@ -19,8 +19,8 @@ import type { Invoice } from '@/lib/types';
 
 const TYPE_TABS: Array<{ value: string; label: string }> = [
   { value: '', label: 'الكل' },
-  { value: 'STOCK_IN', label: 'إدخال' },
-  { value: 'STOCK_OUT', label: 'إخراج' },
+  { value: 'STOCK_IN', label: 'شراء' },
+  { value: 'STOCK_OUT', label: 'مبيع' },
 ];
 
 export default function Invoices() {
@@ -169,7 +169,7 @@ export default function Invoices() {
               ? <Button onClick={() => { setType(''); setStatus(''); setSearch(''); setDateFrom(''); setDateTo(''); }}>
                 إزالة عوامل التصفية
               </Button>
-              : <Link to="/invoices/new?type=STOCK_OUT"><Button variant="primary">إنشاء فاتورة إخراج</Button></Link>}
+              : <Link to="/invoices/new?type=STOCK_OUT"><Button variant="primary">إنشاء فاتورة مبيع</Button></Link>}
           />
         ) : (
           <div className={cn(isFetching && 'opacity-60 transition-opacity')}>

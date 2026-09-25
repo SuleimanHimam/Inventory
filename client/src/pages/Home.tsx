@@ -34,20 +34,21 @@ type Icon = ComponentType<{ className?: string }>;
 type Tone = keyof typeof TONE;
 
 /**
- * One tone per tile, so the grid is legible by hue as well as label -- the
- * same assignments as the nav (stock-in green, anything that removes or warns
- * red, settings neutral), kept in step on purpose. Light mode uses the darker
- * steps and dark mode the lighter ones, the pairing that clears AA on the
- * cream page.
+ * One tone per tile. The whole tile is filled with its colour now, with a
+ * white icon and label on top -- so the grid reads by hue at arm's length, not
+ * only by label. Assignments match the nav (stock-in/شراء green, anything that
+ * removes or warns red, settings neutral). The steps are the 600s (700 for
+ * lime, which is too bright at 600 for white to sit on) so white text clears
+ * contrast in both themes.
  */
 const TONE = {
-  teal: { text: 'text-brand-700 dark:text-brand-300', bg: 'bg-brand-500/12' },
-  blue: { text: 'text-sky-700 dark:text-sky-300', bg: 'bg-sky-500/12' },
-  green: { text: 'text-emerald-700 dark:text-emerald-300', bg: 'bg-emerald-500/12' },
-  red: { text: 'text-accent-600 dark:text-accent-400', bg: 'bg-accent-500/12' },
-  violet: { text: 'text-violet-700 dark:text-violet-300', bg: 'bg-violet-500/12' },
-  lime: { text: 'text-lime-800 dark:text-lime-300', bg: 'bg-lime-500/15' },
-  slate: { text: 'text-muted', bg: 'bg-surface-3' },
+  teal: 'bg-brand-600 text-white',
+  blue: 'bg-sky-600 text-white',
+  green: 'bg-emerald-600 text-white',
+  red: 'bg-accent-600 text-white',
+  violet: 'bg-violet-600 text-white',
+  lime: 'bg-lime-700 text-white',
+  slate: 'bg-slate-600 text-white',
 } as const;
 
 type Tile = {
@@ -89,25 +90,23 @@ export default function Home() {
   const tiles = all.filter((t) => t.show);
 
   return (
-    <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+    <div className="grid grid-cols-3 gap-2.5 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8">
       {tiles.map((tile) => (
         <Link
           key={tile.to}
           to={tile.to}
-          className="card group relative flex flex-col items-center gap-2.5 rounded-2xl p-4 text-center transition active:scale-[.97] sm:p-5"
+          className={cn(
+            'group relative flex aspect-square flex-col items-center justify-center gap-2 rounded-2xl p-2 text-center shadow-sm transition active:scale-[.96] hover:brightness-105',
+            TONE[tile.tone],
+          )}
         >
           {!!tile.badge && tile.badge > 0 && (
-            <span className="nums absolute end-2.5 top-2.5 rounded-full bg-accent-600 px-1.5 text-[11px] font-bold leading-5 text-white">
+            <span className="nums absolute end-1.5 top-1.5 rounded-full bg-white px-1.5 text-[11px] font-bold leading-5 text-accent-700 shadow">
               {fmtInt(tile.badge)}
             </span>
           )}
-          <span className={cn(
-            'grid size-14 place-items-center rounded-2xl transition-transform group-hover:scale-105',
-            TONE[tile.tone].bg, TONE[tile.tone].text,
-          )}>
-            <tile.icon className="size-7" />
-          </span>
-          <span className="text-sm font-bold leading-tight">{tile.label}</span>
+          <tile.icon className="size-7 transition-transform group-hover:scale-110" />
+          <span className="text-xs font-bold leading-tight">{tile.label}</span>
         </Link>
       ))}
     </div>

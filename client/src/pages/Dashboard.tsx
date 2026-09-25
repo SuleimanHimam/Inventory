@@ -208,7 +208,7 @@ export default function Dashboard() {
               tone="brand"
               label="المشتريات"
               value={fmtCurrency(data?.trading.purchases)}
-              hint="فواتير الإدخال المرحّلة"
+              hint="فواتير الشراء المرحّلة"
               to="/invoices?type=STOCK_IN"
             />
             <KpiCard
@@ -217,7 +217,7 @@ export default function Dashboard() {
               tone="success"
               label="المبيعات"
               value={fmtCurrency(data?.trading.sales)}
-              hint="فواتير الإخراج المرحّلة"
+              hint="فواتير المبيع المرحّلة"
               to="/invoices?type=STOCK_OUT"
             />
             <KpiCard
@@ -399,7 +399,7 @@ export default function Dashboard() {
           <EmptyState
             icon={<FileText className="size-6" />}
             title="لا توجد حركات بعد"
-            message="ابدأ بإنشاء فاتورة إدخال مخزون أو استيراد الأصناف من ملف Excel."
+            message="ابدأ بإنشاء فاتورة شراء أو استيراد الأصناف من ملف Excel."
             action={
               <Link to="/import">
                 <Button variant="primary">استيراد الأصناف</Button>

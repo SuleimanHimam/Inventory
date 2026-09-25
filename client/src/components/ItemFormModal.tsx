@@ -360,7 +360,7 @@ export function ItemFormModal({
 
         {!isEdit && (
           <p className="rounded-lg bg-surface-2 px-3 py-2.5 text-xs leading-relaxed text-muted">
-            تبدأ كمية الصنف الجديد من صفر. أضف الرصيد الافتتاحي عبر فاتورة إدخال مخزون.
+            تبدأ كمية الصنف الجديد من صفر. أضف الرصيد الافتتاحي عبر فاتورة شراء.
           </p>
         )}
 

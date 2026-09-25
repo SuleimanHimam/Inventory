@@ -134,7 +134,7 @@ export default function LowStock() {
                       <td className="no-print">
                         <div className="flex justify-end gap-0.5">
                           <Link to={`/invoices/new?type=STOCK_IN`}>
-                            <Button size="icon" variant="ghost" title="إنشاء فاتورة إدخال">
+                            <Button size="icon" variant="ghost" title="إنشاء فاتورة شراء">
                               <ShoppingCart className="size-4" />
                             </Button>
                           </Link>

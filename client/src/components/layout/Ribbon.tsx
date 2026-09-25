@@ -96,9 +96,9 @@ export function Ribbon() {
           // yanking it away once `/me` answers.
           commands: [
             ...(canSeeFullNav ? [
-              { label: 'إدخال', icon: PackagePlus, run: go('/invoices/new?type=STOCK_IN'), big: true, tone: 'green' as const },
+              { label: 'شراء', icon: PackagePlus, run: go('/invoices/new?type=STOCK_IN'), big: true, tone: 'green' as const },
             ] : []),
-            { label: 'إخراج', icon: PackageMinus, run: go('/invoices/new?type=STOCK_OUT'), big: true, tone: 'red' },
+            { label: 'مبيع', icon: PackageMinus, run: go('/invoices/new?type=STOCK_OUT'), big: true, tone: 'red' },
           ],
         },
         {
