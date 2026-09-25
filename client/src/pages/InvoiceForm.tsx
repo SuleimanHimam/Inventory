@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, Navigate, useBlocker, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
-  Loader2, Save, Eye, AlertCircle, X, Trash2, LogOut, Printer, Phone, MapPin,
+  Loader2, Save, AlertCircle, X, Trash2, LogOut, Printer, Phone, MapPin,
 } from 'lucide-react';
 import {
   Button, Card, Input, Select, ConfirmDialog, Modal, Badge,
@@ -129,7 +129,6 @@ function InvoiceEditor({ invoice }: { invoice: Invoice }) {
   const [browserOpen, setBrowserOpen] = useState(false);
   const [listOpen, setListOpen] = useState(false);
   const [flashLineId, setFlashLineId] = useState<string | null>(null);
-  const [confirmPost, setConfirmPost] = useState(false);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const barcodeRef = useRef<HTMLInputElement>(null);
   /** Both entry dropdowns hang off this cell, from outside the grid's clip. */
@@ -149,7 +148,6 @@ function InvoiceEditor({ invoice }: { invoice: Invoice }) {
   const inFlightRef = useRef(false);
 
   const lines = invoice.lines ?? [];
-  const previewUnits = lines.reduce((sum, l) => sum + l.quantity * l.conversion_factor, 0);
   const focusBarcode = useCallback(() => setTimeout(() => barcodeRef.current?.focus(), 30), []);
 
   // Name/barcode lookahead. Pure digits are almost always a scan in progress,
@@ -238,7 +236,7 @@ function InvoiceEditor({ invoice }: { invoice: Invoice }) {
     mutations.update.mutate({ id: invoice.id, ...patch });
 
   /*
-   * Set by "معاينة وطباعة" and read once, when the save succeeds. A ref rather
+   * Set by "حفظ وطباعة" and read once, when the save succeeds. A ref rather
    * than state because nothing renders from it -- it only has to survive the
    * trip through the confirmation dialog.
    */
@@ -268,7 +266,6 @@ function InvoiceEditor({ invoice }: { invoice: Invoice }) {
     } catch (error) {
       inFlightRef.current = false;
       decidedRef.current = false;
-      setConfirmPost(false);
       if (error instanceof ApiError && error.code === 'INSUFFICIENT_STOCK') {
         const details = (error.payload.lines ?? []) as Array<{ item_name: string; available: number; requested: number }>;
         toast.error('الكمية غير كافية في المخزون',
@@ -608,23 +605,24 @@ function InvoiceEditor({ invoice }: { invoice: Invoice }) {
           <div className="sm:hidden">
             <Button
               variant="primary"
-              icon={<Eye className="size-4" />}
+              icon={<Save className="size-4" />}
+              loading={mutations.post.isPending}
               disabled={!canPost}
-              onClick={() => { printAfterSave.current = false; setConfirmPost(true); }}
+              onClick={() => { printAfterSave.current = false; post(); }}
               title={blockingReason}
               className="w-full"
             >
-              معاينة الفاتورة
+              حفظ الفاتورة
             </Button>
             <Button
               variant="secondary"
               icon={<Printer className="size-4" />}
               disabled={!canPost}
-              onClick={() => { printAfterSave.current = true; setConfirmPost(true); }}
+              onClick={() => { printAfterSave.current = true; post(); }}
               title={blockingReason}
               className="mt-2 w-full"
             >
-              معاينة وطباعة
+              حفظ وطباعة
             </Button>
 
             {!canPost && blockingReason && (
@@ -662,12 +660,13 @@ function InvoiceEditor({ invoice }: { invoice: Invoice }) {
           <div className="hidden flex-wrap items-center gap-2 sm:flex">
             <Button
               variant="primary"
-              icon={<Eye className="size-4" />}
+              icon={<Save className="size-4" />}
+              loading={mutations.post.isPending}
               disabled={!canPost}
-              onClick={() => { printAfterSave.current = false; setConfirmPost(true); }}
+              onClick={() => { printAfterSave.current = false; post(); }}
               title={blockingReason}
             >
-              معاينة الفاتورة
+              حفظ الفاتورة
             </Button>
             {/* Saving and printing is one action at a counter, and making it
                 two invites the half that gets forgotten. */}
@@ -675,10 +674,10 @@ function InvoiceEditor({ invoice }: { invoice: Invoice }) {
               variant="secondary"
               icon={<Printer className="size-4" />}
               disabled={!canPost}
-              onClick={() => { printAfterSave.current = true; setConfirmPost(true); }}
+              onClick={() => { printAfterSave.current = true; post(); }}
               title={blockingReason}
             >
-              معاينة وطباعة
+              حفظ وطباعة
             </Button>
 
             {/* The banner that used to carry this is gone, but a disabled button
@@ -760,80 +759,6 @@ function InvoiceEditor({ invoice }: { invoice: Invoice }) {
         onCreated={(item) => addCreatedItem(item.id)}
       />
 
-      {/* Preview, then save. The primary action opens this rather than a plain
-          confirm: the operator sees the whole invoice as it will be recorded --
-          party, lines, totals -- and commits it from here. printAfterSave was
-          set by whichever button opened it, so the one save button honours it. */}
-      <Modal
-        open={confirmPost}
-        onClose={() => setConfirmPost(false)}
-        size="full"
-        title={(
-          <div className="flex items-center justify-between gap-3 pe-2">
-            <span className="min-w-0 truncate">
-              {selectedParty?.name ?? (partyKind === 'customers' ? 'بدون عميل' : 'بدون مورد')}
-            </span>
-            <span className="flex flex-col items-start leading-none">
-              {canSeeSalePrice && (
-                <span className="nums text-xl font-bold text-brand-600 dark:text-brand-400">
-                  {fmtCurrency(invoice.total)}
-                </span>
-              )}
-              <span className="mt-0.5 text-[11px] font-normal text-muted">
-                {fmtInt(lines.length)} أصناف · {fmtInt(previewUnits)} وحدة
-              </span>
-            </span>
-          </div>
-        )}
-        footer={(
-          <>
-            <Button onClick={() => setConfirmPost(false)} disabled={mutations.post.isPending}>
-              رجوع
-            </Button>
-            <Button
-              variant="success"
-              icon={<Save className="size-4" />}
-              loading={mutations.post.isPending}
-              onClick={post}
-              className="flex-1 sm:flex-none"
-            >
-              {config.direction === 'OUT' ? 'حفظ مبيع' : 'حفظ شراء'}
-            </Button>
-          </>
-        )}
-      >
-        <div className="mx-auto max-w-2xl space-y-2.5">
-          {selectedParty && (selectedParty.phone || selectedParty.address) && (
-            <p className="px-1 text-xs text-muted">
-              {selectedParty.phone && <span className="nums" dir="ltr">{selectedParty.phone}</span>}
-              {selectedParty.phone && selectedParty.address && ' · '}
-              {selectedParty.address}
-            </p>
-          )}
-
-          {lines.map((line) => (
-            <PreviewLine
-              key={line.id}
-              line={line}
-              invoiceId={invoice.id}
-              canEditPrices={canEditPrices}
-              canSeeSalePrice={canSeeSalePrice}
-            />
-          ))}
-
-          <p className="rounded-lg bg-surface-2 p-2.5 text-xs leading-relaxed text-muted">
-            {amending ? (
-              <>سيُسجَّل <strong className="text-ink">الفرق وحده</strong> في حركات المخزون: صنف لم تغيّر
-                كميته لا يُكتب له قيد. وتُحدَّث أسعار الأصناف المحددة.</>
-            ) : (
-              <>سيتم تسجيل {fmtInt(lines.length)} حركة مخزون
-                {config.direction === 'IN' ? ' واردة' : ' صادرة'} وتحديث الأرصدة، وتحديث أسعار الأصناف
-                المحددة.</>
-            )}
-          </p>
-        </div>
-      </Modal>
-
       <ConfirmDialog
         open={confirmDiscard}
         onClose={() => setConfirmDiscard(false)}
@@ -844,108 +769,6 @@ function InvoiceEditor({ invoice }: { invoice: Invoice }) {
         message="سيتم حذف هذه الفاتورة نهائياً. لم تؤثر على المخزون بعد."
       />
     </>
-  );
-}
-
-/**
- * A line in the preview, as a card: quantity and price editable in place, the
- * line total, and a delete. It drives the same draft as the form's table --
- * useInvoiceMutations on the same invoice -- so an edit here shows there and in
- * the running total the moment it commits. Values commit on blur or Enter, not
- * per keystroke, the same contract LineRow uses.
- */
-function PreviewLine({
-  line, invoiceId, canEditPrices, canSeeSalePrice,
-}: {
-  line: InvoiceLine;
-  invoiceId: string;
-  canEditPrices: boolean;
-  canSeeSalePrice: boolean;
-}) {
-  const mutations = useInvoiceMutations(invoiceId);
-  const [qty, setQty] = useState(String(line.quantity));
-  const [price, setPrice] = useState(String(line.unit_price ?? 0));
-  useEffect(() => { setQty(String(line.quantity)); }, [line.quantity]);
-  useEffect(() => { setPrice(String(line.unit_price ?? 0)); }, [line.unit_price]);
-
-  const commitQty = () => {
-    const q = Math.max(1, Math.floor(Number(qty) || 0));
-    if (q !== line.quantity) mutations.updateLine.mutate({ id: invoiceId, lineId: line.id, quantity: q });
-    else setQty(String(line.quantity));
-  };
-  const commitPrice = () => {
-    const p = Math.max(0, Number(price) || 0);
-    if (p !== (line.unit_price ?? 0)) mutations.updateLine.mutate({ id: invoiceId, lineId: line.id, unit_price: p });
-    else setPrice(String(line.unit_price ?? 0));
-  };
-  const remove = () => mutations.removeLine.mutate({ id: invoiceId, lineId: line.id });
-
-  const box = 'block text-center';
-  const boxLabel = 'mb-1 block text-[11px] text-muted';
-
-  return (
-    <div className="card p-3">
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0">
-          <p className="font-bold leading-tight">{line.item_name}</p>
-          {line.unit_name && <p className="mt-0.5 text-xs text-subtle">{line.unit_name}</p>}
-        </div>
-      </div>
-
-      <div className="mt-2.5 flex items-end gap-2">
-        <label className={cn(box, 'flex-1')}>
-          <span className={boxLabel}>الكمية</span>
-          <Input
-            type="number" min="1" step="1" inputMode="numeric"
-            value={qty}
-            onChange={(e) => setQty(e.target.value)}
-            onBlur={commitQty}
-            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); e.currentTarget.blur(); } }}
-            className="h-10 text-center font-bold"
-            aria-label={`الكمية — ${line.item_name}`}
-          />
-        </label>
-
-        {canSeeSalePrice && (
-          <label className={cn(box, 'flex-1')}>
-            <span className={boxLabel}>السعر</span>
-            <Input
-              type="number" min="0" step="0.01" inputMode="decimal"
-              value={price}
-              readOnly={!canEditPrices}
-              onChange={(e) => setPrice(e.target.value)}
-              onBlur={commitPrice}
-              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); e.currentTarget.blur(); } }}
-              className={cn('h-10 text-center', !canEditPrices && 'bg-surface-2 text-muted')}
-              aria-label={`السعر — ${line.item_name}`}
-            />
-          </label>
-        )}
-
-        {canSeeSalePrice && (
-          <div className={cn(box, 'flex-1')}>
-            <span className={boxLabel}>إجمالي السطر</span>
-            <div className="nums flex h-10 items-center justify-center rounded-lg bg-surface-2 font-bold">
-              {fmtCurrency(line.line_total ?? 0)}
-            </div>
-          </div>
-        )}
-
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={remove}
-          aria-label={`حذف ${line.item_name}`}
-          className="h-10 shrink-0 bg-accent-500/10 text-accent-600 hover:bg-accent-500/20 dark:text-accent-400"
-        >
-          <Trash2 className="size-4" />
-        </Button>
-      </div>
-
-      {line.note && (
-        <p className="mt-2 rounded-lg bg-surface-2 px-2.5 py-1.5 text-xs text-muted">{line.note}</p>
-      )}
-    </div>
   );
 }
 
