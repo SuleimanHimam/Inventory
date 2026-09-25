@@ -8,6 +8,7 @@ import {
   signInWithPassword, sendMagicLink, sendPasswordReset, AUTH_BACKEND,
   listFiles, lastFileId, type FileChoice,
 } from '@/lib/session';
+import LoginFileManager, { ManageFilesButton } from '@/components/LoginFileManager';
 
 /** Local accounts have no email delivery behind them — hide what needs one. */
 const HAS_EMAIL_DELIVERY = AUTH_BACKEND !== 'local';
@@ -69,19 +70,26 @@ export default function Login() {
    */
   const [files, setFiles] = useState<FileChoice[]>([]);
   const [fileId, setFileId] = useState<string>('');
+  const [managingFiles, setManagingFiles] = useState(false);
+
+  const refreshFiles = () => listFiles().then((found) => {
+    setFiles(found);
+    // Keep the current choice if it still exists -- a file created or renamed
+    // in the panel must not silently move the selection out from under the
+    // person about to sign in. Otherwise fall back to the one last used on
+    // this device, then to the first.
+    setFileId((current) => (
+      found.find((f) => f.id === current)?.id
+      ?? found.find((f) => f.id === lastFileId())?.id
+      ?? found[0]?.id
+      ?? ''
+    ));
+  }).catch(() => { /* No picker, and the server falls back to its own file. */ });
 
   useEffect(() => {
     if (!IS_LOCAL) return;
-    let cancelled = false;
-    listFiles().then((found) => {
-      if (cancelled) return;
-      setFiles(found);
-      // The one used last on this device, if it is still there.
-      const remembered = lastFileId();
-      const initial = found.find((f) => f.id === remembered)?.id ?? found[0]?.id ?? '';
-      setFileId(initial);
-    }).catch(() => { /* No picker, and the server falls back to its own file. */ });
-    return () => { cancelled = true; };
+    void refreshFiles();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const resetMessages = () => { setError(null); setNotice(null); };
@@ -186,7 +194,7 @@ export default function Login() {
             <form onSubmit={submit} className="space-y-4">
               {/* Shown for a single file too — see the state above. */}
               {needsPassword && files.length > 0 && (
-                <Field label="الملف" hint="لكل ملف بياناته ومستخدموه">
+                <Field label="الملف الذي ستدخل إليه" hint="لكل ملف بياناته ومستخدموه">
                   <div className="relative">
                     <Select
                       value={fileId}
@@ -265,6 +273,23 @@ export default function Login() {
               </Button>
             </form>
 
+            {/*
+              * Managing files from the login screen -- which is where an
+              * operator with several businesses actually stands when they
+              * think about them.
+              *
+              * It is a quiet text link, not a button beside دخول: signing in
+              * is what this screen is for, and creating or deleting a whole
+              * company is a rare, deliberate act that should not compete for
+              * the same attention. The panel behind it asks for a manager's
+              * password before it shows anything at all.
+              */}
+            {IS_LOCAL && files.length > 0 && needsPassword && (
+              <div className="mt-5 flex justify-center border-t border-line pt-4">
+                <ManageFilesButton onClick={() => setManagingFiles(true)} />
+              </div>
+            )}
+
             {HAS_EMAIL_DELIVERY && (
               <div className="mt-5 space-y-2 border-t border-line pt-4 text-xs">
                 {mode !== 'password' ? (
@@ -283,6 +308,15 @@ export default function Login() {
           </div>
         </Card>
       </div>
+
+      {managingFiles && (
+        <LoginFileManager
+          files={files}
+          initialFileId={fileId}
+          onClose={() => setManagingFiles(false)}
+          onChanged={refreshFiles}
+        />
+      )}
     </div>
   );
 }

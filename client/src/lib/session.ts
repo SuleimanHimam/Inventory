@@ -196,6 +196,42 @@ const LAST_FILE_KEY = 'inv.last_file';
 export const lastFileId = () => safely(() => localStorage.getItem(LAST_FILE_KEY), null);
 const rememberFile = (id: string) => safely(() => localStorage.setItem(LAST_FILE_KEY, id), undefined);
 
+/**
+ * Sign in only to prove who you are, without starting a session.
+ *
+ * The file-management panel on the login screen needs a manager's authority
+ * before it will show a create or delete button, but signing in *to the app*
+ * is not what the operator asked for -- they are standing at the login screen
+ * managing files, and may then sign in somewhere else entirely. So this
+ * returns the token and persists nothing: it lives in the panel's state and
+ * dies when the dialog closes.
+ */
+export async function signInForManagement(
+  fileId: string, username: string, password: string,
+): Promise<string> {
+  const session = await localRequest('/auth/login',
+    { email: username, password, file_id: fileId });
+  return session.token;
+}
+
+/** One authenticated call with a token this module is not storing. */
+export async function withToken<T>(
+  token: string, path: string, init: { method?: string; body?: unknown } = {},
+): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: init.method ?? 'GET',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: init.body === undefined ? undefined : JSON.stringify(init.body),
+  });
+  if (res.status === 204) return undefined as T;
+  const payload = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(payload.error || 'حدث خطأ غير متوقع');
+  return payload as T;
+}
+
 /** The bearer token for the next API call. */
 export async function getAccessToken(): Promise<string | null> {
   if (AUTH_BACKEND === 'local') return storedLocalSession()?.token ?? null;
