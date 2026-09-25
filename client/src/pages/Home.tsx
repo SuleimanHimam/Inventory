@@ -1,10 +1,10 @@
-import { useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { ComponentType } from 'react';
 import {
   Package, PackagePlus, PackageMinus, Tags, ArrowLeftRight,
   TriangleAlert, Settings, LayoutDashboard, FileText, Users,
-  Truck, StickyNote, LogOut, SlidersHorizontal, Check, EyeOff, RotateCcw, Palette,
+  Truck, StickyNote, LogOut, SlidersHorizontal, Check, EyeOff, RotateCcw,
 } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { usePermissions } from '@/lib/permissions';
@@ -49,6 +49,93 @@ const TONE = {
 } as const;
 
 const TONES = Object.keys(TONE) as Tone[];
+
+/** A hex per preset, the starting point when the RGB picker opens on a tile
+ *  that has only ever used a preset tone. Approximate, not exact — the moment
+ *  the user drags, it becomes their own custom colour anyway. */
+const TONE_HEX: Record<Tone, string> = {
+  teal: '#0f766e', blue: '#0284c7', green: '#059669', red: '#e11d48',
+  violet: '#7c3aed', lime: '#4d7c0f', slate: '#475569',
+};
+
+function hexToRgb(hex: string) {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
+  const n = m ? parseInt(m[1], 16) : 0x0f766e;
+  return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
+}
+const clamp = (v: number) => Math.max(0, Math.min(255, Math.round(v)));
+const rgbToHex = (r: number, g: number, b: number) =>
+  `#${[r, g, b].map((v) => clamp(v).toString(16).padStart(2, '0')).join('')}`;
+/** Perceived brightness (0–1), for choosing black vs white text over a colour. */
+const luminance = (r: number, g: number, b: number) => (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+
+/**
+ * A small modern colour picker: a live preview with an editable hex, and three
+ * gradient RGB sliders whose tracks recolour as the other channels move. Built
+ * in-house rather than leaning on the bare native swatch so it reads as part of
+ * the app, works the same on every device, and shows the value as it changes.
+ */
+function ColorPicker({ value, onChange }: { value: string; onChange: (hex: string) => void }) {
+  const { r, g, b } = hexToRgb(value);
+  const [hexText, setHexText] = useState(value);
+  useEffect(() => setHexText(value), [value]);
+
+  const onHex = (t: string) => {
+    setHexText(t);
+    const v = t.trim();
+    if (/^#?[0-9a-fA-F]{6}$/.test(v)) onChange(v.startsWith('#') ? v : `#${v}`);
+  };
+
+  const light = luminance(r, g, b) > 0.6;
+  const channels: Array<{ key: 'r' | 'g' | 'b'; label: string; val: number; track: string }> = [
+    { key: 'r', label: 'R', val: r, track: `linear-gradient(to right, rgb(0,${g},${b}), rgb(255,${g},${b}))` },
+    { key: 'g', label: 'G', val: g, track: `linear-gradient(to right, rgb(${r},0,${b}), rgb(${r},255,${b}))` },
+    { key: 'b', label: 'B', val: b, track: `linear-gradient(to right, rgb(${r},${g},0), rgb(${r},${g},255))` },
+  ];
+  const setChannel = (key: 'r' | 'g' | 'b', v: number) =>
+    onChange(rgbToHex(key === 'r' ? v : r, key === 'g' ? v : g, key === 'b' ? v : b));
+
+  return (
+    <div className="space-y-3">
+      <div
+        className="flex items-center gap-3 rounded-xl px-3 py-2.5 shadow-inner ring-1 ring-black/5"
+        style={{ backgroundColor: value }}
+      >
+        <span className={cn('text-sm font-bold', light ? 'text-black/70' : 'text-white')}>معاينة</span>
+        <input
+          value={hexText}
+          onChange={(e) => onHex(e.target.value)}
+          dir="ltr"
+          maxLength={7}
+          aria-label="القيمة السداسية للّون"
+          className={cn(
+            'nums ms-auto w-24 rounded-lg border-0 bg-white/25 px-2 py-1 text-center text-sm font-bold outline-none ring-1 ring-white/30 focus:ring-2',
+            light ? 'text-black placeholder-black/40' : 'text-white placeholder-white/60',
+          )}
+        />
+      </div>
+
+      <div className="space-y-2.5">
+        {channels.map((c) => (
+          <div key={c.key} className="flex items-center gap-2.5">
+            <span className="w-4 text-center text-xs font-bold text-muted">{c.label}</span>
+            <input
+              type="range"
+              min="0"
+              max="255"
+              value={c.val}
+              onChange={(e) => setChannel(c.key, Number(e.target.value))}
+              className="colorslider h-2.5 flex-1 cursor-pointer appearance-none rounded-full"
+              style={{ background: c.track }}
+              aria-label={c.label}
+            />
+            <span className="nums w-8 text-end text-xs text-muted">{c.val}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 type Tile = {
   /** Stable key for saving per-tile preferences — never the label, which can change. */
@@ -106,26 +193,6 @@ export default function Home() {
     });
   };
   const resetPrefs = () => { setPrefs({}); savePrefs({}); };
-
-  /*
-   * Long-press to customise, the way an Android home screen does it: hold
-   * anywhere on the grid for ~500ms and it flips into edit mode. `pressed`
-   * marks that a long-press fired so the release that follows does not also
-   * open a tile -- suppressed in onClickCapture below. The تخصيص button stays
-   * for discoverability and for anyone who would rather tap than hold.
-   */
-  const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const pressed = useRef(false);
-  const startHold = () => {
-    if (customizing) return;
-    holdTimer.current = setTimeout(() => { pressed.current = true; setCustomizing(true); }, 500);
-  };
-  const cancelHold = () => {
-    if (holdTimer.current) { clearTimeout(holdTimer.current); holdTimer.current = null; }
-  };
-  const suppressClickAfterHold = (e: React.MouseEvent) => {
-    if (pressed.current) { e.preventDefault(); e.stopPropagation(); pressed.current = false; }
-  };
 
   // One flat list; the order runs from the daily operations down to the tools.
   const all: Tile[] = [
@@ -188,14 +255,7 @@ export default function Home() {
         </Button>
       </div>
 
-      <div
-        className="grid grid-cols-3 gap-2.5 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8"
-        onPointerDown={startHold}
-        onPointerUp={cancelHold}
-        onPointerLeave={cancelHold}
-        onPointerMove={cancelHold}
-        onClickCapture={suppressClickAfterHold}
-      >
+      <div className="grid grid-cols-3 gap-2.5 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8">
         {shown.map((tile) => {
           const cls = cn(tileClass, colorClass(tile), customizing && isHidden(tile) && 'opacity-40');
           const style = colorStyle(tile);
@@ -243,7 +303,8 @@ export default function Home() {
 
             <div>
               <span className="mb-2 block text-sm font-medium">اللون</span>
-              <div className="flex flex-wrap items-center gap-2.5">
+              {/* Quick presets first, then the full picker for anything else. */}
+              <div className="mb-3 flex flex-wrap items-center gap-2">
                 {TONES.map((tone) => {
                   // A preset is the choice only when no custom colour overrides it.
                   const active = !prefs[editing.id]?.color && toneOf(editing) === tone;
@@ -255,7 +316,7 @@ export default function Home() {
                       onClick={() => patchPref(editing.id, { tone, color: undefined })}
                       aria-label={tone}
                       className={cn(
-                        'grid size-10 place-items-center rounded-full transition',
+                        'grid size-9 place-items-center rounded-full transition',
                         TONE[tone],
                         active ? 'ring-2 ring-offset-2 ring-ink ring-offset-surface' : 'hover:scale-105',
                       )}
@@ -264,34 +325,12 @@ export default function Home() {
                     </button>
                   );
                 })}
-
-                {/* Any colour at all — the native RGB picker. The swatch shows
-                    the chosen custom colour, or a rainbow when none is set yet. */}
-                <label
-                  className={cn(
-                    'relative grid size-10 cursor-pointer place-items-center overflow-hidden rounded-full text-white transition hover:scale-105',
-                    prefs[editing.id]?.color && 'ring-2 ring-offset-2 ring-ink ring-offset-surface',
-                  )}
-                  style={prefs[editing.id]?.color
-                    ? { backgroundColor: prefs[editing.id]?.color }
-                    : { background: 'conic-gradient(red,orange,yellow,lime,cyan,blue,magenta,red)' }}
-                  title="لون مخصص"
-                >
-                  <input
-                    type="color"
-                    value={prefs[editing.id]?.color ?? '#0e6b64'}
-                    onChange={(e) => patchPref(editing.id, { color: e.target.value })}
-                    className="absolute inset-0 cursor-pointer opacity-0"
-                    aria-label="اختيار لون مخصص"
-                  />
-                  {prefs[editing.id]?.color
-                    ? <Check className="size-4 drop-shadow" />
-                    : <Palette className="size-4 text-white drop-shadow" />}
-                </label>
               </div>
-              {prefs[editing.id]?.color && (
-                <p className="nums mt-2 text-xs text-muted" dir="ltr">{prefs[editing.id]?.color}</p>
-              )}
+
+              <ColorPicker
+                value={prefs[editing.id]?.color ?? TONE_HEX[toneOf(editing)]}
+                onChange={(hex) => patchPref(editing.id, { color: hex })}
+              />
             </div>
           </div>
         </Modal>

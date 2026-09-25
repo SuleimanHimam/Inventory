@@ -1137,3 +1137,26 @@
   /* Links are navigation. On paper an item name is just the item's name. */
   a { color: #000 !important; text-decoration: none !important; }
 }
+
+/* Home colour-picker sliders — a clean white thumb with a soft ring, the same
+   on WebKit and Firefox, sitting on the channel's gradient track. */
+.colorslider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 1.15rem;
+  height: 1.15rem;
+  border-radius: 9999px;
+  background: #fff;
+  border: 2px solid rgba(0, 0, 0, 0.15);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  cursor: pointer;
+}
+.colorslider::-moz-range-thumb {
+  width: 1.15rem;
+  height: 1.15rem;
+  border-radius: 9999px;
+  background: #fff;
+  border: 2px solid rgba(0, 0, 0, 0.15);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  cursor: pointer;
+}
