@@ -2,15 +2,16 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { ComponentType } from 'react';
 import {
-  Package, PackagePlus, PackageMinus, ClipboardList, Tags, ArrowLeftRight,
-  TriangleAlert, FileSpreadsheet, Settings, LayoutDashboard, FileText, Users,
-  Truck, FolderOpen, DatabaseBackup, StickyNote,
+  Package, PackagePlus, PackageMinus, Tags, ArrowLeftRight,
+  TriangleAlert, Settings, LayoutDashboard, FileText, Users,
+  Truck, StickyNote, LogOut,
 } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { usePermissions } from '@/lib/permissions';
 import { useDashboard } from '@/hooks';
 import { fmtInt } from '@/lib/format';
 import { NotesModal } from '@/components/NotesModal';
+import { useSignOut } from '@/components/layout/SignOut';
 
 /**
  * The launcher home.
@@ -66,10 +67,11 @@ type Tile = {
 
 export default function Home() {
   const {
-    isManager, canSeeInvoiceList, canSeeDashboard, canImport, canManageUsers,
+    isManager, canSeeInvoiceList, canSeeDashboard, canManageUsers,
   } = usePermissions();
   const { data: stats } = useDashboard(canSeeDashboard);
   const [notesOpen, setNotesOpen] = useState(false);
+  const { askToSignOut, dialog: signOutDialog } = useSignOut();
 
   // One flat list, no group headers -- the tiles carry their own meaning by
   // icon and colour, and the order still runs from the daily operations down
@@ -79,7 +81,6 @@ export default function Home() {
     { label: 'مبيع', icon: PackageMinus, to: '/invoices/new?type=STOCK_OUT', tone: 'red', show: true },
     { label: 'بحث الأصناف', icon: Package, to: '/items', tone: 'blue', show: true },
     { label: 'الفواتير', icon: FileText, to: '/invoices', tone: 'violet', show: canSeeInvoiceList },
-    { label: 'الجرد', icon: ClipboardList, to: '/stock-counts', tone: 'red', show: true, badge: stats?.counts.open_counts },
     { label: 'حركات المخزون', icon: ArrowLeftRight, to: '/movements', tone: 'blue', show: true },
     { label: 'نواقص المخزون', icon: TriangleAlert, to: '/reports/low-stock', tone: 'red', show: true, badge: stats?.low_stock_count },
     { label: 'التصنيفات', icon: Tags, to: '/categories', tone: 'lime', show: true },
@@ -89,11 +90,10 @@ export default function Home() {
     // A manager-only private notepad. An action, not a link -- it opens a sheet
     // rather than navigating, and the API refuses /notes for anyone else.
     { label: 'ملاحظات', icon: StickyNote, onClick: () => setNotesOpen(true), tone: 'violet', show: isManager },
-    { label: 'استيراد Excel', icon: FileSpreadsheet, to: '/import', tone: 'green', show: canImport },
     { label: 'المستخدمون', icon: Users, to: '/users', tone: 'blue', show: canManageUsers },
-    { label: 'الملفات', icon: FolderOpen, to: '/files', tone: 'teal', show: canManageUsers },
-    { label: 'النسخ الاحتياطي', icon: DatabaseBackup, to: '/backup', tone: 'violet', show: canManageUsers },
     { label: 'الإعدادات', icon: Settings, to: '/settings', tone: 'slate', show: true },
+    // Ends the grid: a sign-out that goes through the same confirm the nav uses.
+    { label: 'تسجيل الخروج', icon: LogOut, onClick: () => askToSignOut(), tone: 'red', show: true },
   ];
   const tiles = all.filter((t) => t.show);
 
@@ -132,6 +132,7 @@ export default function Home() {
       </div>
 
       {isManager && <NotesModal open={notesOpen} onClose={() => setNotesOpen(false)} />}
+      {signOutDialog}
     </>
   );
 }
