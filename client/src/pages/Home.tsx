@@ -69,8 +69,8 @@ export default function Home() {
   // icon and colour, and the order still runs from the daily operations down
   // to the manager-only tools.
   const all: Tile[] = [
-    { label: 'إدخال بضاعة', icon: PackagePlus, to: '/invoices/new?type=STOCK_IN', tone: 'green', show: true },
-    { label: 'إخراج بضاعة', icon: PackageMinus, to: '/invoices/new?type=STOCK_OUT', tone: 'red', show: true },
+    { label: 'شراء', icon: PackagePlus, to: '/invoices/new?type=STOCK_IN', tone: 'green', show: true },
+    { label: 'مبيع', icon: PackageMinus, to: '/invoices/new?type=STOCK_OUT', tone: 'red', show: true },
     { label: 'بحث الأصناف', icon: Package, to: '/items', tone: 'blue', show: true },
     { label: 'الفواتير', icon: FileText, to: '/invoices', tone: 'violet', show: canSeeInvoiceList },
     { label: 'الجرد', icon: ClipboardList, to: '/stock-counts', tone: 'red', show: true, badge: stats?.counts.open_counts },
