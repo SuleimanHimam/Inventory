@@ -3,12 +3,11 @@ import type { ComponentType } from 'react';
 import {
   Package, PackagePlus, PackageMinus, ClipboardList, Tags, ArrowLeftRight,
   TriangleAlert, FileSpreadsheet, Settings, LayoutDashboard, FileText, Users,
-  Truck, FolderOpen, DatabaseBackup, ChevronLeft,
+  Truck, FolderOpen, DatabaseBackup,
 } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { usePermissions } from '@/lib/permissions';
-import { useDashboard, useSettings } from '@/hooks';
-import { useSession } from '@/lib/session';
+import { useDashboard } from '@/hooks';
 import { fmtInt } from '@/lib/format';
 
 /**
@@ -61,147 +60,58 @@ type Tile = {
   badge?: number;
 };
 
-type Section = { title: string; tiles: Tile[] };
-
 export default function Home() {
   const {
-    isManager, canSeeInvoiceList, canSeeDashboard, canImport, canManageUsers,
+    canSeeInvoiceList, canSeeDashboard, canImport, canManageUsers,
   } = usePermissions();
-  const { data: settings } = useSettings();
   const { data: stats } = useDashboard(canSeeDashboard);
-  const email = useSession((s) => s.email);
 
-  const company = settings?.company_name?.trim() || 'مخزوني';
-
-  const sections: Section[] = [
-    {
-      title: 'عمليات سريعة',
-      tiles: [
-        { label: 'إدخال بضاعة', hint: 'فاتورة دخول جديدة', icon: PackagePlus, to: '/invoices/new?type=STOCK_IN', tone: 'green', show: true },
-        { label: 'إخراج بضاعة', hint: 'فاتورة إخراج جديدة', icon: PackageMinus, to: '/invoices/new?type=STOCK_OUT', tone: 'red', show: true },
-        { label: 'بحث الأصناف', hint: 'الكتالوج والأرصدة', icon: Package, to: '/items', tone: 'blue', show: true },
-      ],
-    },
-    {
-      title: 'المخزون والتقارير',
-      tiles: [
-        { label: 'الفواتير', hint: 'دخول وإخراج', icon: FileText, to: '/invoices', tone: 'violet', show: canSeeInvoiceList },
-        { label: 'الجرد', hint: 'فحص الكميات', icon: ClipboardList, to: '/stock-counts', tone: 'red', show: true, badge: stats?.counts.open_counts },
-        { label: 'حركات المخزون', hint: 'سجل كل حركة', icon: ArrowLeftRight, to: '/movements', tone: 'blue', show: true },
-        { label: 'نواقص المخزون', hint: 'ما اقترب من النفاد', icon: TriangleAlert, to: '/reports/low-stock', tone: 'red', show: true, badge: stats?.low_stock_count },
-        { label: 'التصنيفات', hint: 'تنظيم الأصناف', icon: Tags, to: '/categories', tone: 'lime', show: true },
-        { label: 'لوحة المعلومات', hint: 'الإحصائيات والرسوم', icon: LayoutDashboard, to: '/dashboard', tone: 'teal', show: canSeeDashboard },
-      ],
-    },
-    {
-      title: 'الجهات',
-      tiles: [
-        { label: 'العملاء', hint: 'كشوف الحساب', icon: Users, to: '/customers', tone: 'blue', show: true },
-        { label: 'الموردون', hint: 'كشوف الحساب', icon: Truck, to: '/suppliers', tone: 'teal', show: true },
-      ],
-    },
-    {
-      title: 'النظام',
-      tiles: [
-        { label: 'استيراد Excel', hint: 'إضافة أصناف دفعة', icon: FileSpreadsheet, to: '/import', tone: 'green', show: canImport },
-        { label: 'المستخدمون', hint: 'الحسابات والصلاحيات', icon: Users, to: '/users', tone: 'blue', show: canManageUsers },
-        { label: 'الملفات', hint: 'منشآت مستقلة', icon: FolderOpen, to: '/files', tone: 'teal', show: canManageUsers },
-        { label: 'النسخ الاحتياطي', hint: 'حفظ واسترجاع', icon: DatabaseBackup, to: '/backup', tone: 'violet', show: canManageUsers },
-        { label: 'الإعدادات', hint: 'العملة والأرقام والاسم', icon: Settings, to: '/settings', tone: 'slate', show: true },
-      ],
-    },
+  // One flat list, no group headers -- the tiles carry their own meaning by
+  // icon and colour, and the order still runs from the daily operations down
+  // to the manager-only tools.
+  const all: Tile[] = [
+    { label: 'إدخال بضاعة', hint: 'فاتورة دخول جديدة', icon: PackagePlus, to: '/invoices/new?type=STOCK_IN', tone: 'green', show: true },
+    { label: 'إخراج بضاعة', hint: 'فاتورة إخراج جديدة', icon: PackageMinus, to: '/invoices/new?type=STOCK_OUT', tone: 'red', show: true },
+    { label: 'بحث الأصناف', hint: 'الكتالوج والأرصدة', icon: Package, to: '/items', tone: 'blue', show: true },
+    { label: 'الفواتير', hint: 'دخول وإخراج', icon: FileText, to: '/invoices', tone: 'violet', show: canSeeInvoiceList },
+    { label: 'الجرد', hint: 'فحص الكميات', icon: ClipboardList, to: '/stock-counts', tone: 'red', show: true, badge: stats?.counts.open_counts },
+    { label: 'حركات المخزون', hint: 'سجل كل حركة', icon: ArrowLeftRight, to: '/movements', tone: 'blue', show: true },
+    { label: 'نواقص المخزون', hint: 'ما اقترب من النفاد', icon: TriangleAlert, to: '/reports/low-stock', tone: 'red', show: true, badge: stats?.low_stock_count },
+    { label: 'التصنيفات', hint: 'تنظيم الأصناف', icon: Tags, to: '/categories', tone: 'lime', show: true },
+    { label: 'العملاء', hint: 'كشوف الحساب', icon: Users, to: '/customers', tone: 'blue', show: true },
+    { label: 'الموردون', hint: 'كشوف الحساب', icon: Truck, to: '/suppliers', tone: 'teal', show: true },
+    { label: 'لوحة المعلومات', hint: 'الإحصائيات والرسوم', icon: LayoutDashboard, to: '/dashboard', tone: 'teal', show: canSeeDashboard },
+    { label: 'استيراد Excel', hint: 'إضافة أصناف دفعة', icon: FileSpreadsheet, to: '/import', tone: 'green', show: canImport },
+    { label: 'المستخدمون', hint: 'الحسابات والصلاحيات', icon: Users, to: '/users', tone: 'blue', show: canManageUsers },
+    { label: 'الملفات', hint: 'منشآت مستقلة', icon: FolderOpen, to: '/files', tone: 'teal', show: canManageUsers },
+    { label: 'النسخ الاحتياطي', hint: 'حفظ واسترجاع', icon: DatabaseBackup, to: '/backup', tone: 'violet', show: canManageUsers },
+    { label: 'الإعدادات', hint: 'العملة والأرقام والاسم', icon: Settings, to: '/settings', tone: 'slate', show: true },
   ];
-
-  const visible = sections
-    .map((s) => ({ ...s, tiles: s.tiles.filter((t) => t.show) }))
-    .filter((s) => s.tiles.length > 0);
-
-  const summary = [
-    { label: 'الأصناف', value: stats?.total_items },
-    { label: 'الوحدات', value: stats?.total_units },
-    { label: 'نواقص', value: stats?.low_stock_count, alert: true },
-    { label: 'جرد مفتوح', value: stats?.counts.open_counts, alert: true },
-  ].filter((s) => s.value != null);
+  const tiles = all.filter((t) => t.show);
 
   return (
-    <div className="space-y-6">
-      {/* Hero. The reference's dead "choose a customer" banner, turned into
-          something that earns its height: who you are, which file you are in,
-          and the four numbers worth a glance -- the rest is one tap into the
-          dashboard. */}
-      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-brand-600 to-brand-800 p-5 text-white sm:p-7">
-        <div className="pointer-events-none absolute -end-16 -top-20 size-64 rounded-full bg-white/10 blur-2xl" aria-hidden />
-        <div className="pointer-events-none absolute -bottom-24 -start-10 size-72 rounded-full bg-black/10 blur-2xl" aria-hidden />
-
-        <div className="relative">
-          <p className="text-xs text-white/70">أهلاً بك في</p>
-          <h1 className="mt-0.5 text-2xl font-bold leading-tight sm:text-3xl">{company}</h1>
-          {email && (
-            <p className="mt-1 truncate text-xs text-white/70">
-              الحساب: <span className="font-medium text-white/90">{email}</span>
-            </p>
+    <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+      {tiles.map((tile) => (
+        <Link
+          key={tile.to}
+          to={tile.to}
+          className="card group relative flex flex-col items-center gap-2.5 rounded-2xl p-4 text-center transition active:scale-[.97] sm:p-5"
+        >
+          {!!tile.badge && tile.badge > 0 && (
+            <span className="nums absolute end-2.5 top-2.5 rounded-full bg-accent-600 px-1.5 text-[11px] font-bold leading-5 text-white">
+              {fmtInt(tile.badge)}
+            </span>
           )}
-
-          {summary.length > 0 && (
-            <div className="mt-5 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:gap-3">
-              {summary.map((s) => (
-                <div key={s.label} className="rounded-2xl bg-white/10 px-3 py-2 backdrop-blur-sm sm:min-w-[7rem]">
-                  <p className="text-[11px] text-white/70">{s.label}</p>
-                  <p className={cn('nums text-lg font-bold', s.alert && Number(s.value) > 0 && 'text-amber-200')}>
-                    {fmtInt(Number(s.value))}
-                  </p>
-                </div>
-              ))}
-              {canSeeDashboard && (
-                <Link
-                  to="/dashboard"
-                  className="col-span-2 flex items-center justify-center gap-1 rounded-2xl bg-white/15 px-3 py-2 text-sm font-semibold text-white transition hover:bg-white/25 sm:col-span-1 sm:min-w-[7rem]"
-                >
-                  التفاصيل <ChevronLeft className="size-4" />
-                </Link>
-              )}
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* The tiles. Two columns on a phone, widening with the screen -- big
-          enough to hit without looking, which is the whole point of a launcher
-          over a menu. */}
-      {visible.map((section) => (
-        <section key={section.title}>
-          <h2 className="mb-2.5 px-1 text-sm font-bold text-muted">{section.title}</h2>
-          <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
-            {section.tiles.map((tile) => (
-              <Link
-                key={tile.to}
-                to={tile.to}
-                className="card group relative flex flex-col items-center gap-2.5 rounded-2xl p-4 text-center transition active:scale-[.97] sm:p-5"
-              >
-                {!!tile.badge && tile.badge > 0 && (
-                  <span className="nums absolute end-2.5 top-2.5 rounded-full bg-accent-600 px-1.5 text-[11px] font-bold leading-5 text-white">
-                    {fmtInt(tile.badge)}
-                  </span>
-                )}
-                <span className={cn(
-                  'grid size-14 place-items-center rounded-2xl transition-transform group-hover:scale-105',
-                  TONE[tile.tone].bg, TONE[tile.tone].text,
-                )}>
-                  <tile.icon className="size-7" />
-                </span>
-                <span className="text-sm font-bold leading-tight">{tile.label}</span>
-                <span className="text-[11px] leading-snug text-subtle">{tile.hint}</span>
-              </Link>
-            ))}
-          </div>
-        </section>
+          <span className={cn(
+            'grid size-14 place-items-center rounded-2xl transition-transform group-hover:scale-105',
+            TONE[tile.tone].bg, TONE[tile.tone].text,
+          )}>
+            <tile.icon className="size-7" />
+          </span>
+          <span className="text-sm font-bold leading-tight">{tile.label}</span>
+          <span className="text-[11px] leading-snug text-subtle">{tile.hint}</span>
+        </Link>
       ))}
-
-      {isManager && (
-        <p className="px-1 text-center text-[11px] text-subtle">
-          كل الأقسام متاحة أيضاً من الشريط العلوي وقائمة «المزيد».
-        </p>
-      )}
     </div>
   );
 }
