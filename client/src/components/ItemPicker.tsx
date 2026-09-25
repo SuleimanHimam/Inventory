@@ -121,42 +121,31 @@ export function ItemBrowserModal({
       onClose={onClose}
       size="full"
       title={(
-        <span className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
-          <span>{lineCount ? `المحدَّد: ${fmtInt(lineCount)} صنف` : 'اختر الأصناف'}</span>
-          {lineCount > 0 && (
-            <span className="text-xs font-normal text-muted">
-              {fmtInt(unitCount)} قطعة
-              {canSeeThisPrice && (
-                <>
-                  {' · الإجمالي '}
-                  <span className="nums font-bold text-brand-600 dark:text-brand-400">
-                    {fmtCurrency(totalAmount)}
-                  </span>
-                </>
-              )}
-            </span>
-          )}
-        </span>
-      )}
-      footer={(
-        <>
-          <Button variant="ghost" onClick={() => setCart({})} disabled={!lineCount || committing}>
-            تفريغ
-          </Button>
-          <Button variant="primary" onClick={commit} loading={committing} disabled={!lineCount}>
-            إضافة إلى الفاتورة{lineCount ? ` (${fmtInt(lineCount)})` : ''}
-          </Button>
-        </>
-      )}
-    >
-      <div className="-mx-5 -my-4">
-        {/* Sticky within the modal's own scroll region, not a separate one —
-            a second nested scrollbar is exactly what "full screen" should
-            avoid. On phone the category/low-stock filters start collapsed —
-            behind the toggle button — so the grid opens right under the
-            search box instead of below a tall filter bar. */}
-        <div className="sticky top-0 z-10 border-b border-line bg-surface">
-          <div className="flex flex-wrap items-center gap-2.5 px-5 py-3">
+        <div className="flex flex-col gap-2.5 pe-2">
+          {/* Running total, at the very top — the invoice builds up in view. */}
+          <span className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
+            <span>{lineCount ? `المحدَّد: ${fmtInt(lineCount)} صنف` : 'اختر الأصناف'}</span>
+            {lineCount > 0 && (
+              <span className="text-xs font-normal text-muted">
+                {fmtInt(unitCount)} قطعة
+                {canSeeThisPrice && (
+                  <>
+                    {' · الإجمالي '}
+                    <span className="nums font-bold text-brand-600 dark:text-brand-400">
+                      {fmtCurrency(totalAmount)}
+                    </span>
+                  </>
+                )}
+              </span>
+            )}
+          </span>
+
+          {/* Search and filters live in this top bar now, above the grid, so
+              they stay in place while the cards scroll under them. On a phone
+              the category and low-stock filters fold behind the toggle to keep
+              the bar short. font-normal resets the header's bold for the
+              controls. */}
+          <div className="flex flex-wrap items-center gap-2.5 text-sm font-normal">
             <SearchInput
               value={search}
               onValueChange={setSearch}
@@ -195,7 +184,19 @@ export function ItemBrowserModal({
             </div>
           </div>
         </div>
-
+      )}
+      footer={(
+        <>
+          <Button variant="ghost" onClick={() => setCart({})} disabled={!lineCount || committing}>
+            تفريغ
+          </Button>
+          <Button variant="primary" onClick={commit} loading={committing} disabled={!lineCount}>
+            إضافة إلى الفاتورة{lineCount ? ` (${fmtInt(lineCount)})` : ''}
+          </Button>
+        </>
+      )}
+    >
+      <div className="-mx-5 -my-4">
         <div className="p-4">
           {isLoading ? (
             <TableSkeleton rows={8} cols={5} />
