@@ -168,6 +168,34 @@ async function localAuthedRequest<T = { token: string; email: string }>(path: st
   return payload;
 }
 
+/* ------------------------------------------------------------------ files */
+/**
+ * A file (ملف) on this server — one database of its own, with its own data
+ * and its own users.
+ *
+ * The picker needs this *before* anyone is signed in, so it is the one API
+ * call the app makes without a token. It answers with names and ids only.
+ */
+export type FileChoice = { id: string; name: string };
+
+export async function listFiles(): Promise<FileChoice[]> {
+  const res = await fetch(`${API_BASE}/auth/files`);
+  if (!res.ok) return [];
+  const payload = await res.json().catch(() => ({}));
+  return Array.isArray(payload.data) ? payload.data : [];
+}
+
+/**
+ * The file the last successful sign-in used, remembered per device.
+ *
+ * An operator opens the same file every morning, and making them pick it from
+ * a list each time would be a worse login screen than the one this replaces.
+ * It is a convenience only — the server decides what the token is good for.
+ */
+const LAST_FILE_KEY = 'inv.last_file';
+export const lastFileId = () => safely(() => localStorage.getItem(LAST_FILE_KEY), null);
+const rememberFile = (id: string) => safely(() => localStorage.setItem(LAST_FILE_KEY, id), undefined);
+
 /** The bearer token for the next API call. */
 export async function getAccessToken(): Promise<string | null> {
   if (AUTH_BACKEND === 'local') return storedLocalSession()?.token ?? null;
@@ -220,10 +248,11 @@ export function onUnauthorized() {
   supabase.auth.signOut().catch(() => {});
 }
 
-export const signInWithPassword = async (email: string, password: string) => {
+export const signInWithPassword = async (email: string, password: string, fileId?: string) => {
   if (AUTH_BACKEND === 'local') {
-    const session = await localRequest('/auth/login', { email, password });
+    const session = await localRequest('/auth/login', { email, password, file_id: fileId });
     persistLocalSession(session.token, session.email);
+    if (fileId) rememberFile(fileId);
     return;
   }
   const { error } = await supabase!.auth.signInWithPassword({ email, password });

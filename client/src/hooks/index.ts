@@ -6,7 +6,7 @@ import { api } from '@/lib/api';
 import { subscribeInstallPrompt, getCanInstall, promptInstall } from '@/lib/installPrompt';
 import type {
   BackupConfig, BackupSet, BackupStatus, BrowseResult, Category, DashboardPeriod, DashboardStats,
-  ImportPreview, ImportResult,
+  AppFile, FileList, ImportPreview, ImportResult,
   Invoice, Item, ItemImage, ItemUnit, InvoiceSummary, Movement, OrgUser, Paginated, Party,
   PostProblem, RestoreResult, Settings, StockCount,
 } from '@/lib/types';
@@ -28,6 +28,7 @@ export const keys = {
   stockCounts: (params?: unknown) => ['stock-counts', params] as const,
   stockCount: (id: string) => ['stock-count', id] as const,
   users: ['users'] as const,
+  files: ['files'] as const,
   backup: ['backup'] as const,
 };
 
@@ -128,6 +129,43 @@ export function useUserMutations() {
     }),
     remove: useMutation({
       mutationFn: (id: string) => api.delete(`/users/${id}`),
+      onSuccess: done,
+    }),
+  };
+}
+
+/* ------------------------------------------------------------------ files */
+/**
+ * The files on this server. Manager-only, like `useUsers` — the endpoint 403s
+ * for anyone else, so the caller gates the query rather than firing one that
+ * cannot succeed.
+ */
+export const useFiles = (enabled = true) =>
+  useQuery({ queryKey: keys.files, queryFn: () => api.get<FileList>('/files'), enabled });
+
+export function useFileMutations() {
+  const qc = useQueryClient();
+  const done = () => qc.invalidateQueries({ queryKey: keys.files });
+  return {
+    create: useMutation({
+      mutationFn: (body: { name: string; manager_username: string; manager_password: string }) =>
+        api.post<AppFile>('/files', body),
+      onSuccess: done,
+    }),
+    rename: useMutation({
+      mutationFn: ({ id, name }: { id: string; name: string }) =>
+        api.patch<AppFile>(`/files/${id}`, { name }),
+      onSuccess: done,
+    }),
+    /*
+     * Irreversible, and the API demands the manager's own password again
+     * before it will do it — a token is whoever picked the tablet up, and
+     * this is the one action where that is not good enough.
+     */
+    remove: useMutation({
+      mutationFn: ({ id, password, force }: { id: string; password: string; force?: boolean }) =>
+        api.delete<{ id: string; name: string; backup: string | null }>(`/files/${id}`,
+          { password, force }),
       onSuccess: done,
     }),
   };

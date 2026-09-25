@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ComponentType } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
+  FolderOpen,
   Package, PackagePlus, PackageMinus, Tags, FileSpreadsheet, TriangleAlert,
   ArrowLeftRight, ClipboardList, PlayCircle, Settings, Moon, Sun, FileText,
   ChevronUp, ChevronDown, Download, LayoutDashboard, User, Users, LogOut, DatabaseBackup,
@@ -192,6 +193,7 @@ export function Ribbon() {
             ...(canManageUsers
               ? [
                 { label: 'المستخدمون', icon: Users, run: go('/users'), big: true, tone: 'blue' as const },
+                { label: 'الملفات', icon: FolderOpen, run: go('/files'), big: true, tone: 'teal' as const },
                 { label: 'النسخ الاحتياطي', icon: DatabaseBackup, run: go('/backup'), big: true, tone: 'violet' as const },
               ]
               : []),

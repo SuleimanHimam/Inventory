@@ -9,12 +9,13 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { wrap, parse } from '../lib/http.js';
-import { get, run, newId, runWithoutOrg } from '../db/index.js';
+import { get, run, newId, runWithoutOrg, bindFile, DB_NAME } from '../db/index.js';
 import { hashPassword, verifyPassword, hasNoPassword } from '../lib/password.js';
 import {
-  AUTH_MODE, authConfigError, issueLocalToken, authenticate,
+  AUTH_MODE, authConfigError, issueLocalToken, authenticate, fileContext,
 } from '../lib/auth.js';
 import { resolveOrg } from '../lib/orgs.js';
+import { listFiles, fileOr404 } from '../lib/files.js';
 import { badRequest, conflict, unauthorized, unavailable, guard } from '../lib/errors.js';
 
 const router = Router();
@@ -31,7 +32,23 @@ const router = Router();
 const credentials = z.object({
   email: z.string().trim().toLowerCase().min(1, 'اسم المستخدم مطلوب').max(320),
   password: z.string().max(200).optional().default(''),
+  /*
+   * Which file to sign in to.
+   *
+   * Optional, and absent means the configured one — the shape a single-file
+   * deployment (and the test suite) still sends. An account lives in exactly
+   * one file, so this is not a preference the server can infer: two files may
+   * each have a `manager`, and they are different people.
+   */
+  file_id: z.string().trim().max(128).optional(),
 });
+
+/** The file a request names, confirmed to exist. */
+async function resolveFile(fileId) {
+  if (!fileId || fileId === DB_NAME) return DB_NAME;
+  await fileOr404(fileId);
+  return fileId;
+}
 
 /** Every handler below needs AUTH_MODE=local, correctly configured. */
 function requireLocalMode(_req, _res, next) {
@@ -67,40 +84,65 @@ function clearFailures(email) {
   attempts.delete(email);
 }
 
+/**
+ * The files on this server, for the picker on the login screen.
+ *
+ * Unauthenticated by necessity — it is what the login form needs *before*
+ * anyone can prove who they are. It answers with names and ids only: no
+ * counts, no users, nothing about what is inside. On a LAN deployment reached
+ * through a shortcut that is the right trade, but it does mean a file's name
+ * is visible to anyone who can open the login page, so managers should name
+ * files for recognition rather than for secrecy.
+ */
+router.get('/files', wrap(async (_req, res) => {
+  const files = await listFiles();
+  res.json({ data: files.map((f) => ({ id: f.id, name: f.name })) });
+}));
+
 router.post('/register', wrap(async (req, res) => {
-  const { email, password } = parse(credentials, req.body);
+  const { email, password, file_id: fileId } = parse(credentials, req.body);
+  const file = await resolveFile(fileId);
 
   // The login page has no sign-up option — this deployment is single-admin.
   // Guarded here too, not just in the UI, so the endpoint itself refuses a
   // second account rather than relying on the button being hidden.
-  const anyUser = await runWithoutOrg(() => get('SELECT id FROM users', {}));
-  if (anyUser) throw unavailable('التسجيل الذاتي غير متاح — تواصل مع مسؤول النظام', 'REGISTRATION_DISABLED');
+  // Every statement below runs inside the chosen file's database, which is
+  // where that file's accounts live — `users` is per-file now, so the same
+  // username may exist in another file and is none of this file's business.
+  const { token } = await bindFile(file, async () => {
+    const anyUser = await runWithoutOrg(() => get('SELECT id FROM users', {}));
+    if (anyUser) throw unavailable('التسجيل الذاتي غير متاح — تواصل مع مسؤول النظام', 'REGISTRATION_DISABLED');
 
-  const existing = await runWithoutOrg(() => get(
-    'SELECT id FROM users WHERE lower(email) = @email', { email },
-  ));
-  if (existing) throw conflict('اسم المستخدم هذا مسجّل بالفعل — سجّل الدخول', 'EMAIL_TAKEN');
+    const existing = await runWithoutOrg(() => get(
+      'SELECT id FROM users WHERE lower(email) = @email', { email },
+    ));
+    if (existing) throw conflict('اسم المستخدم هذا مسجّل بالفعل — سجّل الدخول', 'EMAIL_TAKEN');
 
-  const userId = newId();
-  const password_hash = await hashPassword(password);
-  await guard(() => runWithoutOrg(() => run(
-    'INSERT INTO users (id, email, password_hash) VALUES (@id, @email, @password_hash)',
-    { id: userId, email, password_hash },
-  )));
+    const userId = newId();
+    const password_hash = await hashPassword(password);
+    await guard(() => runWithoutOrg(() => run(
+      'INSERT INTO users (id, email, password_hash) VALUES (@id, @email, @password_hash)',
+      { id: userId, email, password_hash },
+    )));
 
-  await runWithoutOrg(() => resolveOrg({ userId, email }));
-
-  const token = await issueLocalToken({ userId, email });
+    await runWithoutOrg(() => resolveOrg({ userId, email }));
+    return { token: await issueLocalToken({ userId, email, file }) };
+  });
   res.status(201).json({ token, email });
 }));
 
 router.post('/login', wrap(async (req, res) => {
-  const { email, password } = parse(credentials, req.body);
-  checkLockout(email);
+  const { email, password, file_id: fileId } = parse(credentials, req.body);
+  const file = await resolveFile(fileId);
+  // Keyed by file as well as username: the same name in two files belongs to
+  // two different people, and one of them failing to sign in must not lock
+  // out the other.
+  const lockKey = `${file}:${email}`;
+  checkLockout(lockKey);
 
-  const user = await runWithoutOrg(() => get(
+  const user = await bindFile(file, () => runWithoutOrg(() => get(
     'SELECT id, password_hash FROM users WHERE lower(email) = @email', { email },
-  ));
+  )));
   // Same message whether the email is unknown or the password is wrong — the
   // difference is not this API's to reveal.
   const invalid = () => unauthorized('اسم المستخدم أو كلمة المرور غير صحيحة', 'INVALID_CREDENTIALS');
@@ -119,12 +161,12 @@ router.post('/login', wrap(async (req, res) => {
   const open = user && hasNoPassword(user.password_hash);
 
   if (!user || !(open || await verifyPassword(password, user.password_hash))) {
-    recordFailure(email);
+    recordFailure(lockKey);
     throw invalid();
   }
-  clearFailures(email);
+  clearFailures(lockKey);
 
-  const token = await issueLocalToken({ userId: user.id, email });
+  const token = await issueLocalToken({ userId: user.id, email, file });
   res.json({ token, email });
 }));
 
@@ -141,7 +183,7 @@ router.post('/logout', authenticate, wrap(async (_req, res) => {
   res.status(204).end();
 }));
 
-router.post('/change-username', authenticate, wrap(async (req, res) => {
+router.post('/change-username', authenticate, fileContext, wrap(async (req, res) => {
   const { new_username, current_password } = parse(z.object({
     new_username: z.string().trim().toLowerCase().min(1, 'اسم المستخدم مطلوب').max(320),
     current_password: z.string(),
@@ -173,11 +215,11 @@ router.post('/change-username', authenticate, wrap(async (req, res) => {
 
   // The old token's `email` claim is now stale, so a fresh one goes out with
   // the response — the client swaps it in immediately, no re-login needed.
-  const token = await issueLocalToken({ userId: user.id, email: new_username });
+  const token = await issueLocalToken({ userId: user.id, email: new_username, file: req.auth.file });
   res.json({ token, email: new_username });
 }));
 
-router.post('/change-password', authenticate, wrap(async (req, res) => {
+router.post('/change-password', authenticate, fileContext, wrap(async (req, res) => {
   const { current_password, new_password } = parse(z.object({
     current_password: z.string(),
     // No floor, and an empty value removes the password entirely — the same

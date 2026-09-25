@@ -1,6 +1,7 @@
 import { useEffect, useState, type ComponentType } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
+  FolderOpen,
   Package, PackagePlus, PackageMinus, ClipboardList, MoreHorizontal, Tags,
   ArrowLeftRight, TriangleAlert, FileSpreadsheet, Settings, LayoutDashboard,
   Moon, Sun, X, Download, FileText, Users, LogOut, DatabaseBackup,
@@ -113,6 +114,7 @@ export function MobileNav() {
     ...(canManageUsers
       ? [
         { label: 'المستخدمون', icon: Users, to: '/users', tone: 'blue' } as Dest,
+        { label: 'الملفات', icon: FolderOpen, to: '/files', tone: 'teal' } as Dest,
         { label: 'النسخ الاحتياطي', icon: DatabaseBackup, to: '/backup', tone: 'violet' } as Dest,
       ]
       : []),

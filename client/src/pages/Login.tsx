@@ -1,11 +1,12 @@
-import { useState, type FormEvent } from 'react';
+import { useState, useEffect, type FormEvent } from 'react';
 import {
   Boxes, KeyRound, Mail, ArrowLeft, Eye, EyeOff, Sun, Moon,
-  PackageSearch, FileText, TrendingUp, ShieldCheck,
+  PackageSearch, FileText, TrendingUp, ShieldCheck, FolderOpen,
 } from 'lucide-react';
-import { Button, Card, Field, Input } from '@/components/ui';
+import { Button, Card, Field, Input, Select } from '@/components/ui';
 import {
   signInWithPassword, sendMagicLink, sendPasswordReset, AUTH_BACKEND,
+  listFiles, lastFileId, type FileChoice,
 } from '@/lib/session';
 
 /** Local accounts have no email delivery behind them — hide what needs one. */
@@ -50,6 +51,35 @@ export default function Login() {
   const [notice, setNotice] = useState<string | null>(null);
   const { theme, toggleTheme } = usePrefs();
 
+  /*
+   * Which file to sign in to.
+   *
+   * An account lives inside one file and nowhere else, so this is part of the
+   * credential, not a preference: two files may each have a `manager`, and
+   * they are different people. The list is fetched before login because it is
+   * what the form needs in order to be answerable at all.
+   *
+   * A server with one file shows no picker. Asking someone to choose from a
+   * list of one is a question with no information in it, and this screen is
+   * used every morning.
+   */
+  const [files, setFiles] = useState<FileChoice[]>([]);
+  const [fileId, setFileId] = useState<string>('');
+
+  useEffect(() => {
+    if (!IS_LOCAL) return;
+    let cancelled = false;
+    listFiles().then((found) => {
+      if (cancelled) return;
+      setFiles(found);
+      // The one used last on this device, if it is still there.
+      const remembered = lastFileId();
+      const initial = found.find((f) => f.id === remembered)?.id ?? found[0]?.id ?? '';
+      setFileId(initial);
+    }).catch(() => { /* No picker, and the server falls back to its own file. */ });
+    return () => { cancelled = true; };
+  }, []);
+
   const resetMessages = () => { setError(null); setNotice(null); };
   const switchMode = (next: Mode) => { setMode(next); resetMessages(); };
 
@@ -65,7 +95,7 @@ export default function Login() {
         await sendPasswordReset(email.trim());
         setNotice('أرسلنا رابطاً لإعادة تعيين كلمة المرور إلى بريدك الإلكتروني.');
       } else {
-        await signInWithPassword(email.trim(), password);
+        await signInWithPassword(email.trim(), password, fileId || undefined);
       }
     } catch (err) {
       setError(explain(err));
@@ -150,6 +180,24 @@ export default function Login() {
             <h2 className="mb-5 text-base font-bold">{title}</h2>
 
             <form onSubmit={submit} className="space-y-4">
+              {/* Only when there is a real choice to make — see the state above. */}
+              {needsPassword && files.length > 1 && (
+                <Field label="الملف" hint="لكل ملف بياناته ومستخدموه">
+                  <div className="relative">
+                    <Select
+                      value={fileId}
+                      onChange={(e) => setFileId(e.target.value)}
+                      className="ps-9"
+                    >
+                      {files.map((f) => (
+                        <option key={f.id} value={f.id}>{f.name}</option>
+                      ))}
+                    </Select>
+                    <FolderOpen className="pointer-events-none absolute start-2.5 top-[1.925rem] size-4 -translate-y-1/2 text-subtle" />
+                  </div>
+                </Field>
+              )}
+
               <Field label={IS_LOCAL ? 'اسم المستخدم' : 'البريد الإلكتروني'}>
                 <Input type={IS_LOCAL ? 'text' : 'email'} dir={IS_LOCAL ? 'auto' : 'ltr'} required
                   autoComplete={IS_LOCAL ? 'username' : 'email'} autoFocus

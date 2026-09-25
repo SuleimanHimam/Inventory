@@ -53,11 +53,16 @@ import sql from 'mssql';
 import archiver from 'archiver';
 import unzipper from 'unzipper';
 import {
-  DB_SERVER, DB_NAME, DB_USER, DB_PASSWORD, DB_OPTIONS, configError,
+  DB_NAME, configError, currentDb,
   beginMaintenance, endMaintenance, get, all as allRows, runWithoutOrg,
 } from '../db/index.js';
+import {
+  adminPool, adminQuery, sqlDetail, isPermissionError, closeAdminPool,
+} from './adminSql.js';
 import { UPLOADS_DIR, STORAGE_DRIVER } from './storage.js';
 import { badRequest, conflict, notFound, unavailable, AppError } from './errors.js';
+
+export { closeAdminPool };
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -68,6 +73,21 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
  */
 export const BACKUP_DIR = process.env.BACKUP_DIR
   ?? path.resolve(__dirname, '../../../backups');
+
+/**
+ * Where *this file's* sets live.
+ *
+ * Each file is its own database and gets its own folder of backup sets, so
+ * deleting, restoring or copying one file's history never touches another's.
+ *
+ * The configured database keeps the root folder itself rather than moving
+ * into a subfolder of its own. That is deliberate: `backup.ps1`, the
+ * scheduled task and every set an existing deployment has already written all
+ * live there, and quietly relocating them would present an operator with an
+ * empty backup list on the morning after an upgrade — the exact moment
+ * confidence in backups matters most.
+ */
+const setsDir = () => (currentDb() === DB_NAME ? BACKUP_DIR : path.join(BACKUP_DIR, currentDb()));
 
 /** Staging for an upload before it has been proven to be a real backup. */
 const INCOMING_DIR = path.join(BACKUP_DIR, '.incoming');
@@ -81,86 +101,24 @@ const SET_NAME = /^\d{4}-\d{2}-\d{2}_\d{4}$/;
 const SET_FILES = new Set(['database.bak', 'uploads.zip', 'manifest.json']);
 
 /**
- * `DB_NAME` reaches T-SQL as an identifier, which cannot be a bind parameter.
- * Every other value below is parameterised; this one is validated instead.
+ * The database reaches T-SQL as an identifier, which cannot be a bind
+ * parameter. Every other value below is parameterised; this one is validated
+ * instead.
+ *
+ * It is `currentDb()` and not `DB_NAME` because every file is its own
+ * database: backing up means backing up *the file the caller is in*, and a
+ * pre-delete backup means backing up the file about to be dropped, which the
+ * caller is explicitly bound to at that moment.
  */
 function dbIdentifier() {
   if (configError) throw configError;
-  if (!/^[A-Za-z_][A-Za-z0-9_$#]{0,127}$/.test(DB_NAME)) {
-    throw new AppError(500, `اسم قاعدة البيانات غير صالح: ${DB_NAME}`, 'BAD_DB_NAME');
+  const database = currentDb();
+  if (!/^[A-Za-z_][A-Za-z0-9_$#]{0,127}$/.test(database)) {
+    throw new AppError(500, `اسم قاعدة البيانات غير صالح: ${database}`, 'BAD_DB_NAME');
   }
-  return `[${DB_NAME}]`;
+  return `[${database}]`;
 }
 
-/* ------------------------------------------------------------- admin pool */
-let admin = null;
-let adminPromise = null;
-
-/**
- * A second pool, bound to `master`.
- *
- * `requestTimeout: 0` because a BACKUP or RESTORE is measured in minutes on a
- * large database and the application pool's 20-second ceiling would abort it
- * halfway. `max: 2` because only one maintenance operation runs at a time and
- * an idle pool here should cost nothing.
- */
-async function adminPool() {
-  if (configError) throw configError;
-  if (!adminPromise) {
-    admin = new sql.ConnectionPool({
-      server: DB_SERVER,
-      database: 'master',
-      user: DB_USER,
-      password: DB_PASSWORD,
-      options: DB_OPTIONS,
-      pool: { max: 2, idleTimeoutMillis: 30_000 },
-      requestTimeout: 0,
-      connectionTimeout: 15_000,
-    });
-    admin.on('error', (err) => console.error('[backup] admin pool error', err));
-    adminPromise = admin.connect().catch((err) => {
-      adminPromise = null;
-      throw err;
-    });
-  }
-  await adminPromise;
-  return admin;
-}
-
-/** Run one statement on the master connection. `params` are bound, never interpolated. */
-async function adminQuery(text, params = {}) {
-  const pool = await adminPool();
-  const request = pool.request();
-  for (const [name, value] of Object.entries(params)) request.input(name, value);
-  return request.query(text);
-}
-
-/**
- * The message a failed RESTORE actually deserves.
- *
- * SQL Server reports these as a chain and the driver surfaces only the last
- * link, which is invariably the useless one: a `RESTORE HEADERONLY` refused
- * for lack of permission arrives as "RESTORE HEADERONLY is terminating
- * abnormally", with the real reason — "CREATE DATABASE permission denied in
- * database 'master'" — sitting in `precedingErrors` where nobody looks. Every
- * error surfaced from this module goes through here.
- */
-function sqlDetail(err) {
-  const chain = err?.precedingErrors ?? [];
-  const causes = chain.map((e) => String(e.message).split('\n')[0]).filter(Boolean);
-  const last = String(err?.message ?? '').split('\n')[0];
-  return causes.length ? `${causes.join(' — ')} (${last})` : last;
-}
-
-/** True when SQL Server refused for lack of permission rather than a bad file. */
-function isPermissionError(err) {
-  const numbers = [err?.number, ...(err?.precedingErrors ?? []).map((e) => e.number)];
-  // 262 CREATE DATABASE permission denied, 229/230 generic permission denied.
-  return numbers.some((n) => n === 262 || n === 229 || n === 230)
-    || /permission (was )?denied/i.test(sqlDetail(err));
-}
-
-export const closeAdminPool = () => (admin ? admin.close().catch(() => {}) : Promise.resolve());
 
 /* ----------------------------------------------------------- capabilities */
 /**
@@ -238,7 +196,7 @@ async function requireBackupRights() {
 }
 
 /* ------------------------------------------------------------------ sets */
-const setPath = (name) => path.join(BACKUP_DIR, name);
+const setPath = (name) => path.join(setsDir(), name);
 
 /** Reject anything that is not a bare set name — no traversal, no absolute paths. */
 function validSetName(name) {
@@ -280,8 +238,8 @@ async function readManifest(dir) {
 
 /** Every set on disk, newest first. */
 export async function listSets() {
-  await fsp.mkdir(BACKUP_DIR, { recursive: true });
-  const entries = await fsp.readdir(BACKUP_DIR, { withFileTypes: true });
+  await fsp.mkdir(setsDir(), { recursive: true });
+  const entries = await fsp.readdir(setsDir(), { withFileTypes: true });
   const sets = [];
 
   for (const entry of entries) {
@@ -358,7 +316,7 @@ async function currentCounts() {
  */
 export async function createSet({ source = 'manual' } = {}) {
   await requireBackupRights();
-  await fsp.mkdir(BACKUP_DIR, { recursive: true });
+  await fsp.mkdir(setsDir(), { recursive: true });
 
   const name = stampFor(new Date());
   const dir = setPath(name);
@@ -396,7 +354,7 @@ export async function createSet({ source = 'manual' } = {}) {
   }
 
   if (STORAGE_DRIVER === 'local' && fs.existsSync(UPLOADS_DIR)) {
-    await zipFolder(UPLOADS_DIR, path.join(dir, 'uploads.zip'));
+    await zipOwnUploads(path.join(dir, 'uploads.zip'));
   }
 
   const manifest = {
@@ -432,6 +390,44 @@ function zipFolder(folder, destination) {
     zip.on('error', reject);
     zip.pipe(out);
     zip.directory(folder, false);
+    zip.finalize();
+  });
+}
+
+/**
+ * Zip just this file's product photos.
+ *
+ * Every file is its own database, but they share one uploads folder on disk.
+ * That is deliberate — `items.image_file` holds a bare filename, `/uploads/`
+ * serves it without authentication because an `<img>` tag cannot send a
+ * bearer token, and giving each file its own subfolder would change every
+ * image URL in the app and require moving the photos an existing deployment
+ * already has.
+ *
+ * What a *backup* must not do, though, is put one file's photos into another
+ * file's set: restoring it would scatter images across files that never owned
+ * them, and the set would grow with every unrelated file on the server. So
+ * the set is packed from the filenames this file's own rows reference, which
+ * is exactly what restoring it would need and nothing else. The names are
+ * UUIDs, so there is no collision to worry about between files.
+ */
+async function zipOwnUploads(destination) {
+  const rows = await runWithoutOrg(() => allRows(
+    "SELECT DISTINCT image_file FROM items WHERE image_file IS NOT NULL AND image_file <> ''", {},
+  ));
+  return new Promise((resolve, reject) => {
+    const out = fs.createWriteStream(destination);
+    const zip = archiver('zip', { zlib: { level: 6 } });
+    out.on('close', resolve);
+    out.on('error', reject);
+    zip.on('error', reject);
+    zip.pipe(out);
+    for (const { image_file: name } of rows) {
+      const source = path.join(UPLOADS_DIR, name);
+      // A row whose photo is missing from disk is a known, survivable state
+      // (see thumbnails.js); it must not fail the whole backup.
+      if (fs.existsSync(source)) zip.file(source, { name });
+    }
     zip.finalize();
   });
 }
