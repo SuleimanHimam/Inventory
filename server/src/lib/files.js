@@ -216,7 +216,18 @@ async function grantAppAccess(dbName) {
   const userLiteral = literal(DB_USER, 'المستخدم');
   await adminQuery(`
     USE ${db};
-    IF DATABASE_PRINCIPAL_ID(${userLiteral}) IS NULL
+    /*
+     * Check by SID, not by name. When app_api is dbcreator it OWNS the
+     * database it just made, which maps its login into that database as dbo --
+     * a principal whose name is 'dbo', not 'app_api'. A name check
+     * (DATABASE_PRINCIPAL_ID('app_api')) sees no such principal, decides the
+     * user is missing, and runs CREATE USER -- which SQL Server refuses with
+     * "the login already has an account under a different user name", because
+     * the login's SID is already mapped to dbo. Matching on SUSER_SID finds
+     * that dbo mapping and correctly does nothing: dbo already has every right
+     * this block would grant.
+     */
+    IF NOT EXISTS (SELECT 1 FROM sys.database_principals WHERE sid = SUSER_SID(${userLiteral}))
        AND EXISTS (SELECT 1 FROM sys.server_principals WHERE name = ${userLiteral})
     BEGIN
       CREATE USER ${user} FOR LOGIN ${user};
