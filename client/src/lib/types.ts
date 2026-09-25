@@ -402,9 +402,13 @@ export type FileList = {
   reason: string | null;
 };
 
-export type ManagerNotes = {
+export type ManagerNote = {
+  id: string;
+  title: string;
   body: string;
-  updated_at: string | null;
+  pinned: boolean;
+  created_at: string;
+  updated_at: string;
 };
 
 export type OrgUser = {

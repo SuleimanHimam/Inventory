@@ -2,7 +2,8 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { wrap, parse, pageQuery, paginated } from '../lib/http.js';
 import { requireManager, requireNotClerk } from '../lib/roles.js';
-import { getSettings, setSettings, get, run } from '../db/index.js';
+import { notFound } from '../lib/errors.js';
+import { getSettings, setSettings, get, all, run, newId } from '../db/index.js';
 import { dashboardStats, DASHBOARD_PERIODS } from '../services/items.service.js';
 import { listMovements } from '../services/invoices.service.js';
 
@@ -69,30 +70,70 @@ router.patch('/settings', requireManager, wrap(async (req, res) => {
 }));
 
 /*
- * The manager's private notepad — manager-only on both verbs, and kept out of
- * /settings precisely because that endpoint is readable by every role. One row
- * per org (see migration 009), created on first save.
+ * The manager's private notepad — many notes now, searchable and filterable,
+ * manager-only on every verb. Kept out of /settings precisely because that
+ * endpoint is readable by every role (migration 010).
  */
+const noteBody = z.object({
+  title: z.string().trim().max(200).optional(),
+  body: z.string().max(20000).optional(),
+  pinned: z.boolean().optional(),
+});
+
 router.get('/notes', requireManager, wrap(async (req, res) => {
-  const row = await get(
-    'SELECT body, updated_at FROM manager_notes WHERE org_id = @org',
-    { org: req.auth.orgId },
+  const params = { org: req.auth.orgId };
+  let where = 'org_id = @org';
+  const search = String(req.query.search ?? '').trim();
+  if (search) { params.q = `%${search}%`; where += ' AND (title LIKE @q OR body LIKE @q)'; }
+  if (String(req.query.pinned ?? '') === 'true') where += ' AND pinned = 1';
+
+  const rows = await all(
+    `SELECT id, title, body, pinned, created_at, updated_at
+       FROM manager_notes WHERE ${where}
+      ORDER BY pinned DESC, updated_at DESC`,
+    params,
   );
-  res.json({ body: row?.body ?? '', updated_at: row?.updated_at ?? null });
+  res.json({ data: rows.map((r) => ({ ...r, pinned: !!r.pinned })) });
 }));
 
-router.patch('/notes', requireManager, wrap(async (req, res) => {
-  const { body } = parse(z.object({ body: z.string().max(20000) }), req.body);
-  // Upsert under the row lock, the same check-then-write pattern the counters
-  // and settings use, so two saves racing cannot insert two rows for one org.
+router.post('/notes', requireManager, wrap(async (req, res) => {
+  const { title = '', body = '', pinned = false } = parse(noteBody, req.body);
+  const id = newId();
   await run(
-    `IF EXISTS (SELECT 1 FROM manager_notes WITH (UPDLOCK, HOLDLOCK) WHERE org_id = @org)
-       UPDATE manager_notes SET body = @body, updated_at = dbo.iso_now() WHERE org_id = @org;
-     ELSE
-       INSERT INTO manager_notes (org_id, body) VALUES (@org, @body);`,
-    { org: req.auth.orgId, body },
+    `INSERT INTO manager_notes (id, org_id, title, body, pinned)
+     VALUES (@id, @org, @title, @body, @pinned)`,
+    { id, org: req.auth.orgId, title, body, pinned: pinned ? 1 : 0 },
   );
-  res.json({ body, updated_at: new Date().toISOString() });
+  res.status(201).json({ id });
+}));
+
+router.patch('/notes/:id', requireManager, wrap(async (req, res) => {
+  const { title, body, pinned } = parse(noteBody, req.body);
+  // COALESCE keeps any field the request left out, so a pin toggle from the
+  // list and a full edit from the editor both use one statement.
+  const result = await run(
+    `UPDATE manager_notes SET
+       title = COALESCE(@title, title),
+       body = COALESCE(@body, body),
+       pinned = COALESCE(@pinned, pinned),
+       updated_at = dbo.iso_now()
+     WHERE id = @id AND org_id = @org`,
+    {
+      id: req.params.id,
+      org: req.auth.orgId,
+      title: title ?? null,
+      body: body ?? null,
+      pinned: pinned === undefined ? null : (pinned ? 1 : 0),
+    },
+  );
+  if (!result.changes) throw notFound('الملاحظة غير موجودة', 'NOTE_NOT_FOUND');
+  res.json({ ok: true });
+}));
+
+router.delete('/notes/:id', requireManager, wrap(async (req, res) => {
+  await run('DELETE FROM manager_notes WHERE id = @id AND org_id = @org',
+    { id: req.params.id, org: req.auth.orgId });
+  res.status(204).end();
 }));
 
 export default router;

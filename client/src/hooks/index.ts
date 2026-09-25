@@ -6,7 +6,7 @@ import { api } from '@/lib/api';
 import { subscribeInstallPrompt, getCanInstall, promptInstall } from '@/lib/installPrompt';
 import type {
   BackupConfig, BackupSet, BackupStatus, BrowseResult, Category, DashboardPeriod, DashboardStats,
-  AppFile, FileList, ManagerNotes, ImportPreview, ImportResult,
+  AppFile, FileList, ManagerNote, ImportPreview, ImportResult,
   Invoice, Item, ItemImage, ItemUnit, InvoiceSummary, Movement, OrgUser, Paginated, Party,
   PostProblem, RestoreResult, Settings, StockCount,
 } from '@/lib/types';
@@ -29,7 +29,7 @@ export const keys = {
   stockCount: (id: string) => ['stock-count', id] as const,
   users: ['users'] as const,
   files: ['files'] as const,
-  notes: ['notes'] as const,
+  notes: (params?: unknown) => ['notes', params] as const,
   backup: ['backup'] as const,
 };
 
@@ -137,19 +137,41 @@ export function useUserMutations() {
 
 /* ------------------------------------------------------------------ notes */
 /**
- * The manager's private notepad. Manager-only on the API (requireManager), so
- * the caller gates the query the same way `useUsers` does rather than firing
- * one that would 403.
+ * The manager's private notepad — many notes, searchable. Manager-only on the
+ * API (requireManager), so the caller gates the query the same way `useUsers`
+ * does rather than firing one that would 403.
  */
-export const useNotes = (enabled = true) =>
-  useQuery({ queryKey: keys.notes, queryFn: () => api.get<ManagerNotes>('/notes'), enabled });
+export type NotesQuery = { search?: string; pinned?: boolean };
 
-export function useSaveNotes() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (body: string) => api.patch<ManagerNotes>('/notes', { body }),
-    onSuccess: (data) => qc.setQueryData(keys.notes, data),
+export const useNotes = (params: NotesQuery, enabled = true) =>
+  useQuery({
+    queryKey: keys.notes(params),
+    queryFn: () => api.get<{ data: ManagerNote[] }>('/notes', {
+      search: params.search || undefined,
+      pinned: params.pinned ? 'true' : undefined,
+    }),
+    enabled,
   });
+
+export function useNoteMutations() {
+  const qc = useQueryClient();
+  const done = () => qc.invalidateQueries({ queryKey: ['notes'] });
+  return {
+    create: useMutation({
+      mutationFn: (body: { title?: string; body?: string; pinned?: boolean }) =>
+        api.post<{ id: string }>('/notes', body),
+      onSuccess: done,
+    }),
+    update: useMutation({
+      mutationFn: ({ id, ...body }: { id: string; title?: string; body?: string; pinned?: boolean }) =>
+        api.patch(`/notes/${id}`, body),
+      onSuccess: done,
+    }),
+    remove: useMutation({
+      mutationFn: (id: string) => api.delete(`/notes/${id}`),
+      onSuccess: done,
+    }),
+  };
 }
 
 /* ------------------------------------------------------------------ files */
