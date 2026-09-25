@@ -52,7 +52,6 @@ const TONE = {
 
 type Tile = {
   label: string;
-  hint: string;
   icon: Icon;
   to: string;
   tone: Tone;
@@ -70,22 +69,22 @@ export default function Home() {
   // icon and colour, and the order still runs from the daily operations down
   // to the manager-only tools.
   const all: Tile[] = [
-    { label: 'إدخال بضاعة', hint: 'فاتورة دخول جديدة', icon: PackagePlus, to: '/invoices/new?type=STOCK_IN', tone: 'green', show: true },
-    { label: 'إخراج بضاعة', hint: 'فاتورة إخراج جديدة', icon: PackageMinus, to: '/invoices/new?type=STOCK_OUT', tone: 'red', show: true },
-    { label: 'بحث الأصناف', hint: 'الكتالوج والأرصدة', icon: Package, to: '/items', tone: 'blue', show: true },
-    { label: 'الفواتير', hint: 'دخول وإخراج', icon: FileText, to: '/invoices', tone: 'violet', show: canSeeInvoiceList },
-    { label: 'الجرد', hint: 'فحص الكميات', icon: ClipboardList, to: '/stock-counts', tone: 'red', show: true, badge: stats?.counts.open_counts },
-    { label: 'حركات المخزون', hint: 'سجل كل حركة', icon: ArrowLeftRight, to: '/movements', tone: 'blue', show: true },
-    { label: 'نواقص المخزون', hint: 'ما اقترب من النفاد', icon: TriangleAlert, to: '/reports/low-stock', tone: 'red', show: true, badge: stats?.low_stock_count },
-    { label: 'التصنيفات', hint: 'تنظيم الأصناف', icon: Tags, to: '/categories', tone: 'lime', show: true },
-    { label: 'العملاء', hint: 'كشوف الحساب', icon: Users, to: '/customers', tone: 'blue', show: true },
-    { label: 'الموردون', hint: 'كشوف الحساب', icon: Truck, to: '/suppliers', tone: 'teal', show: true },
-    { label: 'لوحة المعلومات', hint: 'الإحصائيات والرسوم', icon: LayoutDashboard, to: '/dashboard', tone: 'teal', show: canSeeDashboard },
-    { label: 'استيراد Excel', hint: 'إضافة أصناف دفعة', icon: FileSpreadsheet, to: '/import', tone: 'green', show: canImport },
-    { label: 'المستخدمون', hint: 'الحسابات والصلاحيات', icon: Users, to: '/users', tone: 'blue', show: canManageUsers },
-    { label: 'الملفات', hint: 'منشآت مستقلة', icon: FolderOpen, to: '/files', tone: 'teal', show: canManageUsers },
-    { label: 'النسخ الاحتياطي', hint: 'حفظ واسترجاع', icon: DatabaseBackup, to: '/backup', tone: 'violet', show: canManageUsers },
-    { label: 'الإعدادات', hint: 'العملة والأرقام والاسم', icon: Settings, to: '/settings', tone: 'slate', show: true },
+    { label: 'إدخال بضاعة', icon: PackagePlus, to: '/invoices/new?type=STOCK_IN', tone: 'green', show: true },
+    { label: 'إخراج بضاعة', icon: PackageMinus, to: '/invoices/new?type=STOCK_OUT', tone: 'red', show: true },
+    { label: 'بحث الأصناف', icon: Package, to: '/items', tone: 'blue', show: true },
+    { label: 'الفواتير', icon: FileText, to: '/invoices', tone: 'violet', show: canSeeInvoiceList },
+    { label: 'الجرد', icon: ClipboardList, to: '/stock-counts', tone: 'red', show: true, badge: stats?.counts.open_counts },
+    { label: 'حركات المخزون', icon: ArrowLeftRight, to: '/movements', tone: 'blue', show: true },
+    { label: 'نواقص المخزون', icon: TriangleAlert, to: '/reports/low-stock', tone: 'red', show: true, badge: stats?.low_stock_count },
+    { label: 'التصنيفات', icon: Tags, to: '/categories', tone: 'lime', show: true },
+    { label: 'العملاء', icon: Users, to: '/customers', tone: 'blue', show: true },
+    { label: 'الموردون', icon: Truck, to: '/suppliers', tone: 'teal', show: true },
+    { label: 'لوحة المعلومات', icon: LayoutDashboard, to: '/dashboard', tone: 'teal', show: canSeeDashboard },
+    { label: 'استيراد Excel', icon: FileSpreadsheet, to: '/import', tone: 'green', show: canImport },
+    { label: 'المستخدمون', icon: Users, to: '/users', tone: 'blue', show: canManageUsers },
+    { label: 'الملفات', icon: FolderOpen, to: '/files', tone: 'teal', show: canManageUsers },
+    { label: 'النسخ الاحتياطي', icon: DatabaseBackup, to: '/backup', tone: 'violet', show: canManageUsers },
+    { label: 'الإعدادات', icon: Settings, to: '/settings', tone: 'slate', show: true },
   ];
   const tiles = all.filter((t) => t.show);
 
@@ -109,7 +108,6 @@ export default function Home() {
             <tile.icon className="size-7" />
           </span>
           <span className="text-sm font-bold leading-tight">{tile.label}</span>
-          <span className="text-[11px] leading-snug text-subtle">{tile.hint}</span>
         </Link>
       ))}
     </div>
