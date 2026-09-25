@@ -4,45 +4,39 @@ import type { ComponentType } from 'react';
 import {
   Package, PackagePlus, PackageMinus, Tags, ArrowLeftRight,
   TriangleAlert, Settings, LayoutDashboard, FileText, Users,
-  Truck, StickyNote, LogOut,
+  Truck, StickyNote, LogOut, SlidersHorizontal, Check, EyeOff, RotateCcw,
 } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { usePermissions } from '@/lib/permissions';
 import { useDashboard } from '@/hooks';
 import { fmtInt } from '@/lib/format';
+import { Button, Modal, Toggle } from '@/components/ui';
 import { NotesModal } from '@/components/NotesModal';
 import { useSignOut } from '@/components/layout/SignOut';
 
 /**
  * The launcher home.
  *
- * A phone and a tablet are used standing at a counter, one hand, glancing --
- * not the place for a wall of charts. So the landing is a grid of big, tinted,
- * thumb-sized tiles, one per thing the operator actually does, and the numbers
- * that used to fill this screen are compressed into a single strip at the top
- * with the full dashboard one tap away.
- *
+ * A grid of big, tinted, thumb-sized tiles, one per thing the operator does.
  * Everything here is a shortcut to a screen that already exists and already
- * guards itself; this only decides what to *offer*. It mirrors the roles the
- * rest of the app enforces (usePermissions) so a staff account is not shown a
- * manager's tile that would refuse it on arrival -- a blank wall is a worse
- * answer than never offering the door. A clerk never reaches this page at all:
- * RequireNotClerk sends it straight to stock-out entry, its whole job.
+ * guards itself; this only decides what to *offer*, and mirrors the roles the
+ * rest of the app enforces (usePermissions) so a staff account is never shown a
+ * manager's tile that would refuse it on arrival.
  *
- * Colours and icons are deliberately the same ones the bottom nav and the
- * ribbon use, so a tile and its nav entry are recognisably the same door.
+ * Each user tailors their own grid -- which tiles show and what colour each is
+ * -- with the تخصيص button. That choice lives in this browser (localStorage),
+ * per person and per device; it never changes what anyone else sees and never
+ * overrides a role, so it can only hide or recolour a tile the account was
+ * already allowed to open.
  */
 
 type Icon = ComponentType<{ className?: string }>;
 type Tone = keyof typeof TONE;
 
 /**
- * One tone per tile. The whole tile is filled with its colour now, with a
- * white icon and label on top -- so the grid reads by hue at arm's length, not
- * only by label. Assignments match the nav (stock-in/شراء green, anything that
- * removes or warns red, settings neutral). The steps are the 600s (700 for
- * lime, which is too bright at 600 for white to sit on) so white text clears
- * contrast in both themes.
+ * The tile colours. The whole tile is filled, white icon and label on top, so
+ * the grid reads by hue at arm's length. 600s (700 for lime, too bright at 600
+ * for white) clear contrast in both themes.
  */
 const TONE = {
   teal: 'bg-brand-600 text-white',
@@ -54,7 +48,11 @@ const TONE = {
   slate: 'bg-slate-600 text-white',
 } as const;
 
+const TONES = Object.keys(TONE) as Tone[];
+
 type Tile = {
+  /** Stable key for saving per-tile preferences — never the label, which can change. */
+  id: string;
   label: string;
   icon: Icon;
   tone: Tone;
@@ -65,6 +63,24 @@ type Tile = {
   badge?: number;
 };
 
+/** Per-tile user preference: hidden, and/or a colour other than the default. */
+type Pref = { hidden?: boolean; tone?: Tone };
+type Prefs = Record<string, Pref>;
+
+const PREFS_KEY = 'inv.home_prefs';
+
+function loadPrefs(): Prefs {
+  try {
+    const raw = localStorage.getItem(PREFS_KEY);
+    return raw ? (JSON.parse(raw) as Prefs) : {};
+  } catch {
+    return {};
+  }
+}
+function savePrefs(prefs: Prefs) {
+  try { localStorage.setItem(PREFS_KEY, JSON.stringify(prefs)); } catch { /* private mode, ignore */ }
+}
+
 export default function Home() {
   const {
     isManager, canSeeInvoiceList, canSeeDashboard, canManageUsers,
@@ -73,36 +89,52 @@ export default function Home() {
   const [notesOpen, setNotesOpen] = useState(false);
   const { askToSignOut, dialog: signOutDialog } = useSignOut();
 
-  // One flat list, no group headers -- the tiles carry their own meaning by
-  // icon and colour, and the order still runs from the daily operations down
-  // to the manager-only tools.
-  const all: Tile[] = [
-    { label: 'شراء', icon: PackagePlus, to: '/invoices/new?type=STOCK_IN', tone: 'green', show: true },
-    { label: 'مبيع', icon: PackageMinus, to: '/invoices/new?type=STOCK_OUT', tone: 'red', show: true },
-    { label: 'بحث الأصناف', icon: Package, to: '/items', tone: 'blue', show: true },
-    { label: 'الفواتير', icon: FileText, to: '/invoices', tone: 'violet', show: canSeeInvoiceList },
-    { label: 'حركات المخزون', icon: ArrowLeftRight, to: '/movements', tone: 'blue', show: true },
-    { label: 'نواقص المخزون', icon: TriangleAlert, to: '/reports/low-stock', tone: 'red', show: true, badge: stats?.low_stock_count },
-    { label: 'التصنيفات', icon: Tags, to: '/categories', tone: 'lime', show: true },
-    { label: 'العملاء', icon: Users, to: '/customers', tone: 'blue', show: true },
-    { label: 'الموردون', icon: Truck, to: '/suppliers', tone: 'teal', show: true },
-    { label: 'لوحة المعلومات', icon: LayoutDashboard, to: '/dashboard', tone: 'teal', show: canSeeDashboard },
-    // A manager-only private notepad. An action, not a link -- it opens a sheet
-    // rather than navigating, and the API refuses /notes for anyone else.
-    { label: 'ملاحظات', icon: StickyNote, onClick: () => setNotesOpen(true), tone: 'violet', show: isManager },
-    { label: 'المستخدمون', icon: Users, to: '/users', tone: 'blue', show: canManageUsers },
-    { label: 'الإعدادات', icon: Settings, to: '/settings', tone: 'slate', show: true },
-    // Ends the grid: a sign-out that goes through the same confirm the nav uses.
-    { label: 'تسجيل الخروج', icon: LogOut, onClick: () => askToSignOut(), tone: 'red', show: true },
-  ];
-  const tiles = all.filter((t) => t.show);
+  const [customizing, setCustomizing] = useState(false);
+  const [prefs, setPrefs] = useState<Prefs>(loadPrefs);
+  /** The tile whose colour/visibility sheet is open, while customizing. */
+  const [editing, setEditing] = useState<Tile | null>(null);
 
-  const tileClass = cn(
-    'group relative flex aspect-square flex-col items-center justify-center gap-2 rounded-2xl p-2 text-center shadow-sm transition active:scale-[.96] hover:brightness-105',
-  );
+  const patchPref = (id: string, patch: Pref) => {
+    setPrefs((prev) => {
+      const next = { ...prev, [id]: { ...prev[id], ...patch } };
+      savePrefs(next);
+      return next;
+    });
+  };
+  const resetPrefs = () => { setPrefs({}); savePrefs({}); };
+
+  // One flat list; the order runs from the daily operations down to the tools.
+  const all: Tile[] = [
+    { id: 'buy', label: 'شراء', icon: PackagePlus, to: '/invoices/new?type=STOCK_IN', tone: 'green', show: true },
+    { id: 'sell', label: 'مبيع', icon: PackageMinus, to: '/invoices/new?type=STOCK_OUT', tone: 'red', show: true },
+    { id: 'items', label: 'بحث الأصناف', icon: Package, to: '/items', tone: 'blue', show: true },
+    { id: 'invoices', label: 'الفواتير', icon: FileText, to: '/invoices', tone: 'violet', show: canSeeInvoiceList },
+    { id: 'movements', label: 'حركات المخزون', icon: ArrowLeftRight, to: '/movements', tone: 'blue', show: true },
+    { id: 'low', label: 'نواقص المخزون', icon: TriangleAlert, to: '/reports/low-stock', tone: 'red', show: true, badge: stats?.low_stock_count },
+    { id: 'categories', label: 'التصنيفات', icon: Tags, to: '/categories', tone: 'lime', show: true },
+    { id: 'customers', label: 'العملاء', icon: Users, to: '/customers', tone: 'blue', show: true },
+    { id: 'suppliers', label: 'الموردون', icon: Truck, to: '/suppliers', tone: 'teal', show: true },
+    { id: 'dashboard', label: 'لوحة المعلومات', icon: LayoutDashboard, to: '/dashboard', tone: 'teal', show: canSeeDashboard },
+    { id: 'notes', label: 'ملاحظات', icon: StickyNote, onClick: () => setNotesOpen(true), tone: 'violet', show: isManager },
+    { id: 'users', label: 'المستخدمون', icon: Users, to: '/users', tone: 'blue', show: canManageUsers },
+    { id: 'settings', label: 'الإعدادات', icon: Settings, to: '/settings', tone: 'slate', show: true },
+    { id: 'signout', label: 'تسجيل الخروج', icon: LogOut, onClick: () => askToSignOut(), tone: 'red', show: true },
+  ];
+
+  // Role first, then the user's own preference. `permitted` is the set the
+  // account may see at all; hiding only ever narrows within it.
+  const permitted = all.filter((t) => t.show);
+  const toneOf = (t: Tile): Tone => prefs[t.id]?.tone ?? t.tone;
+  const isHidden = (t: Tile) => !!prefs[t.id]?.hidden;
+  // Customizing shows everything (so a hidden tile can be brought back); the
+  // normal grid shows only what is not hidden.
+  const shown = customizing ? permitted : permitted.filter((t) => !isHidden(t));
+
+  const tileClass = 'group relative flex aspect-square flex-col items-center justify-center gap-2 rounded-2xl p-2 text-center shadow-sm transition active:scale-[.96] hover:brightness-105';
+
   const inner = (tile: Tile) => (
     <>
-      {!!tile.badge && tile.badge > 0 && (
+      {!!tile.badge && tile.badge > 0 && !customizing && (
         <span className="nums absolute end-1.5 top-1.5 rounded-full bg-white px-1.5 text-[11px] font-bold leading-5 text-accent-700 shadow">
           {fmtInt(tile.badge)}
         </span>
@@ -114,22 +146,88 @@ export default function Home() {
 
   return (
     <>
-      <div className="grid grid-cols-3 gap-2.5 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8">
-        {tiles.map((tile) => (tile.to ? (
-          <Link key={tile.label} to={tile.to} className={cn(tileClass, TONE[tile.tone])}>
-            {inner(tile)}
-          </Link>
-        ) : (
-          <button
-            key={tile.label}
-            type="button"
-            onClick={tile.onClick}
-            className={cn(tileClass, TONE[tile.tone])}
-          >
-            {inner(tile)}
-          </button>
-        )))}
+      <div className="mb-3 flex items-center justify-end gap-2">
+        {customizing && (
+          <Button variant="ghost" onClick={resetPrefs}>
+            <RotateCcw className="size-4" /> استعادة الافتراضي
+          </Button>
+        )}
+        <Button
+          variant={customizing ? 'primary' : 'secondary'}
+          onClick={() => { setCustomizing((v) => !v); setEditing(null); }}
+        >
+          {customizing ? <><Check className="size-4" /> تم</> : <><SlidersHorizontal className="size-4" /> تخصيص</>}
+        </Button>
       </div>
+
+      <div className="grid grid-cols-3 gap-2.5 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8">
+        {shown.map((tile) => {
+          const cls = cn(tileClass, TONE[toneOf(tile)], customizing && isHidden(tile) && 'opacity-40');
+
+          // Customizing: every tile is a button that opens its editor, whatever
+          // it normally does, so tapping شراء here does not start an invoice.
+          if (customizing) {
+            return (
+              <button key={tile.id} type="button" onClick={() => setEditing(tile)} className={cls}>
+                {isHidden(tile) && (
+                  <span className="absolute end-1.5 top-1.5 rounded-full bg-black/30 p-1">
+                    <EyeOff className="size-3.5" />
+                  </span>
+                )}
+                {inner(tile)}
+              </button>
+            );
+          }
+
+          return tile.to ? (
+            <Link key={tile.id} to={tile.to} className={cls}>{inner(tile)}</Link>
+          ) : (
+            <button key={tile.id} type="button" onClick={tile.onClick} className={cls}>{inner(tile)}</button>
+          );
+        })}
+      </div>
+
+      {/* Per-tile editor: show/hide and colour, one tile at a time — the only
+          shape that works on a phone, where a swatch row per tile in the grid
+          would not fit. */}
+      {editing && (
+        <Modal
+          open
+          onClose={() => setEditing(null)}
+          size="sm"
+          title={editing.label}
+          footer={<Button variant="primary" onClick={() => setEditing(null)}>تم</Button>}
+        >
+          <div className="space-y-4">
+            <Toggle
+              checked={!isHidden(editing)}
+              onChange={(v) => patchPref(editing.id, { hidden: !v })}
+              label="إظهار على الشاشة الرئيسية"
+            />
+
+            <div>
+              <span className="mb-2 block text-sm font-medium">اللون</span>
+              <div className="flex flex-wrap gap-2.5">
+                {TONES.map((tone) => (
+                  <button
+                    key={tone}
+                    type="button"
+                    onClick={() => patchPref(editing.id, { tone })}
+                    aria-label={tone}
+                    className={cn(
+                      'grid size-10 place-items-center rounded-full transition',
+                      TONE[tone],
+                      toneOf(editing) === tone ? 'ring-2 ring-offset-2 ring-ink ring-offset-surface' : 'hover:scale-105',
+                    )}
+                  >
+                    {toneOf(editing) === tone && <Check className="size-4" />}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </Modal>
+      )}
 
       {isManager && <NotesModal open={notesOpen} onClose={() => setNotesOpen(false)} />}
       {signOutDialog}
