@@ -58,15 +58,22 @@ export default function Files() {
           <ul className="divide-y divide-line">
             {files.map((file) => (
               <li key={file.id} className="flex items-center justify-between gap-3 p-3">
-                <div className="flex min-w-0 items-center gap-3">
+                {/* `flex-1` matters: without it this column sizes to its
+                    content and then shrinks, and the name -- the only thing
+                    on the row anyone reads -- pays for the badge beside it.
+                    The badge is shrink-0 and the line wraps, so a long name
+                    gets the full width before it ever truncates. */}
+                <div className="flex min-w-0 flex-1 items-center gap-3">
                   <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-brand-500/10 text-brand-600 dark:text-brand-400">
                     <FolderOpen className="size-4" />
                   </span>
-                  <div className="min-w-0">
-                    <p className="flex items-center gap-2 font-semibold">
-                      <span className="truncate">{file.name}</span>
+                  <div className="min-w-0 flex-1">
+                    <p className="flex flex-wrap items-center gap-x-2 gap-y-1 font-semibold">
+                      <span className="min-w-0 truncate">{file.name}</span>
                       {file.is_current && (
-                        <Badge tone="success"><Check className="size-3" /> مفتوح الآن</Badge>
+                        <Badge tone="success" className="shrink-0">
+                          <Check className="size-3" /> مفتوح الآن
+                        </Badge>
                       )}
                     </p>
                     {file.created_at && (

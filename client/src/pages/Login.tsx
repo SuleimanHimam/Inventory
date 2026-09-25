@@ -59,9 +59,13 @@ export default function Login() {
    * they are different people. The list is fetched before login because it is
    * what the form needs in order to be answerable at all.
    *
-   * A server with one file shows no picker. Asking someone to choose from a
-   * list of one is a question with no information in it, and this screen is
-   * used every morning.
+   * The picker shows whenever the server has any file at all, including
+   * exactly one. It was hidden in that case at first -- a list of one is not
+   * a choice -- but that reasoning was wrong for this screen: the file is
+   * what the account belongs to, and seeing which one you are about to enter
+   * is worth a line even when there is nothing to switch to yet. It also
+   * means the control does not appear out of nowhere the day a second file
+   * is created.
    */
   const [files, setFiles] = useState<FileChoice[]>([]);
   const [fileId, setFileId] = useState<string>('');
@@ -180,8 +184,8 @@ export default function Login() {
             <h2 className="mb-5 text-base font-bold">{title}</h2>
 
             <form onSubmit={submit} className="space-y-4">
-              {/* Only when there is a real choice to make — see the state above. */}
-              {needsPassword && files.length > 1 && (
+              {/* Shown for a single file too — see the state above. */}
+              {needsPassword && files.length > 0 && (
                 <Field label="الملف" hint="لكل ملف بياناته ومستخدموه">
                   <div className="relative">
                     <Select
