@@ -186,18 +186,31 @@ export default function Invoices() {
                 */}
               {invoices.map((invoice) => (
                 <div key={invoice.id} className="card w-full p-3 text-start">
-                  <div className="flex items-start justify-between gap-2">
+                  {/*
+                    * The header wraps. Five icon buttons and a narrow phone
+                    * used to squeeze this column until the number broke over
+                    * two lines and the date truncated to «.../25» -- the one
+                    * field on the card that is never worth guessing at. Below
+                    * the Link's floor the actions drop to their own line
+                    * instead of taking the space out of the date.
+                    */}
+                  <div className="flex flex-wrap items-start justify-between gap-x-2 gap-y-1">
                     <Link
                       to={`/invoices/${invoice.id}`}
-                      className="-m-1 min-w-0 flex-1 rounded-lg p-1 transition active:bg-surface-2"
+                      className="-m-1 min-w-[11rem] flex-1 rounded-lg p-1 transition active:bg-surface-2"
                     >
                       <div className="flex flex-wrap items-center gap-1.5">
                         <span className="nums font-mono text-xs font-bold">{invoice.number}</span>
                         <InvoiceTypeBadge type={invoice.type} />
                       </div>
-                      <p className="mt-1 truncate text-xs text-muted">
-                        {fmtDateShort(invoice.invoice_date)}
-                        {invoice.party_name ? ` · ${invoice.party_name}` : ''}
+                      {/* The date keeps its whole self on every screen; it is
+                          the party name, which the card can afford to cut,
+                          that gives way when the line runs out. */}
+                      <p className="mt-1 flex items-center gap-1.5 text-xs text-muted">
+                        <span className="nums shrink-0">{fmtDateShort(invoice.invoice_date)}</span>
+                        {invoice.party_name && (
+                          <span className="min-w-0 truncate">· {invoice.party_name}</span>
+                        )}
                       </p>
                     </Link>
                     <RowActions
@@ -463,7 +476,9 @@ function RowActions(
     navigate(`/invoices/${invoice.id}`, { state });
 
   return (
-    <div className="flex items-center justify-end gap-0.5">
+    // `ms-auto` matters only on the phone card, where a wrapped action row
+    // sits alone on its line and would otherwise start under the number.
+    <div className="ms-auto flex items-center justify-end gap-0.5">
       {invoice.status === 'DRAFT' ? (
         <Link to={`/invoices/${invoice.id}/edit`}>
           <Button size="icon" variant="ghost" title="متابعة التحرير">
