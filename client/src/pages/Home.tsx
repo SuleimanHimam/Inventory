@@ -20,8 +20,10 @@ import { signOut } from '@/lib/session';
  * A grid of big, tinted, thumb-sized tiles, one per thing the operator does.
  * Everything here is a shortcut to a screen that already exists and already
  * guards itself; this only decides what to *offer*, and mirrors the roles the
- * rest of the app enforces (usePermissions) so a staff account is never shown a
- * manager's tile that would refuse it on arrival.
+ * rest of the app enforces (usePermissions) so no account is shown a tile it
+ * may not open: a clerk lands here too and sees just مبيع, بحث الأصناف and
+ * sign-out, a staff account sees the daily work without the manager tools, and
+ * a manager sees everything.
  *
  * Each user tailors their own grid -- which tiles show and what colour each is
  * -- with the تخصيص button. That choice lives in this browser (localStorage),
@@ -174,7 +176,7 @@ function savePrefs(prefs: Prefs) {
 
 export default function Home() {
   const {
-    isManager, canSeeInvoiceList, canSeeDashboard, canManageUsers,
+    isManager, canSeeInvoiceList, canSeeDashboard, canManageUsers, canSeeFullNav,
   } = usePermissions();
   const { data: stats } = useDashboard(canSeeDashboard);
   const [notesOpen, setNotesOpen] = useState(false);
@@ -195,19 +197,19 @@ export default function Home() {
 
   // One flat list; the order runs from the daily operations down to the tools.
   const all: Tile[] = [
-    { id: 'buy', label: 'شراء', icon: PackagePlus, to: '/invoices/new?type=STOCK_IN', tone: 'green', show: true },
+    { id: 'buy', label: 'شراء', icon: PackagePlus, to: '/invoices/new?type=STOCK_IN', tone: 'green', show: canSeeFullNav },
     { id: 'sell', label: 'مبيع', icon: PackageMinus, to: '/invoices/new?type=STOCK_OUT', tone: 'red', show: true },
     { id: 'items', label: 'بحث الأصناف', icon: Package, to: '/items', tone: 'blue', show: true },
     { id: 'invoices', label: 'الفواتير', icon: FileText, to: '/invoices', tone: 'violet', show: canSeeInvoiceList },
-    { id: 'movements', label: 'حركات المخزون', icon: ArrowLeftRight, to: '/movements', tone: 'blue', show: true },
-    { id: 'low', label: 'نواقص المخزون', icon: TriangleAlert, to: '/reports/low-stock', tone: 'red', show: true, badge: stats?.low_stock_count },
-    { id: 'categories', label: 'التصنيفات', icon: Tags, to: '/categories', tone: 'lime', show: true },
-    { id: 'customers', label: 'العملاء', icon: Users, to: '/customers', tone: 'blue', show: true },
-    { id: 'suppliers', label: 'الموردون', icon: Truck, to: '/suppliers', tone: 'teal', show: true },
+    { id: 'movements', label: 'حركات المخزون', icon: ArrowLeftRight, to: '/movements', tone: 'blue', show: canSeeFullNav },
+    { id: 'low', label: 'نواقص المخزون', icon: TriangleAlert, to: '/reports/low-stock', tone: 'red', show: canSeeFullNav, badge: stats?.low_stock_count },
+    { id: 'categories', label: 'التصنيفات', icon: Tags, to: '/categories', tone: 'lime', show: canSeeFullNav },
+    { id: 'customers', label: 'العملاء', icon: Users, to: '/customers', tone: 'blue', show: canSeeFullNav },
+    { id: 'suppliers', label: 'الموردون', icon: Truck, to: '/suppliers', tone: 'teal', show: canSeeFullNav },
     { id: 'dashboard', label: 'لوحة المعلومات', icon: LayoutDashboard, to: '/dashboard', tone: 'teal', show: canSeeDashboard },
     { id: 'notes', label: 'ملاحظات', icon: StickyNote, onClick: () => setNotesOpen(true), tone: 'violet', show: isManager },
     { id: 'users', label: 'المستخدمون', icon: Users, to: '/users', tone: 'blue', show: canManageUsers },
-    { id: 'settings', label: 'الإعدادات', icon: Settings, to: '/settings', tone: 'slate', show: true },
+    { id: 'settings', label: 'الإعدادات', icon: Settings, to: '/settings', tone: 'slate', show: canSeeFullNav },
     { id: 'signout', label: 'تسجيل الخروج', icon: LogOut, onClick: () => signOut(), tone: 'red', show: true },
   ];
 

@@ -91,10 +91,11 @@ const router = createHashRouter([
       {
         element: <Shell />,
         children: [
-          // The launcher home. A clerk is redirected to its one screen; see
-          // RequireNotClerk. The analytics dashboard moved to /dashboard, one
-          // tap away from a tile here and from the ribbon.
-          { index: true, element: <RequireNotClerk><Home /></RequireNotClerk> },
+          // The launcher home, shown to every signed-in role; the tiles are
+          // permission-gated, so each account sees only the doors it may open
+          // (a clerk gets مبيع, بحث الأصناف, and sign-out). The analytics
+          // dashboard lives at /dashboard, still barred to a clerk.
+          { index: true, element: <Home /> },
           { path: 'dashboard', element: <RequireNotClerk><Dashboard /></RequireNotClerk> },
           { path: 'items', element: <Items /> },
           { path: 'items/:id', element: <ItemDetail /> },
