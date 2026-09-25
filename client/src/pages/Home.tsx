@@ -1,14 +1,16 @@
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { ComponentType } from 'react';
 import {
   Package, PackagePlus, PackageMinus, ClipboardList, Tags, ArrowLeftRight,
   TriangleAlert, FileSpreadsheet, Settings, LayoutDashboard, FileText, Users,
-  Truck, FolderOpen, DatabaseBackup,
+  Truck, FolderOpen, DatabaseBackup, StickyNote,
 } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { usePermissions } from '@/lib/permissions';
 import { useDashboard } from '@/hooks';
 import { fmtInt } from '@/lib/format';
+import { NotesModal } from '@/components/NotesModal';
 
 /**
  * The launcher home.
@@ -54,17 +56,20 @@ const TONE = {
 type Tile = {
   label: string;
   icon: Icon;
-  to: string;
   tone: Tone;
   show: boolean;
+  /** A tile is a link to a screen, or an action (like opening the notes sheet). */
+  to?: string;
+  onClick?: () => void;
   badge?: number;
 };
 
 export default function Home() {
   const {
-    canSeeInvoiceList, canSeeDashboard, canImport, canManageUsers,
+    isManager, canSeeInvoiceList, canSeeDashboard, canImport, canManageUsers,
   } = usePermissions();
   const { data: stats } = useDashboard(canSeeDashboard);
+  const [notesOpen, setNotesOpen] = useState(false);
 
   // One flat list, no group headers -- the tiles carry their own meaning by
   // icon and colour, and the order still runs from the daily operations down
@@ -81,6 +86,9 @@ export default function Home() {
     { label: 'العملاء', icon: Users, to: '/customers', tone: 'blue', show: true },
     { label: 'الموردون', icon: Truck, to: '/suppliers', tone: 'teal', show: true },
     { label: 'لوحة المعلومات', icon: LayoutDashboard, to: '/dashboard', tone: 'teal', show: canSeeDashboard },
+    // A manager-only private notepad. An action, not a link -- it opens a sheet
+    // rather than navigating, and the API refuses /notes for anyone else.
+    { label: 'ملاحظات', icon: StickyNote, onClick: () => setNotesOpen(true), tone: 'violet', show: isManager },
     { label: 'استيراد Excel', icon: FileSpreadsheet, to: '/import', tone: 'green', show: canImport },
     { label: 'المستخدمون', icon: Users, to: '/users', tone: 'blue', show: canManageUsers },
     { label: 'الملفات', icon: FolderOpen, to: '/files', tone: 'teal', show: canManageUsers },
@@ -89,26 +97,41 @@ export default function Home() {
   ];
   const tiles = all.filter((t) => t.show);
 
+  const tileClass = cn(
+    'group relative flex aspect-square flex-col items-center justify-center gap-2 rounded-2xl p-2 text-center shadow-sm transition active:scale-[.96] hover:brightness-105',
+  );
+  const inner = (tile: Tile) => (
+    <>
+      {!!tile.badge && tile.badge > 0 && (
+        <span className="nums absolute end-1.5 top-1.5 rounded-full bg-white px-1.5 text-[11px] font-bold leading-5 text-accent-700 shadow">
+          {fmtInt(tile.badge)}
+        </span>
+      )}
+      <tile.icon className="size-7 transition-transform group-hover:scale-110" />
+      <span className="text-xs font-bold leading-tight">{tile.label}</span>
+    </>
+  );
+
   return (
-    <div className="grid grid-cols-3 gap-2.5 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8">
-      {tiles.map((tile) => (
-        <Link
-          key={tile.to}
-          to={tile.to}
-          className={cn(
-            'group relative flex aspect-square flex-col items-center justify-center gap-2 rounded-2xl p-2 text-center shadow-sm transition active:scale-[.96] hover:brightness-105',
-            TONE[tile.tone],
-          )}
-        >
-          {!!tile.badge && tile.badge > 0 && (
-            <span className="nums absolute end-1.5 top-1.5 rounded-full bg-white px-1.5 text-[11px] font-bold leading-5 text-accent-700 shadow">
-              {fmtInt(tile.badge)}
-            </span>
-          )}
-          <tile.icon className="size-7 transition-transform group-hover:scale-110" />
-          <span className="text-xs font-bold leading-tight">{tile.label}</span>
-        </Link>
-      ))}
-    </div>
+    <>
+      <div className="grid grid-cols-3 gap-2.5 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8">
+        {tiles.map((tile) => (tile.to ? (
+          <Link key={tile.label} to={tile.to} className={cn(tileClass, TONE[tile.tone])}>
+            {inner(tile)}
+          </Link>
+        ) : (
+          <button
+            key={tile.label}
+            type="button"
+            onClick={tile.onClick}
+            className={cn(tileClass, TONE[tile.tone])}
+          >
+            {inner(tile)}
+          </button>
+        )))}
+      </div>
+
+      {isManager && <NotesModal open={notesOpen} onClose={() => setNotesOpen(false)} />}
+    </>
   );
 }

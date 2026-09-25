@@ -6,7 +6,7 @@ import { api } from '@/lib/api';
 import { subscribeInstallPrompt, getCanInstall, promptInstall } from '@/lib/installPrompt';
 import type {
   BackupConfig, BackupSet, BackupStatus, BrowseResult, Category, DashboardPeriod, DashboardStats,
-  AppFile, FileList, ImportPreview, ImportResult,
+  AppFile, FileList, ManagerNotes, ImportPreview, ImportResult,
   Invoice, Item, ItemImage, ItemUnit, InvoiceSummary, Movement, OrgUser, Paginated, Party,
   PostProblem, RestoreResult, Settings, StockCount,
 } from '@/lib/types';
@@ -29,6 +29,7 @@ export const keys = {
   stockCount: (id: string) => ['stock-count', id] as const,
   users: ['users'] as const,
   files: ['files'] as const,
+  notes: ['notes'] as const,
   backup: ['backup'] as const,
 };
 
@@ -132,6 +133,23 @@ export function useUserMutations() {
       onSuccess: done,
     }),
   };
+}
+
+/* ------------------------------------------------------------------ notes */
+/**
+ * The manager's private notepad. Manager-only on the API (requireManager), so
+ * the caller gates the query the same way `useUsers` does rather than firing
+ * one that would 403.
+ */
+export const useNotes = (enabled = true) =>
+  useQuery({ queryKey: keys.notes, queryFn: () => api.get<ManagerNotes>('/notes'), enabled });
+
+export function useSaveNotes() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: string) => api.patch<ManagerNotes>('/notes', { body }),
+    onSuccess: (data) => qc.setQueryData(keys.notes, data),
+  });
 }
 
 /* ------------------------------------------------------------------ files */

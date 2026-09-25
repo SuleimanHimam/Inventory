@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { wrap, parse, pageQuery, paginated } from '../lib/http.js';
 import { requireManager, requireNotClerk } from '../lib/roles.js';
-import { getSettings, setSettings } from '../db/index.js';
+import { getSettings, setSettings, get, run } from '../db/index.js';
 import { dashboardStats, DASHBOARD_PERIODS } from '../services/items.service.js';
 import { listMovements } from '../services/invoices.service.js';
 
@@ -66,6 +66,33 @@ router.patch('/settings', requireManager, wrap(async (req, res) => {
       digits: z.enum(['latn', 'arab']).optional(),
     }), req.body);
   res.json(await setSettings(body));
+}));
+
+/*
+ * The manager's private notepad — manager-only on both verbs, and kept out of
+ * /settings precisely because that endpoint is readable by every role. One row
+ * per org (see migration 009), created on first save.
+ */
+router.get('/notes', requireManager, wrap(async (req, res) => {
+  const row = await get(
+    'SELECT body, updated_at FROM manager_notes WHERE org_id = @org',
+    { org: req.auth.orgId },
+  );
+  res.json({ body: row?.body ?? '', updated_at: row?.updated_at ?? null });
+}));
+
+router.patch('/notes', requireManager, wrap(async (req, res) => {
+  const { body } = parse(z.object({ body: z.string().max(20000) }), req.body);
+  // Upsert under the row lock, the same check-then-write pattern the counters
+  // and settings use, so two saves racing cannot insert two rows for one org.
+  await run(
+    `IF EXISTS (SELECT 1 FROM manager_notes WITH (UPDLOCK, HOLDLOCK) WHERE org_id = @org)
+       UPDATE manager_notes SET body = @body, updated_at = dbo.iso_now() WHERE org_id = @org;
+     ELSE
+       INSERT INTO manager_notes (org_id, body) VALUES (@org, @body);`,
+    { org: req.auth.orgId, body },
+  );
+  res.json({ body, updated_at: new Date().toISOString() });
 }));
 
 export default router;

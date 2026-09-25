@@ -402,6 +402,11 @@ export type FileList = {
   reason: string | null;
 };
 
+export type ManagerNotes = {
+  body: string;
+  updated_at: string | null;
+};
+
 export type OrgUser = {
   id: string;
   email: string;
