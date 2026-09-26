@@ -65,6 +65,11 @@ router.patch('/settings', requireManager, wrap(async (req, res) => {
       company_name: z.string().trim().max(200).optional(),
       currency: z.string().trim().max(10).optional(),
       digits: z.enum(['latn', 'arab']).optional(),
+      // Default voucher accounts — an account id, or '' to clear the default.
+      voucher_receipt_cash_account: z.string().trim().max(64).optional(),
+      voucher_receipt_counter_account: z.string().trim().max(64).optional(),
+      voucher_payment_cash_account: z.string().trim().max(64).optional(),
+      voucher_payment_counter_account: z.string().trim().max(64).optional(),
     }), req.body);
   res.json(await setSettings(body));
 }));

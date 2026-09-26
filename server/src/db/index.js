@@ -545,6 +545,13 @@ export const DEFAULT_SETTINGS = {
   company_name: 'شركتي',
   currency: 'ILS',
   digits: 'latn', // 'latn' (0-9) | 'arab' (٠-٩)
+  // Default accounts pre-selected on a new voucher, set from the Vouchers
+  // screen. Empty means "no default" — the picker just starts blank. Account
+  // ids, not money, so they are safe on the everyone-readable /settings.
+  voucher_receipt_cash_account: '',
+  voucher_receipt_counter_account: '',
+  voucher_payment_cash_account: '',
+  voucher_payment_counter_account: '',
 };
 
 /** Seed the settings rows a brand-new organisation needs. */

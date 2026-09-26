@@ -1,9 +1,9 @@
-import { useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Wallet, Plus } from 'lucide-react';
 import {
-  Button, Card, Input, Select, Textarea, PageHeader, EmptyState, Skeleton, Badge,
+  Button, Card, Input, Textarea, Combobox, PageHeader, EmptyState, Skeleton, Badge,
 } from '@/components/ui';
-import { useVouchers, useVoucherMutations, useAccounts } from '@/hooks';
+import { useVouchers, useVoucherMutations, useAccounts, useSettings } from '@/hooks';
 import { toast, toastError } from '@/store/toast';
 import { fmtCurrency, fmtDate } from '@/lib/format';
 import type { Account, Voucher } from '@/lib/types';
@@ -25,18 +25,19 @@ export default function QuickExpenses() {
     () => (accountsData?.data ?? []).filter((a) => a.is_posting),
     [accountsData],
   );
-  const expenseAccounts = useMemo(() => {
+  const expenseOptions = useMemo(() => {
     const exp = posting.filter((a) => a.type_code === 'EXPENSE');
-    return exp.length ? exp : posting;
+    return (exp.length ? exp : posting).map((a) => ({ value: a.id, label: a.name, hint: a.account_number }));
   }, [posting]);
-  const cashAccounts = useMemo(() => {
+  const cashOptions = useMemo(() => {
     const money = posting.filter((a) => a.type_code === 'CASH' || a.type_code === 'BANK');
-    return money.length ? money : posting;
+    return (money.length ? money : posting).map((a) => ({ value: a.id, label: a.name, hint: a.account_number }));
   }, [posting]);
 
   const { create } = useVoucherMutations();
   const { data, isLoading } = useVouchers({ expense_only: true, limit: 15 });
   const recent = data?.data ?? [];
+  const { data: settings } = useSettings();
 
   const [amount, setAmount] = useState('');
   const [expenseId, setExpenseId] = useState('');
@@ -45,6 +46,13 @@ export default function QuickExpenses() {
   });
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [description, setDescription] = useState('');
+
+  // Pay-from defaults to the last one used on this device, then to the payment
+  // default set in voucher settings — whichever exists first, without ever
+  // overriding a live selection.
+  useEffect(() => {
+    if (settings) setCashId((c) => c || settings.voucher_payment_cash_account || '');
+  }, [settings]);
 
   const amountNum = Number(amount);
   const valid = amountNum > 0 && expenseId && cashId && expenseId !== cashId;
@@ -97,24 +105,24 @@ export default function QuickExpenses() {
 
             <label className="block">
               <span className="mb-1 block text-xs text-muted">نوع المصروف (الحساب)</span>
-              <Select value={expenseId} onChange={(e) => setExpenseId(e.target.value)} required>
-                <option value="">— اختر حساب المصروف —</option>
-                {expenseAccounts.map((a) => (
-                  <option key={a.id} value={a.id}>{a.account_number} — {a.name}</option>
-                ))}
-              </Select>
+              <Combobox
+                value={expenseId}
+                onChange={setExpenseId}
+                options={expenseOptions}
+                placeholder="— اختر حساب المصروف —"
+                searchPlaceholder="ابحث برقم الحساب أو اسمه…"
+              />
             </label>
 
             <label className="block">
               <span className="mb-1 block text-xs text-muted">مدفوع من (صندوق/بنك)</span>
-              <Select value={cashId} onChange={(e) => setCashId(e.target.value)} required>
-                <option value="">— اختر الحساب —</option>
-                {cashAccounts.map((a) => (
-                  <option key={a.id} value={a.id} disabled={a.id === expenseId}>
-                    {a.account_number} — {a.name}
-                  </option>
-                ))}
-              </Select>
+              <Combobox
+                value={cashId}
+                onChange={setCashId}
+                options={cashOptions.filter((o) => o.value !== expenseId)}
+                placeholder="— اختر الحساب —"
+                searchPlaceholder="ابحث برقم الحساب أو اسمه…"
+              />
             </label>
 
             <label className="block">

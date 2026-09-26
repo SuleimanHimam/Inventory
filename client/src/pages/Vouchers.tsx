@@ -1,19 +1,24 @@
-import { useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
-  ArrowDownCircle, ArrowUpCircle, Receipt, RotateCcw,
+  ArrowDownCircle, ArrowUpCircle, Receipt, RotateCcw, Settings as SettingsIcon,
 } from 'lucide-react';
 import {
   Button, Card, Input, Select, Textarea, Modal, PageHeader, EmptyState,
-  Skeleton, Badge, SearchInput, Pagination, ConfirmDialog,
+  Skeleton, Badge, SearchInput, Pagination, ConfirmDialog, Combobox, type ComboOption,
 } from '@/components/ui';
 import {
   useVouchers, useVoucher, useVoucherMutations, useAccounts, useDebounced,
+  useSettings, useUpdateSettings,
 } from '@/hooks';
 import { toast, toastError } from '@/store/toast';
 import { fmtCurrency, fmtDate } from '@/lib/format';
 import { cn } from '@/lib/cn';
-import type { Account, Voucher, VoucherType, PaymentMethod } from '@/lib/types';
+import type { Account, Voucher, VoucherType, PaymentMethod, Settings } from '@/lib/types';
+
+/** Map an account list to combobox options: name as label, number as the hint. */
+const toOptions = (accounts: Account[]): ComboOption[] =>
+  accounts.map((a) => ({ value: a.id, label: a.name, hint: a.account_number }));
 
 /**
  * Vouchers — Cash Receipt (سند قبض) and Payment (سند صرف).
@@ -47,6 +52,7 @@ export default function Vouchers() {
     newType === 'RECEIPT' || newType === 'PAYMENT' ? newType : null,
   );
   const [viewing, setViewing] = useState<string | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const closeCreate = () => {
     setCreating(null);
@@ -75,6 +81,9 @@ export default function Vouchers() {
             </Button>
             <Button onClick={() => setCreating('PAYMENT')}>
               <ArrowUpCircle className="size-4" /> سند صرف
+            </Button>
+            <Button variant="ghost" size="icon" aria-label="إعدادات السندات" onClick={() => setSettingsOpen(true)}>
+              <SettingsIcon className="size-4" />
             </Button>
           </div>
         )}
@@ -138,6 +147,7 @@ export default function Vouchers() {
 
       {creating && <VoucherEditor type={creating} onClose={closeCreate} />}
       {viewing && <VoucherDetail id={viewing} onClose={() => setViewing(null)} />}
+      {settingsOpen && <VoucherSettings onClose={() => setSettingsOpen(false)} />}
     </>
   );
 }
@@ -201,6 +211,23 @@ function VoucherEditor({ type, onClose }: { type: VoucherType; onClose: () => vo
   const [counterparty, setCounterparty] = useState('');
   const [reference, setReference] = useState('');
   const [description, setDescription] = useState('');
+
+  // Pre-select the defaults set in voucher settings, once they load — never
+  // overriding a choice the user has already made (the `c || …` keeps it).
+  const { data: settings } = useSettings();
+  useEffect(() => {
+    if (!settings) return;
+    const cashKey = type === 'RECEIPT' ? 'voucher_receipt_cash_account' : 'voucher_payment_cash_account';
+    const counterKey = type === 'RECEIPT' ? 'voucher_receipt_counter_account' : 'voucher_payment_counter_account';
+    setCashId((c) => c || settings[cashKey] || '');
+    setCounterId((c) => c || settings[counterKey] || '');
+  }, [settings, type]);
+
+  const cashOptions = useMemo(() => toOptions(cashAccounts), [cashAccounts]);
+  const counterOptions = useMemo(
+    () => toOptions(posting.filter((a) => a.id !== cashId)),
+    [posting, cashId],
+  );
 
   const amountNum = Number(amount);
   const valid = amountNum > 0 && cashId && counterId && cashId !== counterId;
@@ -267,24 +294,24 @@ function VoucherEditor({ type, onClose }: { type: VoucherType; onClose: () => vo
 
         <label className="block">
           <span className="mb-1 block text-xs text-muted">{cashLabel}</span>
-          <Select value={cashId} onChange={(e) => setCashId(e.target.value)} required>
-            <option value="">— اختر الحساب —</option>
-            {cashAccounts.map((a) => (
-              <option key={a.id} value={a.id}>{a.account_number} — {a.name}</option>
-            ))}
-          </Select>
+          <Combobox
+            value={cashId}
+            onChange={setCashId}
+            options={cashOptions}
+            placeholder="— اختر الحساب —"
+            searchPlaceholder="ابحث برقم الحساب أو اسمه…"
+          />
         </label>
 
         <label className="block">
           <span className="mb-1 block text-xs text-muted">{counterLabel}</span>
-          <Select value={counterId} onChange={(e) => setCounterId(e.target.value)} required>
-            <option value="">— اختر الحساب —</option>
-            {posting.map((a) => (
-              <option key={a.id} value={a.id} disabled={a.id === cashId}>
-                {a.account_number} — {a.name}
-              </option>
-            ))}
-          </Select>
+          <Combobox
+            value={counterId}
+            onChange={setCounterId}
+            options={counterOptions}
+            placeholder="— اختر الحساب —"
+            searchPlaceholder="ابحث برقم الحساب أو اسمه…"
+          />
         </label>
 
         <div className="grid grid-cols-2 gap-3">
@@ -412,6 +439,103 @@ function VoucherDetail({ id, onClose }: { id: string; onClose: () => void }) {
         confirmLabel="عكس السند"
         loading={reverse.isPending}
       />
+    </Modal>
+  );
+}
+
+/* -------------------------------------------------------- voucher settings */
+type DefaultKeys =
+  | 'voucher_receipt_cash_account' | 'voucher_receipt_counter_account'
+  | 'voucher_payment_cash_account' | 'voucher_payment_counter_account';
+
+const EMPTY_DEFAULTS: Record<DefaultKeys, string> = {
+  voucher_receipt_cash_account: '',
+  voucher_receipt_counter_account: '',
+  voucher_payment_cash_account: '',
+  voucher_payment_counter_account: '',
+};
+
+/**
+ * Default accounts pre-selected on a new voucher, set once per file. The cash
+ * side lists cash/bank accounts (the صندوق you usually use); the counter side
+ * lists every posting account. Saved to the shared settings, so a new receipt
+ * or payment opens with the right accounts already chosen.
+ */
+function VoucherSettings({ onClose }: { onClose: () => void }) {
+  const { data: settings } = useSettings();
+  const update = useUpdateSettings();
+  const { data: accountsData } = useAccounts({ active: true });
+  const posting = useMemo<Account[]>(
+    () => (accountsData?.data ?? []).filter((a) => a.is_posting),
+    [accountsData],
+  );
+  const cashOptions = useMemo(() => {
+    const money = posting.filter((a) => a.type_code === 'CASH' || a.type_code === 'BANK');
+    return toOptions(money.length ? money : posting);
+  }, [posting]);
+  const counterOptions = useMemo(() => toOptions(posting), [posting]);
+
+  const [form, setForm] = useState<Record<DefaultKeys, string>>(EMPTY_DEFAULTS);
+  useEffect(() => {
+    if (!settings) return;
+    setForm({
+      voucher_receipt_cash_account: settings.voucher_receipt_cash_account ?? '',
+      voucher_receipt_counter_account: settings.voucher_receipt_counter_account ?? '',
+      voucher_payment_cash_account: settings.voucher_payment_cash_account ?? '',
+      voucher_payment_counter_account: settings.voucher_payment_counter_account ?? '',
+    });
+  }, [settings]);
+
+  const set = (key: DefaultKeys, value: string) => setForm((f) => ({ ...f, [key]: value }));
+
+  const save = () => update.mutate(form as Partial<Settings>, {
+    onSuccess: () => { toast.success('تم حفظ إعدادات السندات'); onClose(); },
+    onError: (e: Error) => toastError(e, 'تعذّر الحفظ'),
+  });
+
+  const field = (label: string, key: DefaultKeys, options: ComboOption[]) => (
+    <label className="block">
+      <span className="mb-1 block text-xs text-muted">{label}</span>
+      <Combobox
+        value={form[key]}
+        onChange={(v) => set(key, v)}
+        options={options}
+        placeholder="— بدون افتراضي —"
+        searchPlaceholder="ابحث برقم الحساب أو اسمه…"
+      />
+    </label>
+  );
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title="إعدادات السندات"
+      description="الحسابات الافتراضية التي تُختار تلقائياً عند إنشاء سند جديد"
+      footer={(
+        <>
+          <Button onClick={onClose} disabled={update.isPending}>إلغاء</Button>
+          <Button variant="primary" onClick={save} loading={update.isPending}>حفظ</Button>
+        </>
+      )}
+    >
+      <div className="space-y-4">
+        <section className="space-y-3">
+          <div className="flex items-center gap-2 text-sm font-semibold text-emerald-600 dark:text-emerald-400">
+            <ArrowDownCircle className="size-4" /> سند قبض
+          </div>
+          {field('المقبوض في (صندوق/بنك)', 'voucher_receipt_cash_account', cashOptions)}
+          {field('المقبوض من (الحساب المقابل)', 'voucher_receipt_counter_account', counterOptions)}
+        </section>
+
+        <section className="space-y-3 border-t border-line pt-4">
+          <div className="flex items-center gap-2 text-sm font-semibold text-accent-600 dark:text-accent-400">
+            <ArrowUpCircle className="size-4" /> سند صرف
+          </div>
+          {field('المصروف من (صندوق/بنك)', 'voucher_payment_cash_account', cashOptions)}
+          {field('المدفوع إلى (الحساب المقابل)', 'voucher_payment_counter_account', counterOptions)}
+        </section>
+      </div>
     </Modal>
   );
 }

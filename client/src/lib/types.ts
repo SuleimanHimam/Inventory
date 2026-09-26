@@ -549,6 +549,10 @@ export type Settings = {
   company_name: string;
   currency: string;
   digits: 'latn' | 'arab';
+  voucher_receipt_cash_account: string;
+  voucher_receipt_counter_account: string;
+  voucher_payment_cash_account: string;
+  voucher_payment_counter_account: string;
 };
 
 /* ------------------------------------------------------------------ backup */

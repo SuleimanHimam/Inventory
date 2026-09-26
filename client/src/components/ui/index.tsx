@@ -617,3 +617,6 @@ export function Stat({ label, value, tone }: { label: string; value: ReactNode; 
     </div>
   );
 }
+
+/* Type-to-search select — see ./Combobox. */
+export { Combobox, type ComboOption } from './Combobox';
