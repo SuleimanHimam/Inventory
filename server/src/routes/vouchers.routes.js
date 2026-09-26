@@ -10,12 +10,15 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { wrap, parse, pageQuery, paginated } from '../lib/http.js';
-import { requireManager } from '../lib/roles.js';
+import { requirePermission } from '../lib/roles.js';
 import * as vouchers from '../services/vouchers.service.js';
 
 const router = Router();
 
-router.use(requireManager);
+// Every voucher route needs at least view of السندات; writes need more. A
+// built-in OWNER has all of these, so this is identical to the old
+// requireManager for the built-in roles, while a custom role is honoured.
+router.use(requirePermission('vouchers', 'view'));
 
 const VOUCHER_TYPE = z.enum(['RECEIPT', 'PAYMENT']);
 
@@ -36,7 +39,7 @@ router.get('/', wrap(async (req, res) => {
 
 router.get('/:id', wrap(async (req, res) => res.json(await vouchers.getVoucher(req.params.id))));
 
-router.post('/', wrap(async (req, res) => {
+router.post('/', requirePermission('vouchers', 'add'), wrap(async (req, res) => {
   const body = parse(
     z.object({
       type: VOUCHER_TYPE,
@@ -54,8 +57,8 @@ router.post('/', wrap(async (req, res) => {
   res.status(201).json(await vouchers.createVoucher(body, req.auth?.email));
 }));
 
-/** Manager correction: compensating entries, voucher marked REVERSED. */
-router.post('/:id/reverse', wrap(async (req, res) =>
+/** Correction: compensating entries, voucher marked REVERSED. */
+router.post('/:id/reverse', requirePermission('vouchers', 'edit'), wrap(async (req, res) =>
   res.json(await vouchers.reverseVoucher(req.params.id, req.auth?.email))));
 
 export default router;

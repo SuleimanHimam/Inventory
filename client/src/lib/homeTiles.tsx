@@ -166,8 +166,14 @@ export function savePrefs(prefs: Prefs) {
  */
 export function useHomeTiles({ onNotes }: { onNotes?: () => void } = {}): Tile[] {
   const {
-    isManager, canSeeInvoiceList, canSeeDashboard, canManageUsers, canSeeFullNav,
+    isManager, canSeeInvoiceList, canSeeDashboard, canManageUsers, canSeeFullNav, can,
   } = usePermissions();
+  // A custom role reaches the financial screens through its grid, not by being a
+  // manager; the built-in three are unchanged (isManager, or the grid says no).
+  const canVouchers = isManager || can('vouchers', 'view');
+  const canAddVouchers = isManager || can('vouchers', 'add');
+  const canAccounts = canSeeFullNav || can('accounts', 'view');
+  const canFinancials = isManager || can('accounts', 'view');
   const { data: stats } = useDashboard(canSeeDashboard);
 
   const all: Tile[] = [
@@ -181,13 +187,13 @@ export function useHomeTiles({ onNotes }: { onNotes?: () => void } = {}): Tile[]
     { id: 'customers', label: 'العملاء', icon: Users, to: '/customers', tone: 'blue', show: canSeeFullNav },
     { id: 'suppliers', label: 'الموردون', icon: Truck, to: '/suppliers', tone: 'teal', show: canSeeFullNav },
     { id: 'dashboard', label: 'لوحة المعلومات', icon: LayoutDashboard, to: '/dashboard', tone: 'teal', show: canSeeDashboard },
-    { id: 'accounts', label: 'دليل الحسابات', icon: BookOpen, to: '/accounts', tone: 'violet', show: canSeeFullNav },
-    { id: 'receipt', label: 'سند قبض', icon: ArrowDownCircle, to: '/vouchers/new?type=RECEIPT', tone: 'green', show: isManager },
-    { id: 'payment', label: 'سند صرف', icon: ArrowUpCircle, to: '/vouchers/new?type=PAYMENT', tone: 'red', show: isManager },
-    { id: 'vouchers', label: 'السندات', icon: FileText, to: '/vouchers', tone: 'teal', show: isManager },
-    { id: 'expenses', label: 'مصروف سريع', icon: Wallet, to: '/expenses', tone: 'red', show: isManager },
-    { id: 'accounting', label: 'المحاسبة', icon: Scale, to: '/accounting', tone: 'teal', show: isManager },
-    { id: 'statement', label: 'كشف حساب', icon: ScrollText, to: '/statement', tone: 'violet', show: isManager },
+    { id: 'accounts', label: 'دليل الحسابات', icon: BookOpen, to: '/accounts', tone: 'violet', show: canAccounts },
+    { id: 'receipt', label: 'سند قبض', icon: ArrowDownCircle, to: '/vouchers/new?type=RECEIPT', tone: 'green', show: canAddVouchers },
+    { id: 'payment', label: 'سند صرف', icon: ArrowUpCircle, to: '/vouchers/new?type=PAYMENT', tone: 'red', show: canAddVouchers },
+    { id: 'vouchers', label: 'السندات', icon: FileText, to: '/vouchers', tone: 'teal', show: canVouchers },
+    { id: 'expenses', label: 'مصروف سريع', icon: Wallet, to: '/expenses', tone: 'red', show: canAddVouchers },
+    { id: 'accounting', label: 'المحاسبة', icon: Scale, to: '/accounting', tone: 'teal', show: canFinancials },
+    { id: 'statement', label: 'كشف حساب', icon: ScrollText, to: '/statement', tone: 'violet', show: canFinancials },
     { id: 'notes', label: 'ملاحظات', icon: StickyNote, onClick: onNotes, tone: 'violet', show: isManager },
     { id: 'users', label: 'المستخدمون', icon: Users, to: '/users', tone: 'blue', show: canManageUsers },
     { id: 'settings', label: 'الإعدادات', icon: Settings, to: '/settings', tone: 'slate', show: canSeeFullNav },

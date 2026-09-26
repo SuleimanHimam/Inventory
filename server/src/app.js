@@ -22,7 +22,9 @@ import vouchersRoutes from './routes/vouchers.routes.js';
 import accountingRoutes from './routes/accounting.routes.js';
 import backupRoutes from './routes/backup.routes.js';
 import { partiesRouter } from './routes/parties.routes.js';
-import { redactMoney, stripMoneyFromBody, requireManager } from './lib/roles.js';
+import {
+  redactMoney, stripMoneyFromBody, requireManager, requirePermission, attachPermissions,
+} from './lib/roles.js';
 
 /**
  * Allowed browser origins. A hosted API must not answer `*`: the frontend is a
@@ -124,6 +126,11 @@ export function createApp() {
   // Everything below this line additionally runs inside its organisation's
   // database context.
   api.use(orgContext);
+
+  // Load the caller's effective permission grid into req.auth (drives the money
+  // filters and requirePermission below). After orgContext so it can query the
+  // org's roles inside the request's bound context.
+  api.use(attachPermissions);
 
   /*
    * Role filters, mounted here rather than per-route on purpose: everything

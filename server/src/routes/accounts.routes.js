@@ -14,7 +14,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { wrap, parse } from '../lib/http.js';
-import { requireManager, requireNotClerk } from '../lib/roles.js';
+import { requirePermission, requireNotClerk } from '../lib/roles.js';
 import * as accounts from '../services/accounts.service.js';
 
 const router = Router();
@@ -55,7 +55,7 @@ router.get('/:id', wrap(async (req, res) => res.json(await accounts.getAccount(r
  * figures a non-manager could otherwise glimpse on GET /:id are also stripped
  * by the money-redaction filter (see lib/roles.js).
  */
-router.get('/:id/statement', requireManager, wrap(async (req, res) => {
+router.get('/:id/statement', requirePermission('accounts', 'view'), wrap(async (req, res) => {
   const { date_from: dateFrom, date_to: dateTo } = parse(
     z.object({ date_from: z.string().optional(), date_to: z.string().optional() }),
     req.query,
@@ -63,18 +63,18 @@ router.get('/:id/statement', requireManager, wrap(async (req, res) => {
   res.json(await accounts.accountStatement(req.params.id, { dateFrom, dateTo }));
 }));
 
-router.post('/', requireManager, wrap(async (req, res) =>
+router.post('/', requirePermission('accounts', 'add'), wrap(async (req, res) =>
   res.status(201).json(await accounts.createAccount(parse(accountBody, req.body), req.auth.userId))));
 
-router.patch('/:id', requireManager, wrap(async (req, res) =>
+router.patch('/:id', requirePermission('accounts', 'edit'), wrap(async (req, res) =>
   res.json(await accounts.updateAccount(req.params.id, parse(accountBody, req.body), req.auth.userId))));
 
-router.patch('/:id/active', requireManager, wrap(async (req, res) => {
+router.patch('/:id/active', requirePermission('accounts', 'edit'), wrap(async (req, res) => {
   const { active } = parse(z.object({ active: z.boolean() }), req.body);
   res.json(await accounts.setAccountActive(req.params.id, active, req.auth.userId));
 }));
 
-router.delete('/:id', requireManager, wrap(async (req, res) =>
+router.delete('/:id', requirePermission('accounts', 'delete'), wrap(async (req, res) =>
   res.json(await accounts.deleteAccount(req.params.id))));
 
 export default router;

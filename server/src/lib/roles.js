@@ -211,11 +211,64 @@ export function scrubMoney(value, { keepSalePrice = false } = {}) {
  * keys spared.
  */
 export function redactMoney(req, res, next) {
-  if (isManager(req.auth?.role)) return next();
-  const keepSalePrice = canSeeSalePrice(req.auth?.role);
+  const perms = req.auth?.permissions;
+  // Driven by the effective permission grid when it is present, and by the
+  // fixed role otherwise (a request that somehow skipped attachPermissions).
+  // The two agree exactly for the built-in roles: full money is "sees prices on
+  // the reports screen" (OWNER only, same as isManager); the sale-price
+  // exception is "sees prices on items or sale invoices" (a clerk, and any
+  // custom role set up like one).
+  const fullMoney = perms ? !!perms.reports?.see_prices : isManager(req.auth?.role);
+  if (fullMoney) return next();
+  const keepSalePrice = perms
+    ? (!!perms.items?.see_prices || !!perms.invoices_sale?.see_prices)
+    : canSeeSalePrice(req.auth?.role);
   const json = res.json.bind(res);
   res.json = (body) => json(scrubMoney(body, { keepSalePrice }));
   return next();
+}
+
+/** True when the caller may see money in full (set prices, read every figure). */
+function seesFullMoney(req) {
+  const perms = req.auth?.permissions;
+  return perms ? !!perms.reports?.see_prices : isManager(req.auth?.role);
+}
+
+/**
+ * Attach the caller's effective permission map to `req.auth`, so the money
+ * filters and `requirePermission` below can read it. Mounted after `orgContext`
+ * (it queries the org's role_permissions inside the request's bound context).
+ * Fail-open to the fixed-role behaviour on any error, so a permissions glitch
+ * never locks a manager out of their own file.
+ */
+export async function attachPermissions(req, _res, next) {
+  try {
+    const { effectivePermissions } = await import('../services/roles.service.js');
+    const permissions = await effectivePermissions({ role: req.auth?.role, roleId: req.auth?.roleId });
+    req.auth.permissions = permissions;
+    req.auth.can = (resource, action) => !!permissions?.[resource]?.[action];
+    return next();
+  } catch (err) {
+    console.error('[roles] attachPermissions failed; falling back to fixed role', err?.message);
+    return next();
+  }
+}
+
+/**
+ * Route guard from the permission grid. A built-in OWNER has every permission,
+ * so replacing `requireManager` with this never changes what a manager may do,
+ * and a member/clerk stays refused exactly as before — while a custom role is
+ * allowed through when its grid grants the action. Falls back to manager-only
+ * if the map is missing.
+ */
+export function requirePermission(resource, action) {
+  return (req, _res, next) => {
+    const can = req.auth?.can
+      ? req.auth.can(resource, action)
+      : isManager(req.auth?.role);
+    if (!can) return next(forbidden('لا تملك صلاحية لهذا الإجراء', 'PERMISSION_DENIED'));
+    return next();
+  };
 }
 
 /**
@@ -233,7 +286,7 @@ export function redactMoney(req, res, next) {
  * number.
  */
 export function stripMoneyFromBody(req, _res, next) {
-  if (canSeePrices(req.auth?.role)) return next();
+  if (seesFullMoney(req)) return next();
   if (req.body && typeof req.body === 'object') req.body = scrubMoney(req.body);
   return next();
 }

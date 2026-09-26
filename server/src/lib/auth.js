@@ -136,8 +136,8 @@ export async function authenticate(req, _res, next) {
     if (authConfigError) throw unavailable(authConfigError, 'AUTH_NOT_CONFIGURED');
 
     if (AUTH_MODE === 'none') {
-      const { orgId, role } = await resolveOrg({ userId: DEV_USER_ID, email: DEV_USER_EMAIL });
-      req.auth = { userId: DEV_USER_ID, email: DEV_USER_EMAIL, orgId, role, file: DB_NAME };
+      const { orgId, role, roleId } = await resolveOrg({ userId: DEV_USER_ID, email: DEV_USER_EMAIL });
+      req.auth = { userId: DEV_USER_ID, email: DEV_USER_EMAIL, orgId, role, roleId, file: DB_NAME };
       return next();
     }
 
@@ -169,10 +169,10 @@ export async function authenticate(req, _res, next) {
 
     // Resolved *inside* the file: `memberships` lives in each file's own
     // database now, so asking who this user is means asking their file.
-    const { orgId, role } = await bindFile(file, () => resolveOrg({
+    const { orgId, role, roleId } = await bindFile(file, () => resolveOrg({
       userId: claims.sub, email: claims.email,
     }));
-    req.auth = { userId: claims.sub, email: claims.email ?? null, orgId, role, file };
+    req.auth = { userId: claims.sub, email: claims.email ?? null, orgId, role, roleId, file };
     return next();
   } catch (err) {
     return next(err);

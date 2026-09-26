@@ -7,12 +7,15 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { wrap, parse } from '../lib/http.js';
-import { requireManager } from '../lib/roles.js';
+import { requirePermission } from '../lib/roles.js';
 import * as accounting from '../services/accounting.service.js';
 
 const router = Router();
 
-router.use(requireManager);
+// The financial dashboard is tied to the Chart of Accounts permission: a
+// built-in OWNER has it (identical to the old requireManager), a member/clerk
+// does not, and a custom "accountant" role can be granted it.
+router.use(requirePermission('accounts', 'view'));
 
 router.get('/dashboard', wrap(async (req, res) => {
   const { date_from: dateFrom, date_to: dateTo } = parse(

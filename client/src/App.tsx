@@ -7,6 +7,7 @@ import { Loader2 } from 'lucide-react';
 import { Shell } from '@/components/layout/Shell';
 import { RequireManager } from '@/components/RequireManager';
 import { RequireNotClerk } from '@/components/RequireNotClerk';
+import { RequirePermission } from '@/components/RequirePermission';
 import { Toaster } from '@/components/ui/Toaster';
 import { useSession } from '@/lib/session';
 
@@ -128,17 +129,14 @@ const router = createHashRouter([
           // Accounting (phase 1): Chart of Accounts — staff read, manager writes;
           // a clerk is barred like the other back-office screens.
           { path: 'accounts', element: <RequireNotClerk><ChartOfAccounts /></RequireNotClerk> },
-          // The statement is a money report — manager-only, guarded here and on the API.
-          { path: 'accounts/:id/statement', element: <RequireManager><AccountStatement /></RequireManager> },
-          // Standalone كشف حساب — pick an account and see its movements.
-          { path: 'statement', element: <RequireManager><AccountStatement /></RequireManager> },
-          // Vouchers are money end to end — manager-only, guarded here and on the API.
-          { path: 'vouchers', element: <RequireManager><Vouchers /></RequireManager> },
-          { path: 'vouchers/new', element: <RequireManager><VoucherForm /></RequireManager> },
-          // Quick Expenses — a fast Payment voucher against an expense account.
-          { path: 'expenses', element: <RequireManager><QuickExpenses /></RequireManager> },
-          // Accounting dashboard — the money-standing summary. Manager-only.
-          { path: 'accounting', element: <RequireManager><AccountingDashboard /></RequireManager> },
+          // Financial screens: a built-in manager passes as before; a custom role
+          // reaches them through its permission grid (same check on the API).
+          { path: 'accounts/:id/statement', element: <RequirePermission resource="accounts"><AccountStatement /></RequirePermission> },
+          { path: 'statement', element: <RequirePermission resource="accounts"><AccountStatement /></RequirePermission> },
+          { path: 'vouchers', element: <RequirePermission resource="vouchers"><Vouchers /></RequirePermission> },
+          { path: 'vouchers/new', element: <RequirePermission resource="vouchers" action="add"><VoucherForm /></RequirePermission> },
+          { path: 'expenses', element: <RequirePermission resource="vouchers" action="add"><QuickExpenses /></RequirePermission> },
+          { path: 'accounting', element: <RequirePermission resource="accounts"><AccountingDashboard /></RequirePermission> },
           // Manager-only for the same reason, and with the same double guard:
           // the API refuses `/backup` outright for anyone else.
           { path: 'backup', element: <RequireManager><BackupPage /></RequireManager> },

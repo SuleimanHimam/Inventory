@@ -16,9 +16,15 @@ import { api } from './api';
 
 export type Role = 'OWNER' | 'MEMBER' | 'CLERK';
 
+/** resource key -> the five action flags. Sent by /me for the current role. */
+export type PermissionMap = Record<string, {
+  view: boolean; add: boolean; edit: boolean; delete: boolean; see_prices: boolean;
+}>;
+
 export type Me = {
   user: { id: string; email: string | null };
   org: { id: string; role: Role };
+  permissions?: PermissionMap;
 };
 
 export const ROLE_LABEL: Record<Role, string> = { OWNER: 'مدير', MEMBER: 'موظف', CLERK: 'موظف مبيع' };
@@ -57,8 +63,18 @@ export const useMe = () =>
 export function usePermissions() {
   const { data, isLoading } = useMe();
   const role = data?.org.role ?? null;
+  const perms = data?.permissions;
+  /**
+   * Ask the effective grid whether the current role may do `action` on
+   * `resource`. Used to let custom roles reach screens the fixed three did not,
+   * without disturbing the built-in flags below (which stay role-string based so
+   * nothing about OWNER/MEMBER/CLERK changes). Fail-closed while loading.
+   */
+  const can = (resource: string, action: 'view' | 'add' | 'edit' | 'delete' | 'see_prices') =>
+    !!perms?.[resource]?.[action];
   return {
     role,
+    can,
     isLoading,
     isManager: role === 'OWNER',
     isClerk: role === 'CLERK',

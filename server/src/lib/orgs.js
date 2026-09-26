@@ -27,9 +27,9 @@ export const AUTO_PROVISION = (process.env.ALLOW_AUTO_PROVISION ?? '1') !== '0';
  */
 export async function resolveOrg({ userId, email, autoProvision = AUTO_PROVISION }) {
   const existing = await runWithoutOrg(() => get(
-    'SELECT org_id, role FROM memberships WHERE user_id = @user_id', { user_id: userId },
+    'SELECT org_id, role, role_id FROM memberships WHERE user_id = @user_id', { user_id: userId },
   ));
-  if (existing) return { orgId: existing.org_id, role: existing.role };
+  if (existing) return { orgId: existing.org_id, role: existing.role, roleId: existing.role_id ?? null };
 
   if (!autoProvision) {
     throw forbidden(
@@ -51,7 +51,7 @@ export async function resolveOrg({ userId, email, autoProvision = AUTO_PROVISION
   // Settings rows are tenant-scoped, so seeding them needs the org context.
   await runInOrg(org.id, ensureOrgDefaults);
 
-  return { orgId: org.id, role: 'OWNER' };
+  return { orgId: org.id, role: 'OWNER', roleId: null };
 }
 
 /** The organisation used by local development, the seed script and the tests. */
