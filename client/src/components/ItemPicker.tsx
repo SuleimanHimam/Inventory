@@ -1,15 +1,15 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Loader2, Search, PackageSearch, Plus, Check, ImageOff, SlidersHorizontal } from 'lucide-react';
+import { Loader2, Search, PackageSearch, Plus, Minus, X, SlidersHorizontal } from 'lucide-react';
 import {
-  Badge, Button, Modal, Pagination, SearchInput, Select, TableSkeleton,
+  Button, Modal, Pagination, SearchInput, Select, TableSkeleton,
 } from '@/components/ui';
 import { Thumb, useThumbFallback } from '@/components/ImagePicker';
 import { useCategories, useDebounced, useItems } from '@/hooks';
 import { fmtCurrency, fmtInt } from '@/lib/format';
 import { cn } from '@/lib/cn';
 import { usePermissions } from '@/lib/permissions';
-import type { Item } from '@/lib/types';
+import type { Item, InvoiceLine } from '@/lib/types';
 
 /**
  * The two ways to reach an item without typing its barcode.
@@ -25,11 +25,17 @@ import type { Item } from '@/lib/types';
 /* ------------------------------------------------------- full search screen */
 
 export function ItemBrowserModal({
-  open, onClose, onPick, priceKind = 'sale',
+  open, onClose, onPick, lines = [], onSetQty, onRemove, priceKind = 'sale',
 }: {
   open: boolean;
   onClose: () => void;
   onPick: (item: Item, quantity: number) => void | Promise<void>;
+  /** The invoice's current lines, so a card can show/adjust what is already in it. */
+  lines?: InvoiceLine[];
+  /** Set an existing line's quantity to an exact value. */
+  onSetQty?: (lineId: string, quantity: number) => void;
+  /** Remove a line from the invoice entirely. */
+  onRemove?: (lineId: string) => void;
   priceKind?: 'sale' | 'purchase';
 }) {
   const [search, setSearch] = useState('');
@@ -39,14 +45,6 @@ export function ItemBrowserModal({
   const [limit, setLimit] = useState(25);
   /** Phone only — collapsed by default so the grid starts right under the search box. */
   const [filtersOpen, setFiltersOpen] = useState(false);
-
-  /*
-   * Each "إضافة" commits its item to the invoice at once — no basket to review
-   * and commit later. `added` remembers how many of each item went in during
-   * this visit (item id -> total qty), so a card can show "أُضيفت ✓" and the
-   * header can show a running count, and it clears when the picker reopens.
-   */
-  const [added, setAdded] = useState<Record<string, number>>({});
 
   const { canSeePrices, canSeeSalePrice } = usePermissions();
   const canSeeThisPrice = priceKind === 'sale' ? canSeeSalePrice : canSeePrices;
@@ -66,25 +64,29 @@ export function ItemBrowserModal({
   // Any filter change invalidates the current page number.
   useEffect(() => { setPage(1); }, [debounced, categoryId, onlyLow, limit]);
 
-  // Start clean each time it is opened — filters and the added-count both.
+  // Start clean each time it is opened.
   useEffect(() => {
     if (!open) return;
     setSearch(''); setCategoryId(''); setOnlyLow(false); setPage(1); setFiltersOpen(false);
-    setAdded({});
   }, [open]);
 
   const rows = data?.data ?? [];
 
-  const addedEntries = Object.entries(added);
-  const lineCount = addedEntries.length;
-  const unitCount = addedEntries.reduce((sum, [, q]) => sum + q, 0);
+  // What is already in the invoice, by item — so a card shows its current
+  // quantity and the +/- stepper edits that same line live. First line per
+  // item (an item added twice under different units is rare here).
+  const lineByItem = useMemo(() => {
+    const m = new Map<string, InvoiceLine>();
+    for (const l of lines) if (!m.has(l.item_id)) m.set(l.item_id, l);
+    return m;
+  }, [lines]);
 
-  // Commit one item to the invoice immediately, and remember it went in.
-  const addItem = async (item: Item, qty: number) => {
-    const n = Math.max(1, Math.floor(qty || 0));
-    await onPick(item, n); // parent adds the line and flashes it; it toasts on error
-    setAdded((a) => ({ ...a, [item.id]: (a[item.id] ?? 0) + n }));
-  };
+  const lineCount = lines.length;
+  const unitCount = lines.reduce((sum, l) => sum + l.quantity, 0);
+  const totalAmount = lines.reduce((sum, l) => sum + (l.line_total ?? 0), 0);
+
+  // Commit one item to the invoice immediately.
+  const addItem = (item: Item) => onPick(item, 1);
 
   // "Back to choosing": clear the search/filters for a fresh pick.
   const keepChoosing = () => { setSearch(''); setCategoryId(''); setOnlyLow(false); setPage(1); };
@@ -96,12 +98,15 @@ export function ItemBrowserModal({
       size="full"
       title={(
         <div className="flex flex-col gap-2.5 pe-2">
-          {/* What has been added to the invoice so far, at the very top. */}
+          {/* What is in the invoice so far — count, units, and (when allowed)
+              the running total, like a live order summary. */}
           <span className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
-            <span>{lineCount ? `أُضيفت للفاتورة: ${fmtInt(lineCount)} صنف` : 'اختر الأصناف'}</span>
-            {lineCount > 0 && (
-              <span className="text-xs font-normal text-muted">{fmtInt(unitCount)} قطعة</span>
+            {canSeeThisPrice && lineCount > 0 && (
+              <span className="nums text-brand-600 dark:text-brand-400">{fmtCurrency(totalAmount)}</span>
             )}
+            <span className={cn(lineCount && 'text-sm font-normal text-muted')}>
+              {lineCount ? `${fmtInt(lineCount)} صنف · ${fmtInt(unitCount)} قطعة` : 'اختر الأصناف'}
+            </span>
           </span>
 
           {/* Search and filters live in this top bar now, above the grid, so
@@ -176,8 +181,10 @@ export function ItemBrowserModal({
                   item={item}
                   priceKind={priceKind}
                   canSeeThisPrice={canSeeThisPrice}
-                  addedQty={added[item.id] ?? 0}
-                  onAdd={(qty) => addItem(item, qty)}
+                  line={lineByItem.get(item.id) ?? null}
+                  onAdd={() => addItem(item)}
+                  onSetQty={onSetQty}
+                  onRemove={onRemove}
                 />
               ))}
             </div>
@@ -385,64 +392,79 @@ export function ItemListDropdown({
 
 /* ------------------------------------------------------------------ shared */
 
-function QuantityCell({ item }: { item: Item }) {
-  if (item.quantity <= 0) return <Badge tone="danger">نفد</Badge>;
-  return (
-    <span className={cn('nums text-sm font-bold', item.is_low_stock && 'text-accent-600 dark:text-accent-400')}>
-      {fmtInt(item.quantity)}
-    </span>
-  );
-}
+/** A soft tint per item, derived from its name — the background of the
+ *  monogram tile for items with no photo (stable, so a card keeps its colour).*/
+const TILE_TINTS = [
+  { bg: 'bg-amber-100 dark:bg-amber-500/15', fg: 'text-amber-700 dark:text-amber-300' },
+  { bg: 'bg-sky-100 dark:bg-sky-500/15', fg: 'text-sky-700 dark:text-sky-300' },
+  { bg: 'bg-violet-100 dark:bg-violet-500/15', fg: 'text-violet-700 dark:text-violet-300' },
+  { bg: 'bg-emerald-100 dark:bg-emerald-500/15', fg: 'text-emerald-700 dark:text-emerald-300' },
+  { bg: 'bg-rose-100 dark:bg-rose-500/15', fg: 'text-rose-700 dark:text-rose-300' },
+  { bg: 'bg-teal-100 dark:bg-teal-500/15', fg: 'text-teal-700 dark:text-teal-300' },
+];
+const tintFor = (s: string) => {
+  let h = 0;
+  for (let i = 0; i < s.length; i += 1) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+  return TILE_TINTS[h % TILE_TINTS.length];
+};
 
 /**
- * A photo-first product card that carries its own basket quantity.
+ * A product card that shows what is already in the invoice and edits it live.
  *
- * Nothing here touches the invoice. A card starts with an "إضافة" button; the
- * first tap puts one in the basket and the button becomes a −/quantity/+
- * stepper, with an X in the corner to drop the item entirely. `qty` and every
- * change are owned by the modal, so the same basket survives paging and
- * searching, and the running total at the top always matches.
+ * Before it is in the invoice, the card carries one big "إضافة" button. Once in,
+ * that becomes a −/quantity/+ stepper with a "في الطلبية" badge and a red remove
+ * in the corner, and every change writes straight to the invoice line (add,
+ * set-quantity, remove) — so the header's running order total always matches.
  */
 function PickerCard({
-  item, priceKind, canSeeThisPrice, addedQty, onAdd,
+  item, priceKind, canSeeThisPrice, line, onAdd, onSetQty, onRemove,
 }: {
   item: Item;
   priceKind: 'sale' | 'purchase';
   canSeeThisPrice: boolean;
-  addedQty: number;
-  onAdd: (quantity: number) => void | Promise<void>;
+  line: InvoiceLine | null;
+  onAdd: () => void | Promise<void>;
+  onSetQty?: (lineId: string, quantity: number) => void;
+  onRemove?: (lineId: string) => void;
 }) {
   const img = useThumbFallback(item.image_url);
-  // The quantity is typed, and starts empty — no prefilled "1" to clear first.
-  const [qtyText, setQtyText] = useState('');
-  const [busy, setBusy] = useState(false);
-  const added = addedQty > 0;
+  const inOrder = !!line;
+  const qty = line?.quantity ?? 0;
+  const tint = tintFor(item.name);
+  const monogram = item.name.trim().replace(/\s+/g, ' ').split(' ').slice(0, 2)
+    .map((w) => w[0]).join('');
 
-  const submit = async () => {
-    if (busy) return;
-    const qty = Math.max(1, Math.floor(Number(qtyText) || 0)); // empty → 1
-    setBusy(true);
-    try {
-      await onAdd(qty);
-      setQtyText(''); // ready for the next add of the same item
-    } finally {
-      setBusy(false);
-    }
+  const setQty = (next: number) => {
+    if (!line || !onSetQty) return;
+    if (next <= 0) onRemove?.(line.id);
+    else onSetQty(line.id, next);
   };
 
   return (
     <div className={cn(
       'card relative flex flex-col overflow-hidden transition',
-      added && 'ring-2 ring-emerald-500',
+      inOrder && 'ring-2 ring-brand-500',
     )}>
-      {/* Confirmation that it went into the invoice, with how many so far. */}
-      {added && (
-        <span className="absolute end-1.5 top-1.5 z-10 flex items-center gap-1 rounded-full bg-emerald-600 px-2 py-0.5 text-[11px] font-bold text-white shadow">
-          <Check className="size-3" /> {fmtInt(addedQty)}
-        </span>
+      {/* In-order badge + remove, top corners. */}
+      {inOrder && (
+        <>
+          <span className="absolute start-1.5 top-1.5 z-10 rounded-full bg-ink px-2 py-0.5 text-[11px] font-bold text-surface shadow">
+            {fmtInt(qty)} في الطلبية
+          </span>
+          <button
+            type="button"
+            onClick={() => line && onRemove?.(line.id)}
+            aria-label={`إزالة ${item.name}`}
+            className="absolute end-1.5 top-1.5 z-10 grid size-7 place-items-center rounded-full bg-accent-600 text-white shadow transition hover:bg-accent-700 active:scale-95"
+          >
+            <X className="size-4" />
+          </button>
+        </>
       )}
 
-      <div className="aspect-square w-full overflow-hidden bg-surface-2">
+      {/* Photo, or a coloured monogram tile when the item has none. A stock
+          badge sits over it, like the reference's "في الفان". */}
+      <div className="relative aspect-square w-full overflow-hidden bg-surface-2">
         {item.image_url ? (
           <img
             src={img.src}
@@ -453,19 +475,29 @@ function PickerCard({
             className="size-full object-cover"
           />
         ) : (
-          <div className="grid size-full place-items-center"><ImageOff className="size-8 text-subtle" /></div>
+          <div className={cn('grid size-full place-items-center', tint.bg)}>
+            <span className={cn('text-3xl font-black', tint.fg)}>{monogram || '—'}</span>
+          </div>
         )}
+        <span className={cn(
+          'nums absolute bottom-1.5 start-1.5 rounded-full px-2 py-0.5 text-[11px] font-bold shadow',
+          item.quantity <= 0
+            ? 'bg-accent-600 text-white'
+            : 'bg-surface/90 text-ink ring-1 ring-line',
+          item.is_low_stock && item.quantity > 0 && 'text-accent-600 dark:text-accent-400',
+        )}>
+          {item.quantity <= 0 ? 'نفد' : `${fmtInt(item.quantity)} في المخزون`}
+        </span>
       </div>
+
       <div className="flex flex-1 flex-col p-2.5">
+        <span className="text-[11px] font-medium text-muted">
+          {item.category_name || 'بدون تصنيف'}
+        </span>
         <p className="line-clamp-2 text-sm font-bold text-ink">{item.name}</p>
-        {item.category_name ? (
-          <Badge tone="brand" className="mt-1 self-start">{item.category_name}</Badge>
-        ) : (
-          <span className="mt-1 text-[11px] text-subtle">بدون تصنيف</span>
-        )}
-        <div className="mt-1.5 flex items-center justify-between gap-2">
+        <div className="mt-1 flex items-center justify-between gap-2">
           {canSeeThisPrice ? (
-            <span className="nums text-sm font-bold text-brand-600 dark:text-brand-400">
+            <span className="nums text-base font-bold text-brand-600 dark:text-brand-400">
               {fmtCurrency(priceKind === 'purchase' ? item.purchase_price : item.sale_price)}
             </span>
           ) : (
@@ -473,35 +505,48 @@ function PickerCard({
               {item.barcode ?? '—'}
             </span>
           )}
-          <QuantityCell item={item} />
+          <span className="text-[11px] text-subtle">قطعة</span>
         </div>
 
-        {/* Type the quantity (blank = 1), then إضافة adds it to the invoice
-            straight away. Pinned to the card's bottom edge (mt-auto). */}
-        <div className="mt-auto flex items-center gap-1.5 pt-2">
-          <input
-            type="number"
-            min="1"
-            step="1"
-            inputMode="numeric"
-            value={qtyText}
-            placeholder="الكمية"
-            onChange={(e) => setQtyText(e.target.value.replace(/[^\d]/g, ''))}
-            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); submit(); } }}
-            aria-label={`الكمية — ${item.name}`}
-            className="field h-9 w-16 shrink-0 py-0 text-center text-sm font-bold"
-          />
-          <Button
-            size="sm"
-            variant={added ? 'success' : 'primary'}
-            loading={busy}
-            className="h-9 flex-1"
-            icon={<Plus className="size-3.5" />}
-            onClick={submit}
-            aria-label={`إضافة — ${item.name}`}
-          >
-            إضافة
-          </Button>
+        {/* In the invoice → the stepper; otherwise the add button. */}
+        <div className="mt-auto pt-2">
+          {inOrder ? (
+            <div className="flex items-center gap-1.5">
+              <Button
+                size="icon" variant="primary" className="size-9 shrink-0"
+                icon={<Plus className="size-4" />}
+                onClick={() => setQty(qty + 1)}
+                aria-label={`زيادة — ${item.name}`}
+              />
+              <input
+                inputMode="numeric"
+                value={String(qty)}
+                onChange={(e) => {
+                  const v = e.target.value.replace(/[^\d]/g, '');
+                  if (v !== '') setQty(Math.max(1, parseInt(v, 10)));
+                }}
+                onFocus={(e) => e.currentTarget.select()}
+                aria-label={`الكمية — ${item.name}`}
+                className="field nums h-9 min-w-0 flex-1 py-0 text-center text-base font-bold"
+              />
+              <Button
+                size="icon" variant="secondary" className="size-9 shrink-0"
+                icon={<Minus className="size-4" />}
+                onClick={() => setQty(qty - 1)}
+                aria-label={`إنقاص — ${item.name}`}
+              />
+            </div>
+          ) : (
+            <Button
+              variant="primary"
+              className="h-10 w-full"
+              icon={<Plus className="size-4" />}
+              onClick={onAdd}
+              aria-label={`إضافة — ${item.name}`}
+            >
+              إضافة
+            </Button>
+          )}
         </div>
       </div>
     </div>

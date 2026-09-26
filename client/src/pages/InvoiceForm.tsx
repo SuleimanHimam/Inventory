@@ -803,6 +803,15 @@ function InvoiceEditor({ invoice }: { invoice: Invoice }) {
         open={browserOpen}
         onClose={() => { setBrowserOpen(false); focusBarcode(); }}
         onPick={addSearchResult}
+        lines={lines}
+        onSetQty={(lineId, quantity) => mutations.updateLine.mutate(
+          { id: invoice.id, lineId, quantity },
+          { onError: (e) => toastError(e, 'تعذّر تحديث الكمية') },
+        )}
+        onRemove={(lineId) => mutations.removeLine.mutate(
+          { id: invoice.id, lineId },
+          { onError: (e) => toastError(e, 'تعذّر حذف الصنف') },
+        )}
         priceKind={config.direction === 'IN' ? 'purchase' : 'sale'}
       />
 
