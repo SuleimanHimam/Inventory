@@ -4,7 +4,7 @@ import type { ComponentType, CSSProperties } from 'react';
 import {
   Package, PackagePlus, PackageMinus, Tags, ArrowLeftRight,
   TriangleAlert, Settings, LayoutDashboard, FileText, Users,
-  Truck, StickyNote, LogOut, SlidersHorizontal, Check, EyeOff, RotateCcw,
+  Truck, StickyNote, LogOut, SlidersHorizontal, Check, EyeOff, RotateCcw, BookOpen,
 } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { usePermissions } from '@/lib/permissions';
@@ -207,6 +207,7 @@ export default function Home() {
     { id: 'customers', label: 'العملاء', icon: Users, to: '/customers', tone: 'blue', show: canSeeFullNav },
     { id: 'suppliers', label: 'الموردون', icon: Truck, to: '/suppliers', tone: 'teal', show: canSeeFullNav },
     { id: 'dashboard', label: 'لوحة المعلومات', icon: LayoutDashboard, to: '/dashboard', tone: 'teal', show: canSeeDashboard },
+    { id: 'accounts', label: 'دليل الحسابات', icon: BookOpen, to: '/accounts', tone: 'violet', show: canSeeFullNav },
     { id: 'notes', label: 'ملاحظات', icon: StickyNote, onClick: () => setNotesOpen(true), tone: 'violet', show: isManager },
     { id: 'users', label: 'المستخدمون', icon: Users, to: '/users', tone: 'blue', show: canManageUsers },
     { id: 'settings', label: 'الإعدادات', icon: Settings, to: '/settings', tone: 'slate', show: canSeeFullNav },

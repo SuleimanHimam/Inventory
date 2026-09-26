@@ -6,7 +6,7 @@ import { api } from '@/lib/api';
 import { subscribeInstallPrompt, getCanInstall, promptInstall } from '@/lib/installPrompt';
 import type {
   BackupConfig, BackupSet, BackupStatus, BrowseResult, Category, DashboardPeriod, DashboardStats,
-  AppFile, FileList, ManagerNote, ImportPreview, ImportResult,
+  Account, AccountType, AppFile, FileList, ManagerNote, ImportPreview, ImportResult,
   Invoice, Item, ItemImage, ItemUnit, InvoiceSummary, Movement, OrgUser, Paginated, Party,
   PostProblem, RestoreResult, Settings, StockCount,
 } from '@/lib/types';
@@ -30,6 +30,8 @@ export const keys = {
   users: ['users'] as const,
   files: ['files'] as const,
   notes: (params?: unknown) => ['notes', params] as const,
+  accounts: (params?: unknown) => ['accounts', params] as const,
+  accountTypes: ['account-types'] as const,
   backup: ['backup'] as const,
 };
 
@@ -135,7 +137,51 @@ export function useUserMutations() {
   };
 }
 
-/* ------------------------------------------------------------------ notes */
+/* --------------------------------------------------------------- accounting */
+/** The Chart of Accounts. Staff may read; only a manager mutates (API-enforced). */
+export const useAccounts = (params: { search?: string; active?: boolean } = {}, enabled = true) =>
+  useQuery({
+    queryKey: keys.accounts(params),
+    queryFn: () => api.get<{ data: Account[] }>('/accounts', {
+      search: params.search || undefined,
+      active: params.active ? 'true' : undefined,
+    }),
+    enabled,
+  });
+
+export const useAccountTypes = (enabled = true) =>
+  useQuery({
+    queryKey: keys.accountTypes,
+    queryFn: () => api.get<{ data: AccountType[] }>('/accounts/types'),
+    enabled,
+  });
+
+export function useAccountMutations() {
+  const qc = useQueryClient();
+  const done = () => qc.invalidateQueries({ queryKey: ['accounts'] });
+  return {
+    create: useMutation({
+      mutationFn: (body: Partial<Account>) => api.post<Account>('/accounts', body),
+      onSuccess: done,
+    }),
+    update: useMutation({
+      mutationFn: ({ id, ...body }: Partial<Account> & { id: string }) =>
+        api.patch<Account>(`/accounts/${id}`, body),
+      onSuccess: done,
+    }),
+    setActive: useMutation({
+      mutationFn: ({ id, active }: { id: string; active: boolean }) =>
+        api.patch<Account>(`/accounts/${id}/active`, { active }),
+      onSuccess: done,
+    }),
+    remove: useMutation({
+      mutationFn: (id: string) => api.delete(`/accounts/${id}`),
+      onSuccess: done,
+    }),
+  };
+}
+
+/* ------------------------------------------------------------------ notes *//* ------------------------------------------------------------------ notes */
 /**
  * The manager's private notepad — many notes, searchable. Manager-only on the
  * API (requireManager), so the caller gates the query the same way `useUsers`

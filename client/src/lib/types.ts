@@ -402,6 +402,23 @@ export type FileList = {
   reason: string | null;
 };
 
+export type AccountType = { id: string; code: string; name: string };
+
+export type Account = {
+  id: string;
+  account_number: string;
+  name: string;
+  parent_account_id: string | null;
+  account_type_id: string | null;
+  type_code: string | null;
+  type_name: string | null;
+  is_posting: boolean;
+  is_active: boolean;
+  statement_section: string | null;
+  description: string | null;
+  child_count: number;
+};
+
 export type ManagerNote = {
   id: string;
   title: string;
