@@ -177,6 +177,72 @@ export async function autoConfigureAccounting() {
   return patch;
 }
 
+/**
+ * The parent group under which a party kind's own accounts hang (العملاء for
+ * customers, موردون for suppliers) — resolved once and *always* returned, never
+ * null. This is what guarantees every new customer/supplier gets a real account
+ * in the chart, even in a file whose settings were never mapped or whose chart
+ * was hand-edited:
+ *   1. use the configured parent if it still exists;
+ *   2. otherwise auto-configure (seeds the standard chart + maps settings) and
+ *      retry;
+ *   3. otherwise find the standard group by its fixed number/name;
+ *   4. as a last resort create a top-level group, and save it to settings.
+ * Because it can create, it must run inside the request transaction (it does —
+ * every caller is already within runInOrg).
+ */
+const PARTY_PARENT = {
+  customers: { key: 'invoice_customers_parent', number: '1601', name: 'العملاء', type: 'CUSTOMER' },
+  suppliers: { key: 'invoice_suppliers_parent', number: '261', name: 'موردون', type: 'SUPPLIER' },
+};
+
+export async function ensurePartyParentId(kind) {
+  const spec = PARTY_PARENT[kind];
+  if (!spec) return null;
+  const org = orgId();
+
+  const exists = async (id) => {
+    if (!id) return false;
+    const r = await get('SELECT 1 AS x FROM accounts WHERE id = @id AND org_id = @org', { id, org });
+    return !!r;
+  };
+
+  // 1) configured and still present
+  let settings = await getSettings();
+  if (await exists(settings[spec.key])) return settings[spec.key];
+
+  // 2) let auto-config seed the chart and map the setting, then retry
+  await autoConfigureAccounting();
+  settings = await getSettings();
+  if (await exists(settings[spec.key])) return settings[spec.key];
+
+  // 3) find the standard group by number, then by name
+  let group = await get('SELECT id FROM accounts WHERE org_id = @org AND account_number = @num',
+    { org, num: spec.number });
+  if (!group) {
+    group = await get(
+      'SELECT id FROM accounts WHERE org_id = @org AND is_posting = 0 AND name = @name',
+      { org, name: spec.name });
+  }
+
+  // 4) create a top-level group of our own
+  if (!group) {
+    const type = await get('SELECT id FROM account_types WHERE org_id = @org AND code = @c',
+      { org, c: spec.type });
+    const id = newId();
+    await run(
+      `INSERT INTO accounts
+         (id, org_id, account_number, name, parent_account_id, account_type_id, is_posting, is_active)
+       VALUES (@id, @org, @num, @name, NULL, @type, 0, 1)`,
+      { id, org, num: spec.number, name: spec.name, type: type?.id ?? null },
+    );
+    group = { id };
+  }
+
+  await setSettings({ [spec.key]: group.id });
+  return group.id;
+}
+
 /* ------------------------------------------------------------------ listing */
 export async function listAccountTypes() {
   return all('SELECT id, code, name FROM account_types WHERE org_id = @org ORDER BY name',

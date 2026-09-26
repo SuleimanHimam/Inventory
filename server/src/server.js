@@ -7,7 +7,7 @@
  */
 import { createApp } from './app.js';
 import { close } from './db/index.js';
-import { migrate } from './db/migrate.js';
+import { migrateAllFiles } from './db/migrate.js';
 import { AUTH_MODE, AUTH_DISABLED, authConfigError } from './lib/auth.js';
 import { STORAGE_DRIVER, storageConfigError } from './lib/storage.js';
 import { markReady, markFailed } from './lib/readiness.js';
@@ -66,7 +66,9 @@ try {
   // The advisory lock inside migrate() makes a concurrent run safe, and the
   // host has no release phase to put this in.
   if (process.env.SKIP_MIGRATIONS !== '1') {
-    await migrate();
+    // Every file's database, not only the configured one — so a migration added
+    // after a file was created still reaches it on a plain pull-and-restart.
+    await migrateAllFiles();
   }
   markReady();
   // Only once the schema is confirmed: a scheduler that fires against a

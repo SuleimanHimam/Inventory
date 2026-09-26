@@ -113,9 +113,44 @@ export async function migrate({ log = console.log, database = DB_NAME } = {}) {
   }
 }
 
-// Run directly: `node src/db/migrate.js`
+/**
+ * Apply pending migrations to the default database *and every file database*.
+ *
+ * Boot only migrated the configured DB, and a file otherwise gets migrations
+ * only when it is first created — so a migration added after a file existed
+ * (the whole accounting module, for one) never reached that file, leaving it
+ * without the new tables/columns. Running this at boot makes a plain
+ * pull-and-restart deploy propagate every migration to every file, which is
+ * how this app is delivered. Each file is migrated on its own connection and
+ * failures are collected, not thrown, so one broken file cannot stop the rest.
+ */
+export async function migrateAllFiles({ log = console.log } = {}) {
+  if (configError) throw configError;
+  await migrate({ log }); // the configured/default database first
+  const { listFiles } = await import('../lib/files.js');
+  const files = await listFiles();
+  const failures = [];
+  for (const f of files) {
+    if (f.id === DB_NAME) continue; // already done above
+    try {
+      await migrate({ log, database: f.id });
+    } catch (err) {
+      failures.push({ file: f.id, error: err.message });
+      log(`[migrate] file ${f.id} failed: ${err.message}`);
+    }
+  }
+  if (failures.length) {
+    const e = new Error(`migration failed for ${failures.length} file(s): `
+      + failures.map((x) => x.file).join(', '));
+    e.failures = failures;
+    throw e;
+  }
+  return files.map((f) => f.id);
+}
+
+// Run directly: `node src/db/migrate.js [--all]`
 if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
-  migrate()
+  (process.argv.includes('--all') ? migrateAllFiles() : migrate())
     .then(() => close())
     .catch((err) => {
       console.error(err);

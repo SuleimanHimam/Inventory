@@ -1,6 +1,6 @@
-import { all, get, run, newId, nowIso, orgId, publicRow, getSettings } from '../db/index.js';
+import { all, get, run, newId, nowIso, orgId, publicRow } from '../db/index.js';
 import { notFound } from '../lib/errors.js';
-import { ensureChildAccount } from './accounts.service.js';
+import { ensureChildAccount, ensurePartyParentId } from './accounts.service.js';
 
 /**
  * Customers and suppliers are structurally identical apart from one extra
@@ -49,10 +49,11 @@ export async function ensureDefaultParty(kind) {
 }
 
 /**
- * The party's own ledger account, created on demand under the configured parent
- * (العملاء / موردون) and linked back to the party. Returns null when no parent
- * is configured — a credit invoice then falls back to the cash account. This is
- * what makes "post to the customer's account" mean the customer's own leaf.
+ * The party's own ledger account, created on demand under its parent group
+ * (العملاء / موردون) and linked back to the party. The parent is *always*
+ * resolved (ensurePartyParentId seeds/creates it if need be), so every party
+ * ends up with its own leaf in the chart — that is what makes "post to the
+ * customer's account" mean the customer's own account.
  */
 export async function getPartyAccountId(kind, partyId) {
   if (!partyId) return null;
@@ -63,10 +64,7 @@ export async function getPartyAccountId(kind, partyId) {
   if (!party) return null;
   if (party.account_id) return party.account_id;
 
-  const settings = await getSettings();
-  const parentId = kind === 'customers'
-    ? settings.invoice_customers_parent
-    : settings.invoice_suppliers_parent;
+  const parentId = await ensurePartyParentId(kind);
   if (!parentId) return null;
 
   const accountId = await ensureChildAccount({ parentId, name: party.name });
@@ -161,8 +159,10 @@ export async function createParty(kind, input) {
     `INSERT INTO ${table} (${cols.join(', ')}, org_id)
      VALUES (${cols.map((c) => `@${c}`).join(', ')}, @org)`, values);
   // Give the new party its own account in the chart at once, so it shows up in
-  // دليل الحسابات immediately — not only on its first credit invoice.
-  await getPartyAccountId(kind, id).catch(() => {});
+  // دليل الحسابات immediately — not only on its first credit invoice. This is a
+  // hard requirement: a party must be tied to an account, so a failure here
+  // rolls the whole create back rather than leaving a party with no account.
+  await getPartyAccountId(kind, id);
   return getParty(kind, id);
 }
 
