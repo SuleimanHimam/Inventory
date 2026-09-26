@@ -135,6 +135,9 @@ export async function createParty(kind, input) {
   await run(
     `INSERT INTO ${table} (${cols.join(', ')}, org_id)
      VALUES (${cols.map((c) => `@${c}`).join(', ')}, @org)`, values);
+  // Give the new party its own account in the chart at once, so it shows up in
+  // دليل الحسابات immediately — not only on its first credit invoice.
+  await getPartyAccountId(kind, id).catch(() => {});
   return getParty(kind, id);
 }
 

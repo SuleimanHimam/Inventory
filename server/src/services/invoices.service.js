@@ -73,28 +73,45 @@ async function writeInvoiceLedger(invoice, { number } = {}) {
   const label = invoice.type === 'STOCK_OUT' ? 'فاتورة مبيع' : 'فاتورة شراء';
   const desc = `${label} ${number || invoice.number || ''}`.trim();
   const by = invoice.created_by;
+  const isCash = invoice.payment_type !== 'CREDIT';
+  const add = (accountId, debit, credit) =>
+    insertLedgerEntry({ invoiceId: invoice.id, accountId, debit, credit, date, desc, by });
 
   /*
-   * The money side. A cash invoice moves the cash box; a credit (آجل) invoice
-   * moves the party's own account instead — the customer's receivable on a sale,
-   * the supplier's payable on a purchase — falling back to cash if the party has
-   * no linked account. The other side is always sales (out) or purchases (in).
+   * Every invoice is booked through the party's account, then — when it is a
+   * cash invoice — settled against the cash box in the same posting. So:
+   *
+   *   • the sale/purchase account is always moved,
+   *   • the customer/supplier account is always moved (netting to zero on a
+   *     cash invoice, but showing the sale and its settlement on the statement),
+   *   • the cash box is moved on a cash invoice.
+   *
+   * A credit (آجل) invoice writes only the first pair, leaving the balance on
+   * the party's account until a voucher settles it. With no party account (none
+   * selected, or no parent configured) the sale falls back to cash directly.
    */
-  let moneyAccount = cash;
-  if (invoice.payment_type === 'CREDIT') {
-    const partyKind = invoice.type === 'STOCK_OUT' ? 'customers' : 'suppliers';
-    const partyId = invoice.type === 'STOCK_OUT' ? invoice.customer_id : invoice.supplier_id;
-    moneyAccount = (await getPartyAccountId(partyKind, partyId)) || cash;
-  }
-
   if (invoice.type === 'STOCK_OUT') {
-    if (!moneyAccount || !sales) return; // sale not mapped yet
-    await insertLedgerEntry({ invoiceId: invoice.id, accountId: moneyAccount, debit: total, credit: 0, date, desc, by });
-    await insertLedgerEntry({ invoiceId: invoice.id, accountId: sales, debit: 0, credit: total, date, desc, by });
+    if (!sales) return;
+    const partyAcc = await getPartyAccountId('customers', invoice.customer_id);
+    const bookTo = partyAcc || cash;
+    if (!bookTo) return;
+    await add(bookTo, total, 0);   // Dr customer (or cash) — owes for the goods
+    await add(sales, 0, total);    // Cr sales — revenue earned
+    if (isCash && partyAcc && cash) {
+      await add(cash, total, 0);   // Dr cash — paid now
+      await add(partyAcc, 0, total); // Cr customer — clears the receivable
+    }
   } else {
-    if (!moneyAccount || !purchase) return; // purchase not mapped yet
-    await insertLedgerEntry({ invoiceId: invoice.id, accountId: purchase, debit: total, credit: 0, date, desc, by });
-    await insertLedgerEntry({ invoiceId: invoice.id, accountId: moneyAccount, debit: 0, credit: total, date, desc, by });
+    if (!purchase) return;
+    const partyAcc = await getPartyAccountId('suppliers', invoice.supplier_id);
+    const bookTo = partyAcc || cash;
+    if (!bookTo) return;
+    await add(purchase, total, 0); // Dr purchases — goods received
+    await add(bookTo, 0, total);   // Cr supplier (or cash) — owed to supplier
+    if (isCash && partyAcc && cash) {
+      await add(partyAcc, total, 0); // Dr supplier — clears the payable
+      await add(cash, 0, total);     // Cr cash — paid now
+    }
   }
 }
 
