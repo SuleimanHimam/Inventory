@@ -535,11 +535,31 @@ export type ManagerNote = {
   updated_at: string;
 };
 
+/** One screen's core permissions, mirroring server role_permissions columns. */
+export type ResourcePerm = {
+  view: boolean; add: boolean; edit: boolean; delete: boolean; see_prices: boolean;
+};
+/** A role's whole grid: resource key -> its permissions. */
+export type RolePermissions = Record<string, ResourcePerm>;
+
+export type AppRole = {
+  id: string;
+  name: string;
+  is_builtin: boolean;
+  builtin_key: 'OWNER' | 'MEMBER' | 'CLERK' | null;
+  permissions: RolePermissions;
+};
+
+export type ResourceMeta = { key: string; label: string };
+
 export type OrgUser = {
   id: string;
   email: string;
   /** Kept in step with `Role` in lib/permissions.ts and `ROLES` in server/src/lib/roles.js. */
   role: 'OWNER' | 'MEMBER' | 'CLERK';
+  /** The assigned role from the roles table, when one is set. */
+  role_id: string | null;
+  role_name: string | null;
   created_at: string;
   /** False for a membership with no password account behind it (Supabase mode). */
   has_local_account: boolean;

@@ -9,6 +9,7 @@ import type {
   Account, AccountType, AppFile, FileList, ManagerNote, ImportPreview, ImportResult,
   Invoice, Item, ItemImage, ItemUnit, InvoiceSummary, Movement, OrgUser, Paginated, Party,
   PostProblem, RestoreResult, Settings, StockCount, Voucher, VoucherSummary, AccountStatement, AccountingDashboard,
+  AppRole, RolePermissions, ResourceMeta,
 } from '@/lib/types';
 
 /** Central query-key registry — keeps invalidation honest. */
@@ -131,12 +132,53 @@ export function useUserMutations() {
     }),
     update: useMutation({
       mutationFn: ({ id, ...body }: {
-        id: string; role?: OrgUser['role']; password?: string; username?: string;
+        id: string; role?: OrgUser['role']; role_id?: string; password?: string; username?: string;
       }) => api.patch<OrgUser>(`/users/${id}`, body),
       onSuccess: done,
     }),
     remove: useMutation({
       mutationFn: (id: string) => api.delete(`/users/${id}`),
+      onSuccess: done,
+    }),
+  };
+}
+
+/* -------------------------------------------------------------------- roles */
+export const useRoles = (enabled = true) =>
+  useQuery({
+    queryKey: ['roles'],
+    queryFn: () => api.get<{ data: AppRole[] }>('/roles'),
+    enabled,
+  });
+
+export const useRoleMeta = (enabled = true) =>
+  useQuery({
+    queryKey: ['roles', 'meta'],
+    queryFn: () => api.get<{ resources: ResourceMeta[]; actions: string[] }>('/roles/meta'),
+    staleTime: Infinity,
+    enabled,
+  });
+
+export function useRoleMutations() {
+  const qc = useQueryClient();
+  const done = () => {
+    qc.invalidateQueries({ queryKey: ['roles'] });
+    qc.invalidateQueries({ queryKey: keys.users });
+    qc.invalidateQueries({ queryKey: ['me'] });
+  };
+  return {
+    create: useMutation({
+      mutationFn: (body: { name: string; permissions: RolePermissions }) =>
+        api.post<AppRole>('/roles', body),
+      onSuccess: done,
+    }),
+    update: useMutation({
+      mutationFn: ({ id, ...body }: { id: string; name?: string; permissions?: RolePermissions }) =>
+        api.patch<AppRole>(`/roles/${id}`, body),
+      onSuccess: done,
+    }),
+    remove: useMutation({
+      mutationFn: (id: string) => api.delete(`/roles/${id}`),
       onSuccess: done,
     }),
   };

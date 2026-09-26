@@ -15,6 +15,7 @@ import importRoutes from './routes/importItems.routes.js';
 import metaRoutes from './routes/meta.routes.js';
 import authRoutes from './routes/auth.routes.js';
 import usersRoutes from './routes/users.routes.js';
+import rolesRoutes from './routes/roles.routes.js';
 import filesRoutes from './routes/files.routes.js';
 import accountsRoutes from './routes/accounts.routes.js';
 import vouchersRoutes from './routes/vouchers.routes.js';
@@ -134,6 +135,7 @@ export function createApp() {
   api.use(redactMoney, stripMoneyFromBody);
 
   api.use('/users', usersRoutes);
+  api.use('/roles', rolesRoutes);
   // Creating a file creates a whole database; deleting one drops it. Both are
   // manager-only, and files.routes.js demands the manager's password again
   // before the second.

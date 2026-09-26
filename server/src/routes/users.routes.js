@@ -67,12 +67,14 @@ async function memberOr404(orgId, userId) {
 
 router.get('/', wrap(async (req, res) => {
   const rows = await runWithoutOrg(() => all(
-    `SELECT m.user_id, m.role, m.created_at,
+    `SELECT m.user_id, m.role, m.role_id, m.created_at,
             COALESCE(u.email, m.email) AS email,
+            r.name AS role_name,
             CASE WHEN u.id IS NULL THEN 0 ELSE 1 END AS has_local_account,
             CASE WHEN u.password_hash IS NULL THEN 0 ELSE 1 END AS has_password
        FROM memberships m
        LEFT JOIN users u ON u.id = m.user_id
+       LEFT JOIN roles r ON r.id = m.role_id AND r.org_id = m.org_id
       WHERE m.org_id = @org
       ORDER BY CASE WHEN m.role = @manager THEN 0 ELSE 1 END, m.created_at`,
     { org: req.auth.orgId, manager: MANAGER },
@@ -83,6 +85,8 @@ router.get('/', wrap(async (req, res) => {
       id: r.user_id,
       email: r.email,
       role: r.role,
+      role_id: r.role_id ?? null,
+      role_name: r.role_name ?? null,
       created_at: r.created_at,
       has_local_account: !!r.has_local_account,
       // False means anyone who knows this username can sign in as them.
@@ -149,8 +153,10 @@ router.post('/', wrap(async (req, res) => {
 }));
 
 router.patch('/:id', wrap(async (req, res) => {
-  const { role, password, username } = parse(z.object({
+  const { role, role_id, password, username } = parse(z.object({
     role: roleSchema.optional(),
+    // A role from the roles table (built-in or custom). Preferred over `role`.
+    role_id: z.string().optional(),
     // An empty string is meaningful here — it *removes* the password. Absent
     // means "leave it alone", which is why the two are distinguished below
     // with `!== undefined` rather than a truthiness test.
@@ -160,7 +166,27 @@ router.patch('/:id', wrap(async (req, res) => {
 
   const target = await memberOr404(req.auth.orgId, req.params.id);
 
-  if (role && role !== target.role) {
+  if (role_id !== undefined) {
+    // Assign a role from the roles table. A built-in role also sets the fixed
+    // `role` string, so the three built-ins behave exactly as before and the
+    // last-manager guard keeps working; a custom role leaves `role` untouched
+    // (it becomes the effective set once enforcement reads role_id).
+    const roleRow = await runWithoutOrg(() => get(
+      'SELECT id, builtin_key FROM roles WHERE id = @id AND org_id = @org',
+      { id: role_id, org: req.auth.orgId },
+    ));
+    if (!roleRow) throw notFound('الدور غير موجود', 'ROLE_NOT_FOUND');
+    const newBuiltin = roleRow.builtin_key; // OWNER/MEMBER/CLERK, or null for custom
+    if (target.role === MANAGER && newBuiltin !== MANAGER) {
+      await assertNotLastManager(req.auth.orgId, target.user_id);
+    }
+    await runWithoutOrg(() => run(
+      newBuiltin
+        ? 'UPDATE memberships SET role_id = @rid, role = @role WHERE org_id = @org AND user_id = @user'
+        : 'UPDATE memberships SET role_id = @rid WHERE org_id = @org AND user_id = @user',
+      { rid: role_id, role: newBuiltin, org: req.auth.orgId, user: target.user_id },
+    ));
+  } else if (role && role !== target.role) {
     if (target.role === MANAGER) await assertNotLastManager(req.auth.orgId, target.user_id);
     await runWithoutOrg(() => run(
       'UPDATE memberships SET role = @role WHERE org_id = @org AND user_id = @user',
