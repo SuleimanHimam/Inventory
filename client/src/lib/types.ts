@@ -417,6 +417,59 @@ export type Account = {
   statement_section: string | null;
   description: string | null;
   child_count: number;
+  // Rolled-up ledger balance — present on a single-account fetch (getAccount),
+  // absent from the flat list. Debit-positive: a positive balance is a debit
+  // balance, a negative one a credit balance.
+  balance?: number;
+  debit_total?: number;
+  credit_total?: number;
+};
+
+export type VoucherType = 'RECEIPT' | 'PAYMENT';
+export type VoucherStatus = 'POSTED' | 'REVERSED';
+export type PaymentMethod = 'CASH' | 'BANK' | 'CHEQUE' | 'TRANSFER';
+
+export type VoucherEntry = {
+  id: string;
+  account_id: string;
+  account_number: string;
+  account_name: string;
+  entry_date: string;
+  debit: number;
+  credit: number;
+  description: string | null;
+};
+
+export type Voucher = {
+  id: string;
+  type: VoucherType;
+  number: string;
+  voucher_date: string;
+  cash_account_id: string;
+  cash_account_number: string | null;
+  cash_account_name: string | null;
+  counter_account_id: string;
+  counter_account_number: string | null;
+  counter_account_name: string | null;
+  amount: number;
+  party_type: 'customer' | 'supplier' | null;
+  party_id: string | null;
+  counterparty: string | null;
+  payment_method: PaymentMethod;
+  reference: string | null;
+  description: string | null;
+  status: VoucherStatus;
+  reversed_at: string | null;
+  reversed_by: string | null;
+  created_by: string;
+  created_at: string;
+  entries?: VoucherEntry[];
+};
+
+export type VoucherSummary = {
+  receipts_total: number;
+  payments_total: number;
+  net_total: number;
 };
 
 export type ManagerNote = {

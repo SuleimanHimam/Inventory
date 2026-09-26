@@ -39,6 +39,7 @@ const SettingsPage = lazy(() => import('@/pages/Settings'));
 const UsersPage = lazy(() => import('@/pages/Users'));
 const FilesPage = lazy(() => import('@/pages/Files'));
 const ChartOfAccounts = lazy(() => import('@/pages/ChartOfAccounts'));
+const Vouchers = lazy(() => import('@/pages/Vouchers'));
 const BackupPage = lazy(() => import('@/pages/Backup'));
 const Login = lazy(() => import('@/pages/Login'));
 // Not lazy: an error screen that has to fetch a chunk before it can render is
@@ -123,6 +124,8 @@ const router = createHashRouter([
           // Accounting (phase 1): Chart of Accounts — staff read, manager writes;
           // a clerk is barred like the other back-office screens.
           { path: 'accounts', element: <RequireNotClerk><ChartOfAccounts /></RequireNotClerk> },
+          // Vouchers are money end to end — manager-only, guarded here and on the API.
+          { path: 'vouchers', element: <RequireManager><Vouchers /></RequireManager> },
           // Manager-only for the same reason, and with the same double guard:
           // the API refuses `/backup` outright for anyone else.
           { path: 'backup', element: <RequireManager><BackupPage /></RequireManager> },

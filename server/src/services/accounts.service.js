@@ -10,7 +10,7 @@
  * rest of the services.
  */
 import {
-  all, get, run, newId, orgId, nowIso, tx, publicRow,
+  all, get, run, newId, orgId, nowIso, tx, publicRow, money,
 } from '../db/index.js';
 import ACCOUNTS_SEED from '../db/accounts.seed.js';
 import { badRequest, conflict, notFound } from '../lib/errors.js';
@@ -130,7 +130,40 @@ export async function listAccounts({ search, activeOnly } = {}) {
   }));
 }
 
-/** One account, or 404. */
+/**
+ * The ledger balance of an account, rolled up over its whole subtree.
+ *
+ * A posting account's balance is SUM(debit) - SUM(credit) over its own rows; a
+ * group's is the same sum over every account beneath it, so the tree totals the
+ * way a reader expects (the file's root asset account shows the sum of all
+ * assets). The recursive CTE walks the subtree once, org-scoped at every hop.
+ *
+ * Debit-positive by convention: a positive balance is a debit balance (assets,
+ * expenses, cash on hand), a negative one a credit balance (liabilities,
+ * revenue, a customer in credit). The UI labels the side; this returns the
+ * signed net plus the two column totals so a summary can show both.
+ */
+export async function accountBalance(id) {
+  const row = await get(
+    `WITH subtree AS (
+        SELECT id FROM accounts WHERE id = @id AND org_id = @org
+        UNION ALL
+        SELECT c.id FROM accounts c
+          JOIN subtree s ON c.parent_account_id = s.id
+         WHERE c.org_id = @org
+     )
+     SELECT COALESCE(SUM(t.debit), 0) AS debit_total,
+            COALESCE(SUM(t.credit), 0) AS credit_total
+       FROM transactions t
+      WHERE t.org_id = @org AND t.account_id IN (SELECT id FROM subtree)`,
+    { id, org: orgId() },
+  );
+  const debit = row?.debit_total ?? 0;
+  const credit = row?.credit_total ?? 0;
+  return { debit_total: money(debit), credit_total: money(credit), balance: money(debit - credit) };
+}
+
+/** One account, or 404 — with its rolled-up ledger balance. */
 export async function getAccount(id) {
   const row = await get(
     `SELECT a.*, t.code AS type_code, t.name AS type_name,
@@ -141,7 +174,10 @@ export async function getAccount(id) {
     { id, org: orgId() },
   );
   if (!row) throw notFound('الحساب غير موجود', 'ACCOUNT_NOT_FOUND');
-  return { ...publicRow(row), is_posting: !!row.is_posting, is_active: !!row.is_active };
+  const balance = await accountBalance(id);
+  return {
+    ...publicRow(row), is_posting: !!row.is_posting, is_active: !!row.is_active, ...balance,
+  };
 }
 
 /* ------------------------------------------------------------------ writing */
@@ -276,8 +312,16 @@ export async function deleteAccount(id) {
   if (children > 0) {
     throw conflict('لا يمكن حذف حساب له حسابات فرعية — عطّله بدلاً من ذلك', 'HAS_CHILDREN');
   }
-  // Transactions/vouchers guard is added with those tables in the next phase;
-  // the check lives here so there is one place that owns "is it safe to delete".
+  // An account that has moved money is part of the record and cannot be erased —
+  // deactivate it instead. This is the one place that owns "is it safe to
+  // delete", so both guards live together.
+  const { n: entries } = await get(
+    'SELECT COUNT(*) AS n FROM transactions WHERE org_id = @org AND account_id = @id',
+    { org, id },
+  );
+  if (entries > 0) {
+    throw conflict('لا يمكن حذف حساب له حركات مالية — عطّله بدلاً من ذلك', 'HAS_TRANSACTIONS');
+  }
   await run('DELETE FROM accounts WHERE id = @id AND org_id = @org', { id, org });
   return { id };
 }

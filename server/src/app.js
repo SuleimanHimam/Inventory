@@ -17,6 +17,7 @@ import authRoutes from './routes/auth.routes.js';
 import usersRoutes from './routes/users.routes.js';
 import filesRoutes from './routes/files.routes.js';
 import accountsRoutes from './routes/accounts.routes.js';
+import vouchersRoutes from './routes/vouchers.routes.js';
 import backupRoutes from './routes/backup.routes.js';
 import { partiesRouter } from './routes/parties.routes.js';
 import { redactMoney, stripMoneyFromBody, requireManager } from './lib/roles.js';
@@ -145,6 +146,8 @@ export function createApp() {
   api.use('/categories', categoriesRoutes);
   // Accounting — Chart of Accounts (phase 1). Read for staff, write for managers.
   api.use('/accounts', accountsRoutes);
+  // Accounting — vouchers and the general ledger (phase 2). Manager-only.
+  api.use('/vouchers', vouchersRoutes);
   api.use('/customers', partiesRouter('customers'));
   api.use('/suppliers', partiesRouter('suppliers'));
   api.use('/invoices', invoicesRoutes);

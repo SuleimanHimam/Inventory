@@ -8,7 +8,7 @@ import type {
   BackupConfig, BackupSet, BackupStatus, BrowseResult, Category, DashboardPeriod, DashboardStats,
   Account, AccountType, AppFile, FileList, ManagerNote, ImportPreview, ImportResult,
   Invoice, Item, ItemImage, ItemUnit, InvoiceSummary, Movement, OrgUser, Paginated, Party,
-  PostProblem, RestoreResult, Settings, StockCount,
+  PostProblem, RestoreResult, Settings, StockCount, Voucher, VoucherSummary,
 } from '@/lib/types';
 
 /** Central query-key registry — keeps invalidation honest. */
@@ -32,6 +32,9 @@ export const keys = {
   notes: (params?: unknown) => ['notes', params] as const,
   accounts: (params?: unknown) => ['accounts', params] as const,
   accountTypes: ['account-types'] as const,
+  account: (id: string) => ['account', id] as const,
+  vouchers: (params?: unknown) => ['vouchers', params] as const,
+  voucher: (id: string) => ['voucher', id] as const,
   backup: ['backup'] as const,
 };
 
@@ -176,6 +179,61 @@ export function useAccountMutations() {
     }),
     remove: useMutation({
       mutationFn: (id: string) => api.delete(`/accounts/${id}`),
+      onSuccess: done,
+    }),
+  };
+}
+
+/** One account with its rolled-up ledger balance (the flat list omits it). */
+export const useAccount = (id: string | undefined, enabled = true) =>
+  useQuery({
+    queryKey: keys.account(id!),
+    queryFn: () => api.get<Account>(`/accounts/${id}`),
+    enabled: !!id && enabled,
+  });
+
+/* --------------------------------------------------------------- vouchers */
+export type VouchersQuery = {
+  type?: 'RECEIPT' | 'PAYMENT';
+  status?: 'POSTED' | 'REVERSED';
+  party_id?: string;
+  search?: string;
+  date_from?: string;
+  date_to?: string;
+  page?: number;
+  limit?: number;
+};
+
+export const useVouchers = (params: VouchersQuery, enabled = true) =>
+  useQuery({
+    queryKey: keys.vouchers(params),
+    queryFn: () => api.get<Paginated<Voucher> & { summary: VoucherSummary }>('/vouchers', params),
+    enabled,
+    ...listOptions,
+  });
+
+export const useVoucher = (id: string | undefined, enabled = true) =>
+  useQuery({
+    queryKey: keys.voucher(id!),
+    queryFn: () => api.get<Voucher>(`/vouchers/${id}`),
+    enabled: !!id && enabled,
+  });
+
+export function useVoucherMutations() {
+  const qc = useQueryClient();
+  // A voucher moves money, so it also shifts account balances — invalidate both.
+  const done = () => {
+    qc.invalidateQueries({ queryKey: ['vouchers'] });
+    qc.invalidateQueries({ queryKey: ['account'] });
+    qc.invalidateQueries({ queryKey: ['accounts'] });
+  };
+  return {
+    create: useMutation({
+      mutationFn: (body: Partial<Voucher>) => api.post<Voucher>('/vouchers', body),
+      onSuccess: done,
+    }),
+    reverse: useMutation({
+      mutationFn: (id: string) => api.post<Voucher>(`/vouchers/${id}/reverse`),
       onSuccess: done,
     }),
   };

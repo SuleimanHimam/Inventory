@@ -7,7 +7,7 @@ import {
   Button, Card, Input, Select, Textarea, Modal, PageHeader, EmptyState,
   Skeleton, Badge, Toggle, ConfirmDialog,
 } from '@/components/ui';
-import { useAccounts, useAccountTypes, useAccountMutations } from '@/hooks';
+import { useAccounts, useAccountTypes, useAccountMutations, useAccount } from '@/hooks';
 import { usePermissions } from '@/lib/permissions';
 import { toast, toastError } from '@/store/toast';
 import { fmtCurrency, fmtInt } from '@/lib/format';
@@ -190,6 +190,12 @@ function AccountSummary({
 }) {
   const { setActive, remove } = useAccountMutations();
   const [confirmDelete, setConfirmDelete] = useState(false);
+  // The flat list carries no balance; fetch this one account for its rolled-up
+  // ledger figure. Falls back to the list row while it loads.
+  const { data: detail } = useAccount(account.id);
+  const balance = detail?.balance ?? 0;
+  const hasMovements = (detail?.debit_total ?? 0) !== 0 || (detail?.credit_total ?? 0) !== 0;
+  const side = balance > 0 ? 'مدين' : balance < 0 ? 'دائن' : '';
 
   const row = (label: string, value: React.ReactNode) => (
     <div className="flex items-baseline justify-between gap-3 border-b border-line/60 py-2 last:border-0">
@@ -238,16 +244,23 @@ function AccountSummary({
         {account.child_count > 0 && row('حسابات فرعية', fmtInt(account.child_count))}
         {account.description && row('ملاحظات', account.description)}
 
-        {/* Balances arrive with the vouchers phase; shown honestly as zero
-            with no transactions rather than a fake figure. */}
+        {/* Rolled-up over the account's whole subtree — a group shows the sum of
+            everything beneath it. Debit-positive: the side label says which. */}
         <div className="mt-3 rounded-xl bg-surface-2 p-3">
           <div className="flex items-baseline justify-between">
             <span className="text-xs text-muted">الرصيد الحالي</span>
             <span className="nums text-xl font-bold text-brand-600 dark:text-brand-400">
-              {fmtCurrency(0)}
+              {fmtCurrency(Math.abs(balance))}{side && <span className="ms-1 text-xs font-normal text-muted">{side}</span>}
             </span>
           </div>
-          <p className="mt-1 text-[11px] text-subtle">لا توجد حركات بعد — كشف الحساب يتوفّر بعد إضافة السندات.</p>
+          {hasMovements ? (
+            <div className="mt-2 flex justify-between text-[11px] text-subtle">
+              <span>مدين: {fmtCurrency(detail?.debit_total ?? 0)}</span>
+              <span>دائن: {fmtCurrency(detail?.credit_total ?? 0)}</span>
+            </div>
+          ) : (
+            <p className="mt-1 text-[11px] text-subtle">لا توجد حركات بعد على هذا الحساب.</p>
+          )}
         </div>
       </div>
 
