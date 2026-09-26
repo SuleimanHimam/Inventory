@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { FolderOpen, Plus, Trash2, Pencil, ShieldAlert, Check } from 'lucide-react';
 import {
-  Button, Card, Field, Input, Modal, PageHeader, EmptyState, Skeleton, Badge,
+  Button, Card, Field, Input, Modal, PageHeader, EmptyState, Skeleton, Badge, Fab,
 } from '@/components/ui';
 import { useFiles, useFileMutations } from '@/hooks';
 import { toast } from '@/store/toast';
@@ -32,11 +32,6 @@ export default function Files() {
       <PageHeader
         title="الملفات"
         subtitle="كل ملف منشأة مستقلة — بياناته ومستخدموه ونسخه الاحتياطية خاصة به وحده"
-        actions={canManage && (
-          <Button variant="primary" onClick={() => setCreating(true)}>
-            <Plus className="size-4" /> ملف جديد
-          </Button>
-        )}
       />
 
       {/* A capability the server does not have is explained once, here, rather
@@ -108,6 +103,10 @@ export default function Files() {
       {creating && <CreateFile onClose={() => setCreating(false)} />}
       {renaming && <RenameFile file={renaming} onClose={() => setRenaming(null)} />}
       {deleting && <DeleteFile file={deleting} onClose={() => setDeleting(null)} />}
+
+      {canManage && (
+        <Fab icon={<Plus className="size-5" />} label="ملف جديد" onClick={() => setCreating(true)} />
+      )}
     </>
   );
 }

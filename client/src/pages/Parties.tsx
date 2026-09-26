@@ -2,11 +2,11 @@ import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import {
   Plus, Users, Truck, Pencil, Archive, ArchiveRestore, Phone, MapPin, AlertTriangle,
-  BookOpen, ChevronLeft,
+  BookOpen, ChevronLeft, Trash2,
 } from 'lucide-react';
 import {
   Button, Card, PageHeader, Pagination, SearchInput, Select, EmptyState, TableSkeleton,
-  Modal, Field, Input, Textarea, ConfirmDialog, Badge, Stat,
+  Modal, Field, Input, Textarea, ConfirmDialog, Badge, Stat, Fab,
 } from '@/components/ui';
 import { InvoiceStatusBadge, InvoiceTypeBadge } from '@/components/domain';
 import {
@@ -62,6 +62,7 @@ export default function Parties({ kind }: { kind: PartyKind }) {
   const [editing, setEditing] = useState<Party | null>(null);
   const [detailId, setDetailId] = useState<string | null>(null);
   const [archiveTarget, setArchiveTarget] = useState<Party | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Party | null>(null);
 
   const debouncedSearch = useDebounced(search, 250);
   const { data, isLoading } = useParties(kind, {
@@ -70,7 +71,7 @@ export default function Parties({ kind }: { kind: PartyKind }) {
     page,
     limit,
   });
-  const { archive, restore } = usePartyMutations(kind);
+  const { archive, restore, remove } = usePartyMutations(kind);
 
   useEffect(() => { setPage(1); }, [debouncedSearch, active, limit, kind]);
   // Reset transient UI when switching between customers and suppliers.
@@ -104,18 +105,20 @@ export default function Parties({ kind }: { kind: PartyKind }) {
     }
   };
 
+  const doDelete = async () => {
+    if (!deleteTarget) return;
+    try {
+      await remove.mutateAsync(deleteTarget.id);
+      toast.success(`تم حذف ${config.singular}`, deleteTarget.name);
+      setDeleteTarget(null);
+    } catch (error) {
+      toastError(error, 'تعذّر الحذف');
+    }
+  };
+
   return (
     <>
-      <PageHeader
-        title={config.title}
-        subtitle={config.subtitle}
-        actions={
-          <Button variant="primary" icon={<Plus className="size-4" />}
-            onClick={() => { setEditing(null); setFormOpen(true); }}>
-            {config.singular} جديد
-          </Button>
-        }
-      />
+      <PageHeader title={config.title} subtitle={config.subtitle} />
 
       <Card className="overflow-hidden">
         <div className="flex flex-wrap items-center gap-2.5 border-b border-line p-3.5">
@@ -182,6 +185,13 @@ export default function Parties({ kind }: { kind: PartyKind }) {
                         >
                           {party.is_active ? <Archive className="size-4" /> : <ArchiveRestore className="size-4" />}
                         </Button>
+                        <Button
+                          size="icon" variant="ghost" title="حذف نهائي"
+                          className="hover:text-red-500"
+                          onClick={() => setDeleteTarget(party)}
+                        >
+                          <Trash2 className="size-4" />
+                        </Button>
                       </div>
                     </td>
                   </tr>
@@ -216,8 +226,26 @@ export default function Parties({ kind }: { kind: PartyKind }) {
         confirmLabel={archiveTarget?.is_active ? 'أرشفة' : 'إعادة تنشيط'}
         message={archiveTarget?.is_active
           ? <>سيُخفى <strong className="text-ink">{archiveTarget?.name}</strong> من قوائم الاختيار،
-            مع الاحتفاظ الكامل بالسجل وفواتيره السابقة. الحذف النهائي غير متاح حفاظاً على سلامة السجلات.</>
+            مع الاحتفاظ الكامل بالسجل وفواتيره السابقة.</>
           : <>سيعود <strong className="text-ink">{archiveTarget?.name}</strong> للظهور في قوائم الاختيار.</>}
+      />
+
+      <ConfirmDialog
+        open={!!deleteTarget}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={doDelete}
+        loading={remove.isPending}
+        tone="danger"
+        title={`حذف ${config.singular} نهائياً`}
+        confirmLabel="حذف نهائي"
+        message={<>سيُحذف <strong className="text-ink">{deleteTarget?.name}</strong> نهائياً ولا يمكن التراجع.
+          إذا كان له فواتير فلن يُحذف — أرشِفه بدلاً من ذلك.</>}
+      />
+
+      <Fab
+        icon={<Plus className="size-5" />}
+        label={`${config.singular} جديد`}
+        onClick={() => { setEditing(null); setFormOpen(true); }}
       />
     </>
   );

@@ -550,6 +550,7 @@ export function usePartyMutations(kind: PartyKind) {
     }),
     archive: useMutation({ mutationFn: (id: string) => api.delete(`/${kind}/${id}`), onSuccess: done }),
     restore: useMutation({ mutationFn: (id: string) => api.post(`/${kind}/${id}/restore`), onSuccess: done }),
+    remove: useMutation({ mutationFn: (id: string) => api.delete(`/${kind}/${id}/permanent`), onSuccess: done }),
   };
 }
 

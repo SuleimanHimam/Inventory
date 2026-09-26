@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import {
   Button, Card, Input, Textarea, Modal, PageHeader, EmptyState,
-  Skeleton, Badge, Combobox, ConfirmDialog,
+  Skeleton, Badge, Combobox, ConfirmDialog, Fab,
 } from '@/components/ui';
 import { useAccounts, useAccountMutations, useAccount } from '@/hooks';
 import { usePermissions } from '@/lib/permissions';
@@ -69,14 +69,7 @@ export default function ChartOfAccounts() {
 
   return (
     <>
-      <PageHeader
-        title="دليل الحسابات"
-        actions={isManager && (
-          <Button variant="primary" onClick={() => setEditing('new')}>
-            <Plus className="size-4" /> حساب جديد
-          </Button>
-        )}
-      />
+      <PageHeader title="دليل الحسابات" />
 
       <Card className="mb-3 p-2.5">
         <div className="relative">
@@ -136,6 +129,10 @@ export default function ChartOfAccounts() {
           accounts={accounts}
           onClose={() => setEditing(null)}
         />
+      )}
+
+      {isManager && (
+        <Fab icon={<Plus className="size-5" />} label="حساب جديد" onClick={() => setEditing('new')} />
       )}
     </>
   );

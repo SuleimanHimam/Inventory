@@ -84,8 +84,9 @@ export function Shell() {
         <Ribbon />
       </div>
 
-      {/* pb-20 on phones clears the fixed bottom nav. */}
-      <main className="flex-1 px-3 pb-20 pt-3 sm:px-4 sm:pb-4 sm:pt-4">
+      {/* pb-20 on phones clears the fixed bottom nav. More breathing room at
+          the top so no page starts flush against the ribbon/status edge. */}
+      <main className="flex-1 px-3 pb-20 pt-6 sm:px-4 sm:pb-4 sm:pt-8">
         <div className="mx-auto w-full max-w-[1700px]">
           {/* Routes are lazy, so the boundary lives here — one place rather
               than one per route.

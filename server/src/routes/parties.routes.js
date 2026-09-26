@@ -51,6 +51,12 @@ export function partiesRouter(kind) {
   router.delete('/:id', wrap(async (req, res) =>
     res.json(await parties.archiveParty(kind, req.params.id))));
 
+  // Permanent delete — only when the party has no invoices (the service
+  // enforces it). Distinct path so it can never be reached by accident from the
+  // archive button above.
+  router.delete('/:id/permanent', wrap(async (req, res) =>
+    res.json(await parties.deleteParty(kind, req.params.id))));
+
   router.post('/:id/restore', wrap(async (req, res) =>
     res.json(await parties.restoreParty(kind, req.params.id))));
 

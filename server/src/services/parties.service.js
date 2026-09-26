@@ -1,5 +1,5 @@
 import { all, get, run, newId, nowIso, orgId, publicRow } from '../db/index.js';
-import { notFound } from '../lib/errors.js';
+import { conflict, notFound } from '../lib/errors.js';
 import { ensureChildAccount, ensurePartyParentId } from './accounts.service.js';
 
 /**
@@ -200,6 +200,29 @@ export async function restoreParty(kind, id) {
   await run(`UPDATE ${table} SET is_active = 1, updated_at = @updated_at WHERE id = @id AND org_id = @org`,
     { updated_at: nowIso(), id, org: orgId() });
   return getParty(kind, id);
+}
+
+/**
+ * Permanently delete a party — but only when it is genuinely safe: a party that
+ * appears on any invoice is part of the record and cannot be erased (it is
+ * archived instead, from the same button, which the UI offers on this error).
+ * Its own chart account is unlinked first so the account can still be removed
+ * separately; the account itself is left in place (deleteAccount owns that).
+ */
+export async function deleteParty(kind, id) {
+  const { table, label } = cfg(kind);
+  const org = orgId();
+  await getParty(kind, id); // 404s if missing
+  const col = kind === 'customers' ? 'customer_id' : 'supplier_id';
+  const { n } = await get(
+    `SELECT COUNT(*) AS n FROM invoices WHERE ${col} = @id AND org_id = @org`,
+    { id, org },
+  );
+  if (n > 0) {
+    throw conflict(`لا يمكن حذف ${label} له فواتير — أرشِفه بدلاً من ذلك`, 'HAS_INVOICES');
+  }
+  await run(`DELETE FROM ${table} WHERE id = @id AND org_id = @org`, { id, org });
+  return { id };
 }
 
 /** Warn (never block) on an exact name match, per the duplicate-name rule. */

@@ -398,6 +398,87 @@ export function PageHeader({
   );
 }
 
+/* --------------------------------------------------------------------- Fab */
+/**
+ * The one primary "create new" action on a list screen, floated at the bottom
+ * of the page rather than sitting in the header. Bottom is where the thumb is
+ * on a phone and where the eye lands after scanning a list, so every screen's
+ * "add" affordance lives here, consistently — never top-right. Clears the
+ * phone's bottom nav and the desktop status bar.
+ */
+export function Fab({
+  onClick, icon, label, variant = 'primary', className,
+}: {
+  onClick?: () => void;
+  icon: ReactNode;
+  label: string;
+  variant?: 'primary' | 'accent' | 'success' | 'danger';
+  className?: string;
+}) {
+  const tone = {
+    primary: 'bg-brand-600 hover:bg-brand-700 shadow-brand-600/30',
+    accent: 'bg-accent-600 hover:bg-accent-700 shadow-accent-600/30',
+    success: 'bg-green-700 hover:bg-green-800 shadow-green-700/30',
+    danger: 'bg-red-600 hover:bg-red-700 shadow-red-600/30',
+  }[variant];
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        'no-print fixed bottom-[5.5rem] end-4 z-40 inline-flex h-14 items-center gap-2 rounded-full',
+        'px-5 font-bold text-white shadow-lg transition active:scale-95 sm:bottom-12',
+        tone, className,
+      )}
+    >
+      {icon}
+      <span>{label}</span>
+    </button>
+  );
+}
+
+/* -------------------------------------------------------------------- Tabs */
+export type TabItem = { id: string; label: string; icon?: ReactNode };
+
+/**
+ * A simple horizontal tab strip. State is owned by the caller (`value` /
+ * `onChange`) so a page can drive tabs from the URL or its own state. Scrolls
+ * sideways rather than wrapping when the labels outrun a phone's width.
+ */
+export function Tabs({
+  items, value, onChange, className,
+}: {
+  items: TabItem[];
+  value: string;
+  onChange: (id: string) => void;
+  className?: string;
+}) {
+  return (
+    <div className={cn('no-print -mx-1 mb-5 flex gap-1 overflow-x-auto border-b border-line px-1', className)} role="tablist">
+      {items.map((t) => {
+        const active = t.id === value;
+        return (
+          <button
+            key={t.id}
+            type="button"
+            role="tab"
+            aria-selected={active}
+            onClick={() => onChange(t.id)}
+            className={cn(
+              'relative flex shrink-0 items-center gap-1.5 whitespace-nowrap px-3.5 py-2.5 text-sm font-semibold transition',
+              active ? 'text-brand-700 dark:text-brand-300' : 'text-muted hover:text-ink',
+            )}
+          >
+            {t.icon}
+            {t.label}
+            {active && <span className="absolute inset-x-2 -bottom-px h-0.5 rounded-full bg-brand-600 dark:bg-brand-400" />}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 /* Forwards its ref so a caller can hand the card itself to something that
    reads the DOM -- the invoice does, to rasterise the document into a PDF. */
 export const Card = forwardRef<HTMLDivElement, { className?: string; children: ReactNode }>(

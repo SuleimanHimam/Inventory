@@ -70,17 +70,9 @@ export default function Vouchers() {
       <PageHeader
         title="السندات"
         actions={(
-          <div className="flex gap-2">
-            <Button variant="primary" onClick={() => setCreating('RECEIPT')}>
-              <ArrowDownCircle className="size-4" /> سند قبض
-            </Button>
-            <Button onClick={() => setCreating('PAYMENT')}>
-              <ArrowUpCircle className="size-4" /> سند صرف
-            </Button>
-            <Button variant="ghost" size="icon" aria-label="إعدادات المحاسبة" onClick={() => setSettingsOpen(true)}>
-              <SettingsIcon className="size-4" />
-            </Button>
-          </div>
+          <Button variant="ghost" size="icon" aria-label="إعدادات المحاسبة" onClick={() => setSettingsOpen(true)}>
+            <SettingsIcon className="size-4" />
+          </Button>
         )}
       />
 
@@ -139,6 +131,18 @@ export default function Vouchers() {
           />
         )}
       </Card>
+
+      {/* Create actions live at the bottom, within thumb reach. */}
+      <div className="no-print fixed bottom-[5.5rem] end-4 z-40 flex gap-2 sm:bottom-12">
+        <Button variant="primary" size="lg" className="rounded-full shadow-lg"
+          onClick={() => setCreating('RECEIPT')}>
+          <ArrowDownCircle className="size-5" /> سند قبض
+        </Button>
+        <Button variant="danger" size="lg" className="rounded-full shadow-lg"
+          onClick={() => setCreating('PAYMENT')}>
+          <ArrowUpCircle className="size-5" /> سند صرف
+        </Button>
+      </div>
 
       {creating && <VoucherEditor type={creating} onClose={closeCreate} />}
       {viewing && <VoucherDetail id={viewing} onClose={() => setViewing(null)} />}

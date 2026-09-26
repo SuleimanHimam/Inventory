@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Plus, Pencil, Trash2, Tags, Check, X } from 'lucide-react';
 import {
-  Button, Card, PageHeader, EmptyState, Modal, Field, Input, ConfirmDialog, Skeleton, Badge,
+  Button, Card, PageHeader, EmptyState, Modal, Field, Input, ConfirmDialog, Skeleton, Badge, Fab,
 } from '@/components/ui';
 import { useCategories, useCategoryMutations } from '@/hooks';
 import { fmtInt } from '@/lib/format';
@@ -63,11 +63,6 @@ export default function Categories() {
       <PageHeader
         title="التصنيفات"
         subtitle="جمّع الأصناف تحت تصنيفات تسهّل البحث والجرد"
-        actions={
-          <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setShowCreate(true)}>
-            تصنيف جديد
-          </Button>
-        }
       />
 
       {isLoading ? (
@@ -184,6 +179,8 @@ export default function Categories() {
             : <>سيتم حذف التصنيف <strong className="text-ink">{deleteTarget?.name}</strong> نهائياً.</>
         }
       />
+
+      <Fab icon={<Plus className="size-5" />} label="تصنيف جديد" onClick={() => setShowCreate(true)} />
     </>
   );
 }

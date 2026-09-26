@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react';
 import {
   Save, Monitor, Database, Languages, Building2, Info, Download, AppWindow, UserCog, KeyRound,
+  SlidersHorizontal, Cog,
 } from 'lucide-react';
-import { Button, Card, PageHeader, Field, Input, Select, Toggle, Stat } from '@/components/ui';
+import { Button, Card, PageHeader, Field, Input, Select, Toggle, Stat, Tabs } from '@/components/ui';
+import { HomeCustomizer } from '@/lib/homeTiles';
 import { useSettings, useUpdateSettings, useInstallPrompt, useUsers } from '@/hooks';
 import { usePrefs } from '@/store/prefs';
 import { API_BASE } from '@/lib/api';
@@ -26,6 +28,7 @@ export default function SettingsPage() {
   const { canInstall, promptInstall } = useInstallPrompt();
   const { isManager, role } = usePermissions();
   const [draft, setDraft] = useState<Partial<SettingsType>>({});
+  const [tab, setTab] = useState<'general' | 'home'>('general');
 
   useEffect(() => { if (settings) setDraft(settings); }, [settings]);
 
@@ -74,7 +77,7 @@ export default function SettingsPage() {
       <PageHeader
         title="الإعدادات"
         subtitle="إعدادات عامة تسري على كامل النظام"
-        actions={isManager ? (
+        actions={isManager && tab === 'general' ? (
           <Button variant="primary" icon={<Save className="size-4" />} onClick={save}
             loading={update.isPending} disabled={!dirty}>
             حفظ التغييرات
@@ -82,6 +85,18 @@ export default function SettingsPage() {
         ) : undefined}
       />
 
+      <Tabs
+        value={tab}
+        onChange={(id) => setTab(id as 'general' | 'home')}
+        items={[
+          { id: 'general', label: 'عام', icon: <Cog className="size-4" /> },
+          { id: 'home', label: 'الشاشة الرئيسية', icon: <SlidersHorizontal className="size-4" /> },
+        ]}
+      />
+
+      {tab === 'home' ? (
+        <HomeCustomizer />
+      ) : (
       <div className="grid gap-4 lg:grid-cols-2">
         {/* Organisation-wide settings: the API rejects PATCH /settings from a
             non-manager, so showing the fields would only produce a 403 on save. */}
@@ -219,6 +234,7 @@ export default function SettingsPage() {
         {isManager && <UsersLinkCard />}
         {AUTH_ENABLED && <AccountCard email={email} />}
       </div>
+      )}
     </>
   );
 }

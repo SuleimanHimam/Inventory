@@ -5,7 +5,7 @@ import {
 } from 'lucide-react';
 import {
   Badge, Button, Card, ConfirmDialog, EmptyState, Field, Input, Modal,
-  PageHeader, Select, TableSkeleton,
+  PageHeader, Select, TableSkeleton, Fab,
 } from '@/components/ui';
 import { useUsers, useUserMutations } from '@/hooks';
 import { ROLE_LABEL, ROLE_HINT } from '@/lib/permissions';
@@ -83,14 +83,6 @@ export default function Users() {
       <PageHeader
         title="المستخدمون"
         subtitle="حسابات الدخول إلى النظام وصلاحية كل منها"
-        actions={data?.can_create && (
-          <Button variant="primary" icon={<UserPlus className="size-4" />}
-            onClick={() => setShowAdd(true)}>
-            {/* The word alone on a phone — the icon already carries "add". */}
-            <span className="max-sm:hidden">إضافة مستخدم</span>
-            <span className="sm:hidden">إضافة</span>
-          </Button>
-        )}
       />
 
       {/* Role legend — three columns from `lg`, two from `sm`, stacked on a phone. */}
@@ -279,6 +271,10 @@ export default function Users() {
         tone="danger"
         loading={remove.isPending}
       />
+
+      {data?.can_create && (
+        <Fab icon={<UserPlus className="size-5" />} label="إضافة مستخدم" onClick={() => setShowAdd(true)} />
+      )}
     </>
   );
 }
