@@ -12,6 +12,8 @@ import { ROLE_LABEL, ROLE_HINT } from '@/lib/permissions';
 import { fmtDateShort } from '@/lib/format';
 import { toast, toastError } from '@/store/toast';
 import { cn } from '@/lib/cn';
+import { AUTH_ENABLED, useSession } from '@/lib/session';
+import { AccountCard } from '@/components/AccountCard';
 import type { OrgUser } from '@/lib/types';
 
 /**
@@ -31,6 +33,7 @@ import type { OrgUser } from '@/lib/types';
 export default function Users() {
   const { data, isLoading } = useUsers();
   const { create, update, remove } = useUserMutations();
+  const email = useSession((s) => s.email);
 
   const [showAdd, setShowAdd] = useState(false);
   const [resetFor, setResetFor] = useState<OrgUser | null>(null);
@@ -220,6 +223,14 @@ export default function Users() {
           )}
         </div>
       </Card>
+
+      {/* The signed-in manager's own credentials — moved here from Settings so
+          everything about accounts lives on one screen. */}
+      {AUTH_ENABLED && (
+        <div className="mt-4 lg:max-w-xl">
+          <AccountCard email={email} />
+        </div>
+      )}
 
       <AddUserModal
         open={showAdd}
