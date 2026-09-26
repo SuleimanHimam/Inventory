@@ -57,6 +57,7 @@ function FilePicker({
         value={value}
         onChange={onChange}
         options={options}
+        anchored
         allowClear={false}
         placeholder="اختر الملف"
         searchPlaceholder="ابحث عن ملف…"
