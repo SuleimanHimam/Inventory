@@ -1,8 +1,8 @@
-import { useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   ChevronLeft, ChevronDown, Plus, Pencil, Trash2, Search as SearchIcon,
-  FolderTree, CheckCircle2, XCircle, Ban, FileText,
+  FolderTree, CheckCircle2, XCircle, Ban, FileText, Wand2,
 } from 'lucide-react';
 import {
   Button, Card, Input, Select, Textarea, Modal, PageHeader, EmptyState,
@@ -304,6 +304,28 @@ function AccountEditor({
 
   const busy = create.isPending || update.isPending;
 
+  // The next free number under a parent, extending the parent's own (1601 →
+  // 1601001) — the same rule the server uses for auto-created party accounts.
+  const nextNumberUnder = (pid: string) => {
+    const parent = accounts.find((a) => a.id === pid);
+    if (!parent) return '';
+    const base = parent.account_number;
+    let max = 0;
+    for (const a of accounts) {
+      if (a.parent_account_id !== pid) continue;
+      const suffix = Number(String(a.account_number).slice(base.length));
+      if (Number.isFinite(suffix) && suffix > max) max = suffix;
+    }
+    return `${base}${String(max + 1).padStart(3, '0')}`;
+  };
+
+  // For a brand-new account, fill the number automatically once a parent is
+  // chosen and the field is still empty — no typing the ID by hand.
+  useEffect(() => {
+    if (!account && parentId && !number) setNumber(nextNumberUnder(parentId));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [parentId]);
+
   const submit = (event: FormEvent) => {
     event.preventDefault();
     const body = {
@@ -343,7 +365,20 @@ function AccountEditor({
         <div className="grid grid-cols-2 gap-3">
           <label className="block">
             <span className="mb-1 block text-xs text-muted">رقم الحساب</span>
-            <Input value={number} onChange={(e) => setNumber(e.target.value)} dir="ltr" required />
+            <div className="flex gap-1.5">
+              <Input value={number} onChange={(e) => setNumber(e.target.value)} dir="ltr" required className="flex-1" />
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                title="توليد رقم تلقائي"
+                aria-label="توليد رقم تلقائي"
+                disabled={!parentId}
+                onClick={() => setNumber(nextNumberUnder(parentId))}
+              >
+                <Wand2 className="size-4" />
+              </Button>
+            </div>
           </label>
           <label className="block">
             <span className="mb-1 block text-xs text-muted">النوع</span>

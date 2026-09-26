@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import {
-  Plus, Users, Truck, Pencil, Archive, ArchiveRestore, Phone, Mail, MapPin, AlertTriangle,
+  Plus, Users, Truck, Pencil, Archive, ArchiveRestore, Phone, MapPin, AlertTriangle,
   BookOpen, ChevronLeft,
 } from 'lucide-react';
 import {
@@ -130,8 +130,7 @@ export default function Parties({ kind }: { kind: PartyKind }) {
                   <th>الاسم</th>
                   {kind === 'suppliers' && <th>جهة الاتصال</th>}
                   <th>الهاتف</th>
-                  <th>البريد الإلكتروني</th>
-                  <th>الرقم الضريبي</th>
+                  <th>رقم الحساب</th>
                   <th className="w-px" />
                 </tr>
               </thead>
@@ -146,8 +145,7 @@ export default function Parties({ kind }: { kind: PartyKind }) {
                       <td className="text-xs text-muted">{party.contact_person || '—'}</td>
                     )}
                     <td data-label="الهاتف" className="nums text-xs">{party.phone || <span className="text-subtle">—</span>}</td>
-                    <td data-label="البريد" className="max-w-[14rem] truncate text-xs text-muted">{party.email || '—'}</td>
-                    <td data-label="الرقم الضريبي" className="nums text-xs text-muted">{party.tax_number || '—'}</td>
+                    <td data-label="رقم الحساب" className="nums font-mono text-xs text-muted">{party.account_number || '—'}</td>
                     <td onClick={(e) => e.stopPropagation()}>
                       <div className="flex justify-end gap-0.5">
                         <Button size="icon" variant="ghost" title="تعديل"
@@ -303,23 +301,13 @@ function PartyFormModal({
           </Field>
         )}
 
-        <div className="grid grid-cols-2 gap-4">
-          <Field label="الهاتف">
-            <Input value={draft.phone} onChange={(e) => set('phone')(e.target.value)}
-              className="nums" placeholder="05xxxxxxxx" />
-          </Field>
-          <Field label="البريد الإلكتروني">
-            <Input type="email" value={draft.email} onChange={(e) => set('email')(e.target.value)}
-              placeholder="name@example.com" dir="ltr" className="text-start" />
-          </Field>
-        </div>
+        <Field label="الهاتف">
+          <Input value={draft.phone} onChange={(e) => set('phone')(e.target.value)}
+            className="nums" placeholder="05xxxxxxxx" />
+        </Field>
 
         <Field label="العنوان">
           <Input value={draft.address} onChange={(e) => set('address')(e.target.value)} />
-        </Field>
-
-        <Field label="الرقم الضريبي">
-          <Input value={draft.tax_number} onChange={(e) => set('tax_number')(e.target.value)} className="nums" />
         </Field>
 
         <Field label="ملاحظات">
@@ -359,12 +347,10 @@ function PartyDetailModal({
             )}
             <Stat label="آخر فاتورة" value={party.stats?.last_invoice_date
               ? fmtDateShort(party.stats.last_invoice_date) : '—'} />
-            <Stat label="الرقم الضريبي" value={party.tax_number || '—'} />
           </div>
 
           <div className="grid gap-3 rounded-xl bg-surface-2 p-4 sm:grid-cols-2">
             <ContactRow icon={<Phone className="size-3.5" />} label="الهاتف" value={party.phone} />
-            <ContactRow icon={<Mail className="size-3.5" />} label="البريد" value={party.email} />
             <ContactRow icon={<MapPin className="size-3.5" />} label="العنوان" value={party.address} />
             {kind === 'suppliers' && (
               <ContactRow icon={<Users className="size-3.5" />} label="جهة الاتصال" value={party.contact_person ?? null} />

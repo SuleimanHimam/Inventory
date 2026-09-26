@@ -73,16 +73,14 @@ export function Combobox({
       || (o.keywords && norm(o.keywords).includes(q)));
   }, [options, query]);
 
-  // On open: reset the query, highlight the current pick, and focus the search
-  // box once painted so the mobile keyboard rises with it.
+  // On open: reset the query and highlight the current pick. The search box is
+  // deliberately NOT auto-focused — that popped the mobile keyboard on every
+  // open, covering the list. The user taps it to type when they want to search.
   useEffect(() => {
-    if (!open) return undefined;
+    if (!open) return;
     setQuery('');
     const idx = options.findIndex((o) => o.value === value);
     setHighlight(idx === -1 ? 0 : idx);
-    const raf = requestAnimationFrame(() =>
-      requestAnimationFrame(() => searchRef.current?.focus()));
-    return () => cancelAnimationFrame(raf);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
