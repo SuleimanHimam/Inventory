@@ -24,10 +24,44 @@ export default function QuickExpenses() {
     () => (accountsData?.data ?? []).filter((a) => a.is_posting),
     [accountsData],
   );
+  // Only the accounts under the expenses parent ("المصروفات") — the leaves a
+  // shop actually spends against — not every EXPENSE-typed account. The parent
+  // is chosen as the topmost group whose name is about expenses (so a leaf like
+  // "مصاريف نقل المشتريات" is never mistaken for it); its whole subtree of
+  // posting accounts is offered. Falls back to EXPENSE-typed, then all posting.
   const expenseOptions = useMemo(() => {
-    const exp = posting.filter((a) => a.type_code === 'EXPENSE');
-    return (exp.length ? exp : posting).map((a) => ({ value: a.id, label: a.name, hint: a.account_number }));
-  }, [posting]);
+    const accts = accountsData?.data ?? [];
+    const norm = (s: string) => s.replace(/[إأآ]/g, 'ا').trim();
+    const isExpenseName = (n: string) => n.includes('مصروف') || n.includes('مصاريف');
+    const candidates = accts.filter((a) => isExpenseName(norm(a.name)));
+    const groups = candidates.filter((a) => !a.is_posting);
+    const byTop = (a: Account, b: Account) =>
+      a.account_number.length - b.account_number.length
+      || a.account_number.localeCompare(b.account_number);
+    const parent = (groups.length ? groups : candidates).sort(byTop)[0];
+
+    let pool = posting;
+    if (parent) {
+      const childrenOf = new Map<string, Account[]>();
+      for (const a of accts) {
+        const key = a.parent_account_id ?? '';
+        if (!childrenOf.has(key)) childrenOf.set(key, []);
+        childrenOf.get(key)!.push(a);
+      }
+      const ids = new Set<string>();
+      const stack = [parent.id];
+      while (stack.length) {
+        const cur = stack.pop()!;
+        for (const c of childrenOf.get(cur) ?? []) { ids.add(c.id); stack.push(c.id); }
+      }
+      const under = posting.filter((a) => ids.has(a.id));
+      if (under.length) pool = under;
+    } else {
+      const exp = posting.filter((a) => a.type_code === 'EXPENSE');
+      if (exp.length) pool = exp;
+    }
+    return pool.map((a) => ({ value: a.id, label: a.name, hint: a.account_number }));
+  }, [accountsData, posting]);
   const cashOptions = useMemo(() => {
     const money = posting.filter((a) => a.type_code === 'CASH' || a.type_code === 'BANK');
     return (money.length ? money : posting).map((a) => ({ value: a.id, label: a.name, hint: a.account_number }));
