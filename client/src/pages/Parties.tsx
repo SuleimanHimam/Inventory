@@ -10,12 +10,34 @@ import {
 } from '@/components/ui';
 import { InvoiceStatusBadge, InvoiceTypeBadge } from '@/components/domain';
 import {
-  useDebounced, useDuplicateName, useParties, useParty, usePartyMutations, type PartyKind,
+  useAccounts, useDebounced, useDuplicateName, useParties, useParty,
+  usePartyMutations, useSettings, type PartyKind,
 } from '@/hooks';
 import { fmtCurrency, fmtDateShort, fmtInt } from '@/lib/format';
 import { usePermissions } from '@/lib/permissions';
 import { toast, toastError } from '@/store/toast';
-import type { Party } from '@/lib/types';
+import type { Account, Party } from '@/lib/types';
+
+/**
+ * The account number a new party will get — mirrors the server's
+ * ensureChildAccount: the parent's number extended by the next free 3-digit
+ * suffix (1601 → 1601001, 1601002, …). Shown in the form so the operator sees
+ * the account it will create before saving. '' when the parent isn't resolvable
+ * on the client yet (settings still loading, or unconfigured).
+ */
+function nextPartyAccountNumber(parentId: string | undefined, accounts: Account[]): string {
+  if (!parentId) return '';
+  const parent = accounts.find((a) => a.id === parentId);
+  if (!parent) return '';
+  const base = parent.account_number;
+  let max = 0;
+  for (const a of accounts) {
+    if (a.parent_account_id !== parentId) continue;
+    const suffix = Number(String(a.account_number).slice(base.length));
+    if (Number.isFinite(suffix) && suffix > max) max = suffix;
+  }
+  return `${base}${String(max + 1).padStart(3, '0')}`;
+}
 
 const CONFIG = {
   customers: {
@@ -216,6 +238,17 @@ function PartyFormModal({
 
   const { data: duplicate } = useDuplicateName(kind, isEdit ? '' : draft.name, party?.id);
 
+  // The account number this party is/will be tied to — the existing one when
+  // editing, otherwise a preview of the number the server will assign on save.
+  const { data: settings } = useSettings();
+  const { data: accountsData } = useAccounts({}, open && !isEdit);
+  const parentId = kind === 'customers'
+    ? settings?.invoice_customers_parent
+    : settings?.invoice_suppliers_parent;
+  const accountNumber = isEdit
+    ? (party?.account_number ?? '')
+    : nextPartyAccountNumber(parentId, accountsData?.data ?? []);
+
   useEffect(() => {
     if (!open) return;
     setError('');
@@ -283,6 +316,17 @@ function PartyFormModal({
           <Input value={draft.name} onChange={(e) => { set('name')(e.target.value); setError(''); }}
             placeholder={kind === 'customers' ? 'اسم العميل أو الشركة' : 'اسم المورد أو الشركة'} />
         </Field>
+
+        {/* The account this party is tied to in the chart — created on save. */}
+        {accountNumber && (
+          <div className="flex items-center justify-between rounded-lg bg-surface-2 px-3 py-2.5 text-xs">
+            <span className="flex items-center gap-1.5 text-muted">
+              <BookOpen className="size-3.5" />
+              رقم الحساب
+            </span>
+            <span className="nums font-mono font-medium text-ink">{accountNumber}</span>
+          </div>
+        )}
 
         {/* Duplicate names are allowed, but the user is warned. */}
         {duplicate && (

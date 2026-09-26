@@ -537,6 +537,10 @@ export function usePartyMutations(kind: PartyKind) {
   const done = () => {
     qc.invalidateQueries({ queryKey: [kind] });
     qc.invalidateQueries({ queryKey: keys.dashboard });
+    // Creating a party also creates its account in the chart, so the accounts
+    // tree must refresh too — it appears there straight away, no reload.
+    qc.invalidateQueries({ queryKey: ['accounts'] });
+    qc.invalidateQueries({ queryKey: ['account'] });
   };
   return {
     create: useMutation({ mutationFn: (body: Partial<Party>) => api.post<Party>(`/${kind}`, body), onSuccess: done }),

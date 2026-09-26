@@ -570,6 +570,12 @@ export async function deleteAccount(id) {
   if (entries > 0) {
     throw conflict('لا يمكن حذف حساب له حركات مالية — عطّله بدلاً من ذلك', 'HAS_TRANSACTIONS');
   }
+  // The account never moved, so it is safe to delete — but a customer/supplier
+  // may still point at it (customers.account_id / suppliers.account_id), and
+  // that FK would block the delete. Since there is no history, just unlink the
+  // party first; it will get a fresh account the next time one is needed.
+  await run('UPDATE customers SET account_id = NULL WHERE account_id = @id AND org_id = @org', { id, org });
+  await run('UPDATE suppliers SET account_id = NULL WHERE account_id = @id AND org_id = @org', { id, org });
   await run('DELETE FROM accounts WHERE id = @id AND org_id = @org', { id, org });
   return { id };
 }
