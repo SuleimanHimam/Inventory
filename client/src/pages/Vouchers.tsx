@@ -4,7 +4,7 @@ import {
   ArrowDownCircle, ArrowUpCircle, Receipt, RotateCcw, Settings as SettingsIcon,
 } from 'lucide-react';
 import {
-  Button, Card, Input, Select, Textarea, Modal, PageHeader, EmptyState,
+  Button, Card, Input, Textarea, Modal, PageHeader, EmptyState,
   Skeleton, Badge, SearchInput, Pagination, ConfirmDialog, Combobox, type ComboOption,
 } from '@/components/ui';
 import {
@@ -14,7 +14,7 @@ import {
 import { toast, toastError } from '@/store/toast';
 import { fmtCurrency, fmtDate } from '@/lib/format';
 import { cn } from '@/lib/cn';
-import type { Account, Voucher, VoucherType, PaymentMethod, Settings } from '@/lib/types';
+import type { Account, Voucher, VoucherType, Settings } from '@/lib/types';
 
 /** Map an account list to combobox options: name as label, number as the hint. */
 const toOptions = (accounts: Account[]): ComboOption[] =>
@@ -29,10 +29,6 @@ const toOptions = (accounts: Account[]): ComboOption[] =>
  * reversing, never editing — the detail view offers that, manager confirmation
  * included.
  */
-const METHOD_LABEL: Record<PaymentMethod, string> = {
-  CASH: 'نقداً', BANK: 'تحويل بنكي', CHEQUE: 'شيك', TRANSFER: 'حوالة',
-};
-
 const TYPE_META: Record<VoucherType, { label: string; icon: typeof ArrowDownCircle; tone: string }> = {
   RECEIPT: { label: 'سند قبض', icon: ArrowDownCircle, tone: 'text-emerald-600 dark:text-emerald-400' },
   PAYMENT: { label: 'سند صرف', icon: ArrowUpCircle, tone: 'text-accent-600 dark:text-accent-400' },
@@ -206,7 +202,6 @@ function VoucherEditor({ type, onClose }: { type: VoucherType; onClose: () => vo
   const [cashId, setCashId] = useState('');
   const [counterId, setCounterId] = useState('');
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
-  const [method, setMethod] = useState<PaymentMethod>('CASH');
   const [description, setDescription] = useState('');
 
   // Pre-select the defaults set in voucher settings, once they load — never
@@ -238,7 +233,6 @@ function VoucherEditor({ type, onClose }: { type: VoucherType; onClose: () => vo
       cash_account_id: cashId,
       counter_account_id: counterId,
       voucher_date: date,
-      payment_method: method,
       description: description.trim() || null,
     }, {
       onSuccess: (v) => { toast.success(`تم حفظ ${meta.label} ${v.number}`); onClose(); },
@@ -292,20 +286,6 @@ function VoucherEditor({ type, onClose }: { type: VoucherType; onClose: () => vo
         </label>
 
         <label className="block">
-          <span className="mb-1 block text-xs text-muted">طريقة الدفع</span>
-          <Select value={method} onChange={(e) => setMethod(e.target.value as PaymentMethod)}>
-            {(Object.keys(METHOD_LABEL) as PaymentMethod[]).map((m) => (
-              <option key={m} value={m}>{METHOD_LABEL[m]}</option>
-            ))}
-          </Select>
-        </label>
-
-        <label className="block">
-          <span className="mb-1 block text-xs text-muted">البيان</span>
-          <Textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} className="w-full" />
-        </label>
-
-        <label className="block">
           <span className="mb-1 block text-xs text-muted">المبلغ</span>
           <Input
             value={amount}
@@ -318,6 +298,11 @@ function VoucherEditor({ type, onClose }: { type: VoucherType; onClose: () => vo
             className="text-lg font-bold"
             required
           />
+        </label>
+
+        <label className="block">
+          <span className="mb-1 block text-xs text-muted">البيان</span>
+          <Textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} className="w-full" />
         </label>
 
         {cashId && counterId && cashId === counterId && (
@@ -373,7 +358,6 @@ function VoucherDetail({ id, onClose }: { id: string; onClose: () => void }) {
           {row('الحساب المقابل', voucher.counter_account_name
             ? `${voucher.counter_account_number} — ${voucher.counter_account_name}` : '—')}
           {voucher.counterparty && row(voucher.type === 'RECEIPT' ? 'المستلَم منه' : 'المدفوع له', voucher.counterparty)}
-          {row('طريقة الدفع', METHOD_LABEL[voucher.payment_method])}
           {voucher.reference && row('المرجع', voucher.reference)}
           {voucher.description && row('البيان', voucher.description)}
           {voucher.reversed_at && row('تاريخ العكس', fmtDate(voucher.reversed_at))}
