@@ -4,7 +4,7 @@ import {
   Loader2, Save, AlertCircle, X, Trash2, LogOut, Printer, Phone, MapPin,
 } from 'lucide-react';
 import {
-  Button, Card, Input, Select, ConfirmDialog, Modal, Badge,
+  Button, Card, Input, ConfirmDialog, Modal, Badge, Combobox,
 } from '@/components/ui';
 import { ItemFormModal } from '@/components/ItemFormModal';
 import { Thumb } from '@/components/ImagePicker';
@@ -388,20 +388,21 @@ function InvoiceEditor({ invoice }: { invoice: Invoice }) {
               invoices leave empty, so it only shows from `sm:` up. */}
           <div className="space-y-2">
             <FormRow label={partyKind === 'customers' ? 'حـ/العميل' : 'حـ/المورد'}>
-              <Select
+              <Combobox
                 value={(partyKind === 'customers' ? invoice.customer_id : invoice.supplier_id) ?? ''}
-                onChange={(e) => patchHeader(
+                onChange={(id) => patchHeader(
                   partyKind === 'customers'
-                    ? { customer_id: e.target.value || null }
-                    : { supplier_id: e.target.value || null },
+                    ? { customer_id: id || null }
+                    : { supplier_id: id || null },
                 )}
-                className="h-8 py-0 text-xs"
-              >
-                <option value="">— بدون —</option>
-                {parties?.data.map((party) => (
-                  <option key={party.id} value={party.id}>{party.name}</option>
-                ))}
-              </Select>
+                options={(parties?.data ?? []).map((party) => ({
+                  value: party.id,
+                  label: party.name,
+                  hint: party.phone ?? undefined,
+                }))}
+                placeholder="— بدون —"
+                searchPlaceholder={partyKind === 'customers' ? 'ابحث عن عميل…' : 'ابحث عن مورد…'}
+              />
             </FormRow>
 
             {/* Auto-filled from the chosen account: its phone and address show
