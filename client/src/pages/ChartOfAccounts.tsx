@@ -5,10 +5,10 @@ import {
   FolderTree, CheckCircle2, XCircle, Ban, FileText, Wand2,
 } from 'lucide-react';
 import {
-  Button, Card, Input, Select, Textarea, Modal, PageHeader, EmptyState,
-  Skeleton, Badge, Toggle, ConfirmDialog,
+  Button, Card, Input, Textarea, Modal, PageHeader, EmptyState,
+  Skeleton, Badge, Combobox, ConfirmDialog,
 } from '@/components/ui';
-import { useAccounts, useAccountTypes, useAccountMutations, useAccount } from '@/hooks';
+import { useAccounts, useAccountMutations, useAccount } from '@/hooks';
 import { usePermissions } from '@/lib/permissions';
 import { toast, toastError } from '@/store/toast';
 import { fmtCurrency, fmtInt } from '@/lib/format';
@@ -173,7 +173,7 @@ function AccountRow({
         <span className={cn('min-w-0 truncate text-sm', !account.is_active && 'text-subtle line-through')}>
           {account.name}
         </span>
-        {!account.is_posting && <Badge tone="neutral" className="shrink-0">مجموعة</Badge>}
+        {!account.is_posting && <Badge tone="neutral" className="shrink-0">أب</Badge>}
         {!account.is_active && <Badge tone="warning" className="shrink-0">معطّل</Badge>}
       </button>
     </li>
@@ -237,10 +237,9 @@ function AccountSummary({
       )}
     >
       <div>
-        {row('النوع', account.type_name ?? '—')}
         {row('التصنيف', account.is_posting
-          ? <Badge tone="success">حساب فرعي (يقبل القيود)</Badge>
-          : <Badge tone="neutral">مجموعة (لا يقبل القيود)</Badge>)}
+          ? <Badge tone="success">فرعي</Badge>
+          : <Badge tone="neutral">أب</Badge>)}
         {row('الحالة', account.is_active
           ? <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400"><CheckCircle2 className="size-4" /> مفعّل</span>
           : <span className="inline-flex items-center gap-1 text-accent-600 dark:text-accent-400"><XCircle className="size-4" /> معطّل</span>)}
@@ -294,11 +293,9 @@ function AccountEditor({
   onClose: () => void;
 }) {
   const { create, update } = useAccountMutations();
-  const { data: types } = useAccountTypes();
   const [number, setNumber] = useState(account?.account_number ?? '');
   const [name, setName] = useState(account?.name ?? '');
   const [parentId, setParentId] = useState(account?.parent_account_id ?? '');
-  const [typeId, setTypeId] = useState(account?.account_type_id ?? '');
   const [isPosting, setIsPosting] = useState(account?.is_posting ?? true);
   const [description, setDescription] = useState(account?.description ?? '');
 
@@ -328,11 +325,14 @@ function AccountEditor({
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
+    // The type is no longer chosen by hand — a new account inherits its parent's
+    // type; an edited one keeps its own (null leaves it unchanged server-side).
+    const parentType = accounts.find((a) => a.id === parentId)?.account_type_id ?? null;
     const body = {
       account_number: number.trim(),
       name: name.trim(),
       parent_account_id: parentId || null,
-      account_type_id: typeId || null,
+      account_type_id: account ? null : parentType,
       is_posting: isPosting,
       description: description.trim() || null,
     };
@@ -362,6 +362,22 @@ function AccountEditor({
       )}
     >
       <form onSubmit={submit} className="space-y-3">
+        <label className="block">
+          <span className="mb-1 block text-xs text-muted">اسم الحساب</span>
+          <Input value={name} onChange={(e) => setName(e.target.value)} autoFocus required />
+        </label>
+
+        <label className="block">
+          <span className="mb-1 block text-xs text-muted">الحساب الأب</span>
+          <Combobox
+            value={parentId}
+            onChange={setParentId}
+            options={parentOptions.map((a) => ({ value: a.id, label: a.name, hint: a.account_number }))}
+            placeholder="— حساب رئيسي (بلا أب) —"
+            searchPlaceholder="ابحث برقم الحساب أو اسمه…"
+          />
+        </label>
+
         <div className="grid grid-cols-2 gap-3">
           <label className="block">
             <span className="mb-1 block text-xs text-muted">رقم الحساب</span>
@@ -380,35 +396,25 @@ function AccountEditor({
               </Button>
             </div>
           </label>
-          <label className="block">
-            <span className="mb-1 block text-xs text-muted">النوع</span>
-            <Select value={typeId} onChange={(e) => setTypeId(e.target.value)}>
-              <option value="">— بدون —</option>
-              {types?.data.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-            </Select>
-          </label>
+          <div className="block">
+            <span className="mb-1 block text-xs text-muted">تصنيف الحساب</span>
+            <div className="flex rounded-lg bg-surface-2 p-0.5">
+              {([[true, 'فرعي'], [false, 'أب']] as const).map(([val, lbl]) => (
+                <button
+                  key={String(val)}
+                  type="button"
+                  onClick={() => setIsPosting(val)}
+                  className={cn(
+                    'flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition',
+                    isPosting === val ? 'bg-surface text-ink shadow-sm' : 'text-muted hover:text-ink',
+                  )}
+                >
+                  {lbl}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
-
-        <label className="block">
-          <span className="mb-1 block text-xs text-muted">اسم الحساب</span>
-          <Input value={name} onChange={(e) => setName(e.target.value)} autoFocus required />
-        </label>
-
-        <label className="block">
-          <span className="mb-1 block text-xs text-muted">الحساب الأب</span>
-          <Select value={parentId} onChange={(e) => setParentId(e.target.value)}>
-            <option value="">— حساب رئيسي (بلا أب) —</option>
-            {parentOptions.map((a) => (
-              <option key={a.id} value={a.id}>{a.account_number} — {a.name}</option>
-            ))}
-          </Select>
-        </label>
-
-        <Toggle
-          checked={isPosting}
-          onChange={setIsPosting}
-          label="حساب فرعي يقبل القيود"
-        />
 
         <label className="block">
           <span className="mb-1 block text-xs text-muted">ملاحظات</span>
