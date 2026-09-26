@@ -894,11 +894,10 @@ function LineRow({
           {short && <Badge tone="danger">كمية غير كافية</Badge>}
         </div>
       </td>
-      {/* Quantity + unit ride the name's row on a narrow phone (fixed, tight
-          widths — see .line-compact--tight in index.css) instead of forming
-          their own row; the name shrinks to make room (truncate + min-width:
-          0 above). Price still gets forced onto a fresh row of its own via
-          .line-break, since a third field wouldn't fit here. */}
+      {/* On a phone the name keeps its own row; this break drops quantity,
+          unit, price and total together onto the row below it, so quantity and
+          price sit side by side (see .line-break in index.css). */}
+      <td className="line-break lg:hidden" aria-hidden />
       <td data-label="الكمية" className="line-compact line-compact--tight">
         <input
           value={quantity}
@@ -951,7 +950,6 @@ function LineRow({
           be a control that lies about what it does. */}
       {canSeeSalePrice && (
         <>
-          <td className="line-break lg:hidden" aria-hidden />
           <td data-label="السعر" className="line-compact line-compact--tight line-compact--price">
             {canEditPrices ? (
               <input

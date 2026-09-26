@@ -11,6 +11,7 @@ import { toast, toastError } from '@/store/toast';
 import {
   InvoiceStatusBadge, InvoiceTypeBadge, SourceBadge,
 } from '@/components/domain';
+import { Thumb } from '@/components/ImagePicker';
 import { useDebounced, useInvoice, useInvoiceMutations, useInvoices } from '@/hooks';
 import { fmtCurrency, fmtDateShort, fmtInt } from '@/lib/format';
 import { usePermissions } from '@/lib/permissions';
@@ -401,7 +402,10 @@ function ItemsCell(
     return <span className="text-xs text-subtle">—</span>;
   }
   return (
-    <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
+    <div className="flex min-w-0 items-center gap-2">
+      {/* The photo of the first product — a list scans far faster by picture. */}
+      <Thumb url={invoice.first_item_image_url} alt={invoice.first_item_name} className="size-9" />
+      <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
       <span className="truncate text-sm font-medium">{invoice.first_item_name}</span>
       <span className="nums shrink-0 text-xs font-bold text-muted">
         × {fmtInt(invoice.first_item_qty ?? 0)}
@@ -416,6 +420,7 @@ function ItemsCell(
           {expanded ? 'إخفاء' : `+${fmtInt(others)} أخرى`}
         </button>
       )}
+      </div>
     </div>
   );
 }

@@ -199,6 +199,7 @@ export type Invoice = {
   /** The document's first line, so a list row can show what it is for. */
   first_item_name: string | null;
   first_item_qty: number | null;
+  first_item_image_url: string | null;
   note: string | null;
   stock_count_id: string | null;
   stock_count_number: string | null;

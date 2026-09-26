@@ -175,7 +175,7 @@ const COST_MISSING = `
  */
 const FIRST_LINE = `
   OUTER APPLY (
-    SELECT TOP 1 i.name AS item_name, l.quantity
+    SELECT TOP 1 i.name AS item_name, l.quantity, i.image_file AS item_image
       FROM invoice_lines l
       JOIN items i ON i.id = l.item_id AND i.org_id = l.org_id
      WHERE l.invoice_id = v.id AND l.org_id = v.org_id
@@ -190,6 +190,8 @@ const SELECT_INVOICE = `
          ${COST_MISSING} AS missing_cost_lines,
          (SELECT COUNT(*) FROM invoice_lines l WHERE l.invoice_id = v.id) AS line_count,
          fl.item_name AS first_item_name, fl.quantity AS first_item_qty,
+         CASE WHEN fl.item_image IS NULL THEN NULL
+              ELSE '/uploads/' + fl.item_image END AS first_item_image_url,
          s.name AS supplier_name, c.name AS customer_name,
          sc.number AS stock_count_number
     FROM invoices v

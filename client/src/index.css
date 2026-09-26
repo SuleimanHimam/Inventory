@@ -881,9 +881,9 @@
     }
     .data-table.stacked tbody tr.line-row > td.line-compact--tight input,
     .data-table.stacked tbody tr.line-row > td.line-compact--tight select {
-      height: 1.75rem;
+      height: 2.1rem;
       padding-inline: 0.25rem;
-      font-size: 0.7rem;
+      font-size: 0.78rem;
     }
 
     /* The line total takes whatever the three fixed-width neighbours on its
