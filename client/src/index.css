@@ -886,6 +886,16 @@
       font-size: 0.78rem;
     }
 
+    /* The quantity cell carries a −/+ stepper around its field, so it needs
+       more room than a bare input and must not shrink below the stepper's
+       width. Its own input still shrinks (min-width: 0 on it) so the three
+       controls stay on the cell's single line. */
+    .data-table.stacked tbody tr.line-row > td.line-compact--qty {
+      flex: 0 1 7.5rem;
+      width: auto;
+      min-width: 7rem;
+    }
+
     /* The line total takes whatever the three fixed-width neighbours on its
        row leave — it's the number an operator scans for, so it gets the
        slack rather than a fixed width, and stays the loudest thing on the

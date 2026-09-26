@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, Navigate, useBlocker, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   Loader2, Save, AlertCircle, X, Trash2, LogOut, Printer, Phone, MapPin, PackagePlus,
+  Plus, Minus,
 } from 'lucide-react';
 import {
   Button, Card, Input, ConfirmDialog, Modal, Badge, Combobox,
@@ -473,9 +474,9 @@ function InvoiceEditor({ invoice }: { invoice: Invoice }) {
 
       {/* Line grid — the last row is always blank and ready for the next entry */}
       <Card className="overflow-visible">
-        {/* One clear way to open the full item picker and gather a batch, so
-            adding items is not only the scan box in the entry row. */}
-        <div className="flex items-center justify-between gap-2 border-b border-line p-3">
+        {/* Pinned above the scrolling item list, so opening the picker stays in
+            reach however far the lines are scrolled. */}
+        <div className="sticky top-0 z-20 flex items-center justify-between gap-2 border-b border-line bg-surface p-3 sm:top-[var(--topnav-h,0px)]">
           <h2 className="text-sm font-bold">الأصناف</h2>
           <Button
             variant="primary"
@@ -485,7 +486,9 @@ function InvoiceEditor({ invoice }: { invoice: Invoice }) {
             إضافة أصناف
           </Button>
         </div>
-        <div className="overflow-x-auto">
+        {/* The item list scrolls inside its own box; the add-items header above
+            and the totals + save bar below stay put around it. */}
+        <div className="max-h-[52vh] overflow-y-auto overflow-x-auto">
           <table className="data-table stacked">
             <thead>
               <tr>
@@ -494,7 +497,7 @@ function InvoiceEditor({ invoice }: { invoice: Invoice }) {
                 <th className="w-[17.5rem]">رمز المادة</th>
                 <th className="w-px" aria-label="الصورة" />
                 <th>اسم المادة</th>
-                <th className="w-24 text-center">الكمية</th>
+                <th className="w-32 text-center">الكمية</th>
                 <th className="w-28 text-center">الوحدة</th>
                 {canSeeSalePrice && <th className="w-28 text-center">{priceLabel}</th>}
                 {canSeeSalePrice && <th className="w-32 text-center">الإجمالي</th>}
@@ -651,8 +654,9 @@ function InvoiceEditor({ invoice }: { invoice: Invoice }) {
         {/* Action bar. Phone: the primary action gets its own full-width row
             and the other three share a single row below it, short labels so
             all three fit without wrapping. `sm:` and up: the original
-            single-row toolbar, unchanged. */}
-        <div className="border-t border-line px-3 py-2.5 sm:px-4">
+            single-row toolbar, unchanged. Pinned to the bottom so حفظ stays in
+            reach while the item list scrolls. */}
+        <div className="sticky bottom-0 z-20 border-t border-line bg-surface px-3 py-2.5 sm:px-4">
           <div className="sm:hidden">
             <Button
               variant="primary"
@@ -851,6 +855,15 @@ function LineRow({
     if (value !== line.quantity) commit({ quantity: value });
   };
 
+  // The +/- buttons: change the quantity by one and commit at once, never below
+  // one (removing a line is the delete button's job, not a walk down to zero).
+  const stepQuantity = (delta: number) => {
+    const base = Number.isInteger(Number(quantity)) ? Number(quantity) : line.quantity;
+    const next = Math.max(1, base + delta);
+    setQuantity(String(next));
+    if (next !== line.quantity) commit({ quantity: next });
+  };
+
   const commitPrice = () => {
     const value = Number(price);
     if (!Number.isFinite(value) || value < 0) { setPrice(String(line.unit_price ?? '')); return; }
@@ -910,19 +923,37 @@ function LineRow({
           unit, price and total together onto the row below it, so quantity and
           price sit side by side (see .line-break in index.css). */}
       <td className="line-break lg:hidden" aria-hidden />
-      <td data-label="الكمية" className="line-compact line-compact--tight">
-        <input
-          value={quantity}
-          onChange={(e) => setQuantity(e.target.value)}
-          onBlur={commitQuantity}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') { e.preventDefault(); commitQuantity(); onDone(); }
-          }}
-          onFocus={(e) => e.currentTarget.select()}
-          type="number" min="1" step="1" inputMode="numeric"
-          className="field nums h-8 py-0 text-center text-xs font-bold"
-          aria-label="الكمية"
-        />
+      <td data-label="الكمية" className="line-compact line-compact--qty">
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={() => stepQuantity(-1)}
+            aria-label="إنقاص الكمية"
+            className="grid size-7 shrink-0 place-items-center rounded-md border border-line-strong bg-surface text-ink transition hover:bg-surface-2 active:scale-95"
+          >
+            <Minus className="size-3.5" />
+          </button>
+          <input
+            value={quantity}
+            onChange={(e) => setQuantity(e.target.value)}
+            onBlur={commitQuantity}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') { e.preventDefault(); commitQuantity(); onDone(); }
+            }}
+            onFocus={(e) => e.currentTarget.select()}
+            type="number" min="1" step="1" inputMode="numeric"
+            className="field nums h-8 min-w-0 flex-1 py-0 text-center text-xs font-bold"
+            aria-label="الكمية"
+          />
+          <button
+            type="button"
+            onClick={() => stepQuantity(1)}
+            aria-label="زيادة الكمية"
+            className="grid size-7 shrink-0 place-items-center rounded-md border border-line-strong bg-surface text-ink transition hover:bg-surface-2 active:scale-95"
+          >
+            <Plus className="size-3.5" />
+          </button>
+        </div>
       </td>
       {/*
         The unit picker only appears for items that actually have units. With
