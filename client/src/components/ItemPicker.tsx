@@ -88,81 +88,81 @@ export function ItemBrowserModal({
   // Commit one item to the invoice immediately.
   const addItem = (item: Item) => onPick(item, 1);
 
-  // "Back to choosing": clear the search/filters for a fresh pick.
-  const keepChoosing = () => { setSearch(''); setCategoryId(''); setOnlyLow(false); setPage(1); };
-
   return (
     <Modal
       open={open}
       onClose={onClose}
       size="full"
+      noAutoFocus
       title={(
-        <div className="flex flex-col gap-2.5 pe-2">
-          {/* What is in the invoice so far — count, units, and (when allowed)
-              the running total, like a live order summary. */}
-          <span className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
-            {canSeeThisPrice && lineCount > 0 && (
-              <span className="nums text-brand-600 dark:text-brand-400">{fmtCurrency(totalAmount)}</span>
-            )}
-            <span className={cn(lineCount && 'text-sm font-normal text-muted')}>
-              {lineCount ? `${fmtInt(lineCount)} صنف · ${fmtInt(unitCount)} قطعة` : 'اختر الأصناف'}
+        // One tight row: a small live-order summary, the search box, and the
+        // filters. Kept compact so the item grid gets the height, not the bar.
+        <div className="relative flex items-center gap-2 pe-1 text-sm font-normal">
+          {lineCount > 0 && (
+            <span className="hidden shrink-0 flex-col leading-tight sm:flex">
+              {canSeeThisPrice && (
+                <span className="nums text-sm font-bold text-brand-600 dark:text-brand-400">{fmtCurrency(totalAmount)}</span>
+              )}
+              <span className="text-[11px] text-muted">{fmtInt(lineCount)} صنف · {fmtInt(unitCount)} قطعة</span>
             </span>
-          </span>
-
-          {/* Search and filters live in this top bar now, above the grid, so
-              they stay in place while the cards scroll under them. On a phone
-              the category and low-stock filters fold behind the toggle to keep
-              the bar short. font-normal resets the header's bold for the
-              controls. */}
-          <div className="flex flex-wrap items-center gap-2.5 text-sm font-normal">
-            <SearchInput
-              value={search}
-              onValueChange={setSearch}
-              placeholder="ابحث بالاسم أو الباركود…"
-              className="min-w-0 flex-1 sm:min-w-56"
-            />
-            <Button
-              variant={filtersOpen || categoryId || onlyLow ? 'primary' : 'secondary'}
-              size="icon"
-              className="sm:hidden"
-              onClick={() => setFiltersOpen((v) => !v)}
-              aria-label="تصفية"
-              aria-expanded={filtersOpen}
+          )}
+          <SearchInput
+            value={search}
+            onValueChange={setSearch}
+            placeholder="ابحث عن صنف…"
+            className="h-9 min-w-0 flex-1"
+          />
+          <Button
+            variant={filtersOpen || categoryId || onlyLow ? 'primary' : 'secondary'}
+            size="icon"
+            className="size-9 shrink-0 sm:hidden"
+            onClick={() => setFiltersOpen((v) => !v)}
+            aria-label="تصفية"
+            aria-expanded={filtersOpen}
+          >
+            <SlidersHorizontal className="size-4" />
+          </Button>
+          <div className="hidden shrink-0 items-center gap-2 sm:flex">
+            <Select
+              value={categoryId}
+              onChange={(e) => setCategoryId(e.target.value)}
+              className="h-9 w-auto min-w-36 py-0 text-xs"
+              aria-label="التصنيف"
             >
-              <SlidersHorizontal className="size-4" />
+              <option value="">كل التصنيفات</option>
+              {categories?.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </Select>
+            <Button
+              variant={onlyLow ? 'primary' : 'ghost'}
+              size="sm"
+              onClick={() => setOnlyLow((v) => !v)}
+            >
+              النواقص فقط
             </Button>
-            <div className={cn(
-              'flex w-full flex-wrap items-center gap-2.5 sm:w-auto sm:contents',
-              !filtersOpen && 'hidden sm:contents',
-            )}>
+          </div>
+          {/* Phone filters, revealed by the toggle, on their own line. */}
+          {filtersOpen && (
+            <div className="absolute inset-x-3 top-full mt-1 flex items-center gap-2 rounded-xl border border-line bg-surface p-2 shadow-lg sm:hidden">
               <Select
                 value={categoryId}
                 onChange={(e) => setCategoryId(e.target.value)}
-                className="h-9 w-auto min-w-40 flex-1 py-0 text-xs sm:flex-none"
+                className="h-9 w-auto min-w-0 flex-1 py-0 text-xs"
                 aria-label="التصنيف"
               >
                 <option value="">كل التصنيفات</option>
                 {categories?.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
               </Select>
-              <Button
-                variant={onlyLow ? 'primary' : 'ghost'}
-                onClick={() => setOnlyLow((v) => !v)}
-              >
-                النواقص فقط
+              <Button variant={onlyLow ? 'primary' : 'ghost'} size="sm" onClick={() => setOnlyLow((v) => !v)}>
+                النواقص
               </Button>
             </div>
-          </div>
+          )}
         </div>
       )}
       footer={(
-        <>
-          <Button variant="ghost" onClick={keepChoosing}>
-            متابعة الاختيار
-          </Button>
-          <Button variant="primary" onClick={onClose}>
-            مراجعة الفاتورة{lineCount ? ` (${fmtInt(lineCount)})` : ''}
-          </Button>
-        </>
+        <Button variant="primary" size="sm" onClick={onClose}>
+          مراجعة الفاتورة{lineCount ? ` (${fmtInt(lineCount)})` : ''}
+        </Button>
       )}
     >
       <div className="-mx-5 -my-4">
@@ -511,9 +511,9 @@ function PickerCard({
         {/* In the invoice → the stepper; otherwise the add button. */}
         <div className="mt-auto pt-2">
           {inOrder ? (
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-center gap-1">
               <Button
-                size="icon" variant="primary" className="size-9 shrink-0"
+                size="icon" variant="primary" className="size-8 shrink-0"
                 icon={<Plus className="size-4" />}
                 onClick={() => setQty(qty + 1)}
                 aria-label={`زيادة — ${item.name}`}
@@ -527,10 +527,10 @@ function PickerCard({
                 }}
                 onFocus={(e) => e.currentTarget.select()}
                 aria-label={`الكمية — ${item.name}`}
-                className="field nums h-9 min-w-0 flex-1 py-0 text-center text-base font-bold"
+                className="field nums h-9 min-w-0 flex-1 py-0 text-center text-xl font-black"
               />
               <Button
-                size="icon" variant="secondary" className="size-9 shrink-0"
+                size="icon" variant="secondary" className="size-8 shrink-0"
                 icon={<Minus className="size-4" />}
                 onClick={() => setQty(qty - 1)}
                 aria-label={`إنقاص — ${item.name}`}

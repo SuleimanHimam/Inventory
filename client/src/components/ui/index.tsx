@@ -232,7 +232,7 @@ export function Badge({
 
 /* ------------------------------------------------------------------ Modal */
 export function Modal({
-  open, onClose, title, description, children, footer, size = 'md', initialFocus,
+  open, onClose, title, description, children, footer, size = 'md', initialFocus, noAutoFocus,
 }: {
   open: boolean;
   onClose: () => void;
@@ -242,6 +242,8 @@ export function Modal({
   footer?: ReactNode;
   size?: 'sm' | 'md' | 'lg' | 'xl' | 'full';
   initialFocus?: React.RefObject<HTMLElement | null>;
+  /** Skip focusing anything on open — stops the mobile keyboard popping up. */
+  noAutoFocus?: boolean;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
 
@@ -275,7 +277,7 @@ export function Modal({
     document.addEventListener('keydown', onKey);
     const previous = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
-    const timer = setTimeout(() => {
+    const timer = noAutoFocus ? undefined : setTimeout(() => {
       (initialFocusRef.current?.current ?? panelRef.current?.querySelector<HTMLElement>(
         'input:not([type=hidden]),select,textarea,button',
       ))?.focus();
@@ -283,9 +285,9 @@ export function Modal({
     return () => {
       document.removeEventListener('keydown', onKey);
       document.body.style.overflow = previous;
-      clearTimeout(timer);
+      if (timer) clearTimeout(timer);
     };
-  }, [open]);
+  }, [open, noAutoFocus]);
 
   if (!open) return null;
 
