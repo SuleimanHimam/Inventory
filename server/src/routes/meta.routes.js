@@ -6,6 +6,7 @@ import { notFound } from '../lib/errors.js';
 import { getSettings, setSettings, get, all, run, newId } from '../db/index.js';
 import { dashboardStats, DASHBOARD_PERIODS } from '../services/items.service.js';
 import { listMovements } from '../services/invoices.service.js';
+import { effectivePermissions } from '../services/roles.service.js';
 
 const router = Router();
 
@@ -32,10 +33,12 @@ router.get('/dashboard', requireNotClerk, wrap(async (req, res) => {
   }));
 }));
 
-/** Who am I, and which organisation am I in — drives the account menu. */
-router.get('/me', wrap((req, res) => res.json({
+/** Who am I, and which organisation am I in — drives the account menu, and now
+ *  carries the effective permission map the UI lays itself out from. */
+router.get('/me', wrap(async (req, res) => res.json({
   user: { id: req.auth.userId, email: req.auth.email },
   org: { id: req.auth.orgId, role: req.auth.role },
+  permissions: await effectivePermissions({ role: req.auth.role, roleId: req.auth.roleId }),
 })));
 
 /** Global movement log across every item. */

@@ -54,6 +54,7 @@ import { UPLOADS_DIR, STORAGE_DRIVER } from './storage.js';
 import { MANAGER } from './roles.js';
 import { autoConfigureAccounting } from '../services/accounts.service.js';
 import { ensureDefaultParty } from '../services/parties.service.js';
+import { ensureRoles } from '../services/roles.service.js';
 import { AppError, badRequest, conflict, notFound, unavailable } from './errors.js';
 
 /** Every database this app creates is prefixed, so it can find its own again. */
@@ -252,6 +253,8 @@ async function seedOrg(orgId, displayName) {
     await autoConfigureAccounting();
     await ensureDefaultParty('customers');
     await ensureDefaultParty('suppliers');
+    // Seed the built-in roles (مدير/موظف/موظف مبيع) with their default grids.
+    await ensureRoles();
   });
 }
 
