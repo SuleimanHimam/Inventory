@@ -121,6 +121,10 @@ export type Party = {
   tax_number: string | null;
   notes: string | null;
   is_active: boolean;
+  /** The party's own account in the chart, linked on creation. */
+  account_id?: string | null;
+  account_number?: string | null;
+  account_name?: string | null;
   created_at: string;
   updated_at: string;
   /** `total_value` is @money — absent for a staff role. */

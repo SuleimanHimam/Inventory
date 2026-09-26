@@ -40,6 +40,12 @@ export async function ensureDefaultParty(kind) {
        INSERT INTO ${table} (id, org_id, name) VALUES (@id, @org, @name);`,
     { id: newId(), org: orgId(), name },
   );
+  // Link the walk-in party to its own account (عميل نقدي → the عميل نقدي
+  // account, مورد نقدي → the existing مورد نقدي account) so it is tied from the
+  // start, not only after its first invoice. Cheap: skips once linked.
+  const row = await get(`SELECT id, account_id FROM ${table} WHERE org_id = @org AND name = @name`,
+    { org: orgId(), name });
+  if (row && !row.account_id) await getPartyAccountId(kind, row.id).catch(() => {});
 }
 
 /**
@@ -72,21 +78,26 @@ export async function getPartyAccountId(kind, partyId) {
 export async function listParties(kind, { search, is_active, page, limit }) {
   const { table } = cfg(kind);
   await ensureDefaultParty(kind);
-  const where = ['org_id = @org'];
+  const where = ['p.org_id = @org'];
   const params = { org: orgId() };
   if (search) {
     params.q = `%${search}%`;
-    where.push('(name LIKE @q OR phone LIKE @q OR email LIKE @q)');
+    where.push('(p.name LIKE @q OR p.phone LIKE @q OR p.email LIKE @q)');
   }
   if (is_active !== undefined && is_active !== null) {
     params.active = is_active ? 1 : 0;
-    where.push('is_active = @active');
+    where.push('p.is_active = @active');
   }
   const clause = `WHERE ${where.join(' AND ')}`;
 
-  const { n: total } = await get(`SELECT COUNT(*) n FROM ${table} ${clause}`, params);
+  const { n: total } = await get(`SELECT COUNT(*) n FROM ${table} p ${clause}`,
+    { ...params });
   const rows = await all(
-    `SELECT * FROM ${table} ${clause} ORDER BY name OFFSET @offset ROWS FETCH NEXT @limit ROWS ONLY`,
+    `SELECT p.*, a.account_number, a.name AS account_name
+       FROM ${table} p
+       LEFT JOIN accounts a ON a.id = p.account_id AND a.org_id = p.org_id
+       ${clause}
+      ORDER BY p.name OFFSET @offset ROWS FETCH NEXT @limit ROWS ONLY`,
     { ...params, limit, offset: (page - 1) * limit },
   );
 
@@ -97,7 +108,13 @@ const withFlags = (r) => r && { ...publicRow(r), is_active: !!r.is_active };
 
 export async function getParty(kind, id, { withDetail = false } = {}) {
   const { table, label } = cfg(kind);
-  const row = await get(`SELECT * FROM ${table} WHERE id = @id AND org_id = @org`, { id, org: orgId() });
+  const row = await get(
+    `SELECT p.*, a.account_number, a.name AS account_name
+       FROM ${table} p
+       LEFT JOIN accounts a ON a.id = p.account_id AND a.org_id = p.org_id
+      WHERE p.id = @id AND p.org_id = @org`,
+    { id, org: orgId() },
+  );
   if (!row) throw notFound(`${label} غير موجود`, 'PARTY_NOT_FOUND');
   const party = withFlags(row);
 
@@ -106,13 +123,21 @@ export async function getParty(kind, id, { withDetail = false } = {}) {
     // A draft is not a finished invoice — excluded from this party's count,
     // total, and recent-invoices history the same way it's excluded from the
     // main invoice list (see listInvoices).
+    // The per-invoice total is a subquery, so it is computed in a derived table
+    // first — SQL Server refuses SUM() over an expression that itself contains a
+    // subquery/aggregate (error 130), which the previous inline form hit.
     party.stats = await get(
       `SELECT COUNT(*) AS invoice_count,
-              COALESCE(SUM(CASE WHEN status='POSTED' THEN
-                (SELECT COALESCE(SUM(l.quantity * l.unit_price),0) FROM invoice_lines l WHERE l.invoice_id = v.id)
-                - v.discount_total + v.tax_total END), 0) AS total_value,
-              MAX(CASE WHEN status='POSTED' THEN invoice_date END) AS last_invoice_date
-         FROM invoices v WHERE v.${col} = @id AND v.org_id = @org AND v.status <> 'DRAFT'`, { id, org: orgId() });
+              COALESCE(SUM(CASE WHEN status = 'POSTED' THEN total END), 0) AS total_value,
+              MAX(CASE WHEN status = 'POSTED' THEN invoice_date END) AS last_invoice_date
+         FROM (
+           SELECT v.status, v.invoice_date,
+                  (SELECT COALESCE(SUM(l.quantity * l.unit_price), 0)
+                     FROM invoice_lines l WHERE l.invoice_id = v.id)
+                  - v.discount_total + v.tax_total AS total
+             FROM invoices v
+            WHERE v.${col} = @id AND v.org_id = @org AND v.status <> 'DRAFT'
+         ) t`, { id, org: orgId() });
     party.recent_invoices = await all(
       `SELECT TOP 10 v.id, v.number, v.type, v.status, v.invoice_date,
               (SELECT COALESCE(SUM(l.quantity * l.unit_price),0) FROM invoice_lines l WHERE l.invoice_id = v.id)

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import {
   Plus, Users, Truck, Pencil, Archive, ArchiveRestore, Phone, Mail, MapPin, AlertTriangle,
+  BookOpen, ChevronLeft,
 } from 'lucide-react';
 import {
   Button, Card, PageHeader, Pagination, SearchInput, Select, EmptyState, TableSkeleton,
@@ -369,6 +370,27 @@ function PartyDetailModal({
               <ContactRow icon={<Users className="size-3.5" />} label="جهة الاتصال" value={party.contact_person ?? null} />
             )}
           </div>
+
+          {/* The party's own account in the chart, linked on creation. */}
+          {party.account_id && (
+            <div className="flex items-center justify-between gap-3 rounded-xl border border-line p-3">
+              <div className="flex min-w-0 items-center gap-2">
+                <BookOpen className="size-4 shrink-0 text-brand-600 dark:text-brand-400" />
+                <div className="min-w-0">
+                  <div className="truncate text-sm font-medium">{party.account_name || party.name}</div>
+                  <div className="nums font-mono text-xs text-muted">حساب رقم {party.account_number}</div>
+                </div>
+              </div>
+              {canSeePrices && (
+                <Link
+                  to={`/accounts/${party.account_id}/statement`}
+                  className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-brand-600 hover:underline dark:text-brand-400"
+                >
+                  كشف الحساب <ChevronLeft className="size-3.5" />
+                </Link>
+              )}
+            </div>
+          )}
 
           {party.notes && (
             <div>

@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import multer from 'multer';
 import { z } from 'zod';
-import { runInOrg } from '../db/index.js';
+import { runInOrg, bindFile } from '../db/index.js';
 import { wrap, parse, pageQuery, paginated } from '../lib/http.js';
 import { notFound } from '../lib/errors.js';
 import { canSeePrices, canSeeSalePrice, requireItemWrite } from '../lib/roles.js';
@@ -161,16 +161,20 @@ router.get('/:id/images', wrap(async (req, res) => {
 // stream), and that async gap does not reliably carry the AsyncLocalStorage
 // context the outer `orgContext` middleware set up — by the time this handler
 // runs, `orgId()` can throw ORG_CONTEXT_MISSING even though the request is
-// authenticated. `req.auth.orgId` was set synchronously by `authenticate`
-// before multer ever ran, so it is unaffected; re-entering `runInOrg` here
-// re-establishes a scoped connection for the actual database work.
+// authenticated. `req.auth.file`/`req.auth.orgId` were set synchronously by
+// `authenticate` before multer ever ran, so they are unaffected; re-establishing
+// BOTH here (bindFile *and* runInOrg, exactly as orgContext does) is essential —
+// re-entering runInOrg alone would inherit no file and write to the default
+// database, so an upload against any file but the first silently hit the wrong
+// database and failed.
 router.post(
   '/:id/images',
   requireItemWrite,
   upload.fields([{ name: 'images' }, { name: 'image' }]),
   wrap(async (req, res) => {
     const files = [...(req.files?.images ?? []), ...(req.files?.image ?? [])];
-    const data = await runInOrg(req.auth.orgId, () => addItemImages(req.params.id, files));
+    const data = await bindFile(req.auth.file, () =>
+      runInOrg(req.auth.orgId, () => addItemImages(req.params.id, files)));
     res.json({ data });
   }),
 );
