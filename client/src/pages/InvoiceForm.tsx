@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, Navigate, useBlocker, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
-  Loader2, Save, AlertCircle, X, Trash2, LogOut, Printer, Phone, MapPin,
+  Loader2, Save, AlertCircle, X, Trash2, LogOut, Printer, Phone, MapPin, PackagePlus,
 } from 'lucide-react';
 import {
   Button, Card, Input, ConfirmDialog, Modal, Badge, Combobox,
@@ -473,6 +473,18 @@ function InvoiceEditor({ invoice }: { invoice: Invoice }) {
 
       {/* Line grid — the last row is always blank and ready for the next entry */}
       <Card className="overflow-visible">
+        {/* One clear way to open the full item picker and gather a batch, so
+            adding items is not only the scan box in the entry row. */}
+        <div className="flex items-center justify-between gap-2 border-b border-line p-3">
+          <h2 className="text-sm font-bold">الأصناف</h2>
+          <Button
+            variant="primary"
+            icon={<PackagePlus className="size-4" />}
+            onClick={() => { setListOpen(false); setBrowserOpen(true); }}
+          >
+            إضافة أصناف
+          </Button>
+        </div>
         <div className="overflow-x-auto">
           <table className="data-table stacked">
             <thead>

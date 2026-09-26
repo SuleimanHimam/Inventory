@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Loader2, Search, PackageSearch, Plus, Minus, X, ImageOff, SlidersHorizontal } from 'lucide-react';
+import { Loader2, Search, PackageSearch, Plus, Check, ImageOff, SlidersHorizontal } from 'lucide-react';
 import {
   Badge, Button, Modal, Pagination, SearchInput, Select, TableSkeleton,
 } from '@/components/ui';
@@ -41,16 +41,12 @@ export function ItemBrowserModal({
   const [filtersOpen, setFiltersOpen] = useState(false);
 
   /*
-   * The pick basket, item id -> {item, qty}.
-   *
-   * Nothing reaches the invoice on a single tap any more: the operator gathers
-   * a whole order here -- across searches and pages -- and commits it in one
-   * go with the button in the footer. Storing the item object, not just its
-   * id, is what lets the running total and the final commit work for items
-   * picked on a page the grid has since scrolled away from.
+   * Each "إضافة" commits its item to the invoice at once — no basket to review
+   * and commit later. `added` remembers how many of each item went in during
+   * this visit (item id -> total qty), so a card can show "أُضيفت ✓" and the
+   * header can show a running count, and it clears when the picker reopens.
    */
-  const [cart, setCart] = useState<Record<string, { item: Item; qty: number }>>({});
-  const [committing, setCommitting] = useState(false);
+  const [added, setAdded] = useState<Record<string, number>>({});
 
   const { canSeePrices, canSeeSalePrice } = usePermissions();
   const canSeeThisPrice = priceKind === 'sale' ? canSeeSalePrice : canSeePrices;
@@ -70,50 +66,28 @@ export function ItemBrowserModal({
   // Any filter change invalidates the current page number.
   useEffect(() => { setPage(1); }, [debounced, categoryId, onlyLow, limit]);
 
-  // Start clean each time it is opened — filters and basket both — so neither a
-  // stale filter hides an item nor a stale basket re-adds last time's order.
+  // Start clean each time it is opened — filters and the added-count both.
   useEffect(() => {
     if (!open) return;
     setSearch(''); setCategoryId(''); setOnlyLow(false); setPage(1); setFiltersOpen(false);
-    setCart({}); setCommitting(false);
+    setAdded({});
   }, [open]);
 
   const rows = data?.data ?? [];
 
-  const setQty = (item: Item, qty: number) => setCart((c) => {
-    const next = { ...c };
-    if (qty <= 0) delete next[item.id];
-    else next[item.id] = { item, qty };
-    return next;
-  });
+  const addedEntries = Object.entries(added);
+  const lineCount = addedEntries.length;
+  const unitCount = addedEntries.reduce((sum, [, q]) => sum + q, 0);
 
-  const entries = Object.values(cart);
-  const lineCount = entries.length;
-  const unitCount = entries.reduce((sum, e) => sum + e.qty, 0);
-  // Prices are optional on the type — the API strips them for a staff account —
-  // so default to 0. The total only renders when canSeeThisPrice anyway.
-  const totalAmount = entries.reduce(
-    (sum, e) => sum + e.qty * ((priceKind === 'purchase' ? e.item.purchase_price : e.item.sale_price) ?? 0),
-    0,
-  );
-
-  const commit = async () => {
-    if (!lineCount || committing) return;
-    setCommitting(true);
-    try {
-      // Sequential, not Promise.all: line numbering and the server's
-      // add-or-merge both assume one add at a time, and a dozen parallel
-      // writes to the same draft is how you get duplicated or reordered lines.
-      for (const { item, qty } of entries) {
-        await onPick(item, qty); // eslint-disable-line no-await-in-loop
-      }
-      onClose();
-    } catch {
-      // onPick surfaces its own error toast; keep the basket so nothing the
-      // operator gathered is lost, and let them try again.
-      setCommitting(false);
-    }
+  // Commit one item to the invoice immediately, and remember it went in.
+  const addItem = async (item: Item, qty: number) => {
+    const n = Math.max(1, Math.floor(qty || 0));
+    await onPick(item, n); // parent adds the line and flashes it; it toasts on error
+    setAdded((a) => ({ ...a, [item.id]: (a[item.id] ?? 0) + n }));
   };
+
+  // "Back to choosing": clear the search/filters for a fresh pick.
+  const keepChoosing = () => { setSearch(''); setCategoryId(''); setOnlyLow(false); setPage(1); };
 
   return (
     <Modal
@@ -122,21 +96,11 @@ export function ItemBrowserModal({
       size="full"
       title={(
         <div className="flex flex-col gap-2.5 pe-2">
-          {/* Running total, at the very top — the invoice builds up in view. */}
+          {/* What has been added to the invoice so far, at the very top. */}
           <span className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
-            <span>{lineCount ? `المحدَّد: ${fmtInt(lineCount)} صنف` : 'اختر الأصناف'}</span>
+            <span>{lineCount ? `أُضيفت للفاتورة: ${fmtInt(lineCount)} صنف` : 'اختر الأصناف'}</span>
             {lineCount > 0 && (
-              <span className="text-xs font-normal text-muted">
-                {fmtInt(unitCount)} قطعة
-                {canSeeThisPrice && (
-                  <>
-                    {' · الإجمالي '}
-                    <span className="nums font-bold text-brand-600 dark:text-brand-400">
-                      {fmtCurrency(totalAmount)}
-                    </span>
-                  </>
-                )}
-              </span>
+              <span className="text-xs font-normal text-muted">{fmtInt(unitCount)} قطعة</span>
             )}
           </span>
 
@@ -187,11 +151,11 @@ export function ItemBrowserModal({
       )}
       footer={(
         <>
-          <Button variant="ghost" onClick={() => setCart({})} disabled={!lineCount || committing}>
-            تفريغ
+          <Button variant="ghost" onClick={keepChoosing}>
+            متابعة الاختيار
           </Button>
-          <Button variant="primary" onClick={commit} loading={committing} disabled={!lineCount}>
-            إضافة إلى الفاتورة{lineCount ? ` (${fmtInt(lineCount)})` : ''}
+          <Button variant="primary" onClick={onClose}>
+            مراجعة الفاتورة{lineCount ? ` (${fmtInt(lineCount)})` : ''}
           </Button>
         </>
       )}
@@ -212,8 +176,8 @@ export function ItemBrowserModal({
                   item={item}
                   priceKind={priceKind}
                   canSeeThisPrice={canSeeThisPrice}
-                  qty={cart[item.id]?.qty ?? 0}
-                  onSetQty={(qty) => setQty(item, qty)}
+                  addedQty={added[item.id] ?? 0}
+                  onAdd={(qty) => addItem(item, qty)}
                 />
               ))}
             </div>
@@ -440,57 +404,46 @@ function QuantityCell({ item }: { item: Item }) {
  * searching, and the running total at the top always matches.
  */
 function PickerCard({
-  item, priceKind, canSeeThisPrice, qty, onSetQty,
+  item, priceKind, canSeeThisPrice, addedQty, onAdd,
 }: {
   item: Item;
   priceKind: 'sale' | 'purchase';
   canSeeThisPrice: boolean;
-  qty: number;
-  onSetQty: (quantity: number) => void;
+  addedQty: number;
+  onAdd: (quantity: number) => void | Promise<void>;
 }) {
   const img = useThumbFallback(item.image_url);
-  const selected = qty > 0;
+  // The quantity is typed, and starts empty — no prefilled "1" to clear first.
+  const [qtyText, setQtyText] = useState('');
+  const [busy, setBusy] = useState(false);
+  const added = addedQty > 0;
 
-  // Typing the quantity through a local text buffer, so the field can be
-  // cleared and a multi-digit number entered without it snapping to 0 (which
-  // used to drop the item from the basket mid-edit). It follows the +/- buttons
-  // and only writes a real number back to the basket; an empty box is left
-  // alone until blur, when it settles on 1 rather than removing the line.
-  const [qtyText, setQtyText] = useState(qty ? String(qty) : '');
-  useEffect(() => { setQtyText(qty ? String(qty) : ''); }, [qty]);
-
-  const onQtyInput = (raw: string) => {
-    const cleaned = raw.replace(/[^\d]/g, '');
-    setQtyText(cleaned);
-    if (cleaned !== '') onSetQty(Math.max(1, parseInt(cleaned, 10)));
-  };
-  const onQtyBlur = () => {
-    if (qtyText === '' || Number(qtyText) < 1) { onSetQty(1); setQtyText('1'); }
+  const submit = async () => {
+    if (busy) return;
+    const qty = Math.max(1, Math.floor(Number(qtyText) || 0)); // empty → 1
+    setBusy(true);
+    try {
+      await onAdd(qty);
+      setQtyText(''); // ready for the next add of the same item
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
     <div className={cn(
       'card relative flex flex-col overflow-hidden transition',
-      selected && 'ring-2 ring-brand-500',
+      added && 'ring-2 ring-emerald-500',
     )}>
-      {/* Corner remove — drops the item from the basket in one tap, the
-          counterpart to the stepper's slow walk back down to zero. Only shown
-          once it is actually in the basket. */}
-      {selected && (
-        <button
-          type="button"
-          onClick={() => onSetQty(0)}
-          aria-label={`إزالة ${item.name}`}
-          className="absolute end-1.5 top-1.5 z-10 grid size-7 place-items-center rounded-full bg-accent-600 text-white shadow transition hover:bg-accent-700"
-        >
-          <X className="size-4" />
-        </button>
+      {/* Confirmation that it went into the invoice, with how many so far. */}
+      {added && (
+        <span className="absolute end-1.5 top-1.5 z-10 flex items-center gap-1 rounded-full bg-emerald-600 px-2 py-0.5 text-[11px] font-bold text-white shadow">
+          <Check className="size-3" /> {fmtInt(addedQty)}
+        </span>
       )}
 
       <div className="aspect-square w-full overflow-hidden bg-surface-2">
         {item.image_url ? (
-          // Thumbnail, not the original — this grid can show dozens of items
-          // at once and the originals are multi-megabyte camera photos.
           <img
             src={img.src}
             onError={img.onError}
@@ -511,8 +464,6 @@ function PickerCard({
           <span className="mt-1 text-[11px] text-subtle">بدون تصنيف</span>
         )}
         <div className="mt-1.5 flex items-center justify-between gap-2">
-          {/* Price for a manager, or a clerk on a sale price; the barcode is
-              what staff (and a clerk on a purchase price) pick by instead. */}
           {canSeeThisPrice ? (
             <span className="nums text-sm font-bold text-brand-600 dark:text-brand-400">
               {fmtCurrency(priceKind === 'purchase' ? item.purchase_price : item.sale_price)}
@@ -525,51 +476,32 @@ function PickerCard({
           <QuantityCell item={item} />
         </div>
 
-        {/* Pinned to the card's own bottom edge (mt-auto) so it lands flush
-            however many lines the name took. Before it is picked, one button;
-            after, a stepper — plus and minus around the count, with minus at
-            one removing it. */}
-        <div className="mt-auto pt-2">
-          {selected ? (
-            <div className="flex items-center gap-1.5">
-              <Button
-                size="icon"
-                variant="secondary"
-                className="size-8 shrink-0"
-                icon={<Minus className="size-3.5" />}
-                onClick={() => onSetQty(qty - 1)}
-                aria-label={`إنقاص — ${item.name}`}
-              />
-              <input
-                inputMode="numeric"
-                value={qtyText}
-                onChange={(e) => onQtyInput(e.target.value)}
-                onFocus={(e) => e.currentTarget.select()}
-                onBlur={onQtyBlur}
-                aria-label={`الكمية — ${item.name}`}
-                className="field h-8 min-w-0 flex-1 py-0 text-center text-sm font-bold"
-              />
-              <Button
-                size="icon"
-                variant="primary"
-                className="size-8 shrink-0"
-                icon={<Plus className="size-3.5" />}
-                onClick={() => onSetQty(qty + 1)}
-                aria-label={`زيادة — ${item.name}`}
-              />
-            </div>
-          ) : (
-            <Button
-              size="sm"
-              variant="primary"
-              className="w-full"
-              icon={<Plus className="size-3.5" />}
-              onClick={() => onSetQty(1)}
-              aria-label={`إضافة — ${item.name}`}
-            >
-              إضافة
-            </Button>
-          )}
+        {/* Type the quantity (blank = 1), then إضافة adds it to the invoice
+            straight away. Pinned to the card's bottom edge (mt-auto). */}
+        <div className="mt-auto flex items-center gap-1.5 pt-2">
+          <input
+            type="number"
+            min="1"
+            step="1"
+            inputMode="numeric"
+            value={qtyText}
+            placeholder="الكمية"
+            onChange={(e) => setQtyText(e.target.value.replace(/[^\d]/g, ''))}
+            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); submit(); } }}
+            aria-label={`الكمية — ${item.name}`}
+            className="field h-9 w-16 shrink-0 py-0 text-center text-sm font-bold"
+          />
+          <Button
+            size="sm"
+            variant={added ? 'success' : 'primary'}
+            loading={busy}
+            className="h-9 flex-1"
+            icon={<Plus className="size-3.5" />}
+            onClick={submit}
+            aria-label={`إضافة — ${item.name}`}
+          >
+            إضافة
+          </Button>
         </div>
       </div>
     </div>
