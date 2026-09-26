@@ -216,6 +216,7 @@ export type VouchersQuery = {
   search?: string;
   date_from?: string;
   date_to?: string;
+  expense_only?: boolean;
   page?: number;
   limit?: number;
 };

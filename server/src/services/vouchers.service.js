@@ -98,12 +98,23 @@ async function postEntries({
 /* ------------------------------------------------------------------ listing */
 export async function listVouchers({
   type, status, party_id: partyId, search, date_from: dateFrom, date_to: dateTo,
-  page = 1, limit = 25,
+  expense_only: expenseOnly, page = 1, limit = 25,
 } = {}) {
   const params = { org: orgId() };
   const where = ['v.org_id = @org'];
   if (type) { params.type = type; where.push('v.type = @type'); }
   if (status) { params.status = status; where.push('v.status = @status'); }
+  // Quick Expenses view: payments whose counter side is an expense account.
+  // Kept as an EXISTS on the account's type so the ledger stays the single
+  // source of truth — an expense is just a payment into an expense account, not
+  // a separate document kind.
+  if (expenseOnly) {
+    where.push("v.type = 'PAYMENT'");
+    where.push(`EXISTS (
+      SELECT 1 FROM accounts a2
+        JOIN account_types t2 ON t2.id = a2.account_type_id AND t2.org_id = a2.org_id
+       WHERE a2.id = v.counter_account_id AND a2.org_id = v.org_id AND t2.code = 'EXPENSE')`);
+  }
   if (partyId) { params.party = partyId; where.push('v.party_id = @party'); }
   if (dateFrom) { params.from = dateFrom; where.push('v.voucher_date >= @from'); }
   if (dateTo) { params.to = dateTo; where.push('v.voucher_date <= @to'); }

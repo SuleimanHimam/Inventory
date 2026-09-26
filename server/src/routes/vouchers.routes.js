@@ -28,6 +28,7 @@ router.get('/', wrap(async (req, res) => {
       search: z.string().trim().optional(),
       date_from: z.string().optional(),
       date_to: z.string().optional(),
+      expense_only: z.coerce.boolean().optional(),
     }), req.query);
   const { rows, total, summary } = await vouchers.listVouchers(q);
   res.json({ ...paginated(rows, total, q), summary });

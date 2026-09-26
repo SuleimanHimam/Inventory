@@ -41,6 +41,7 @@ const FilesPage = lazy(() => import('@/pages/Files'));
 const ChartOfAccounts = lazy(() => import('@/pages/ChartOfAccounts'));
 const Vouchers = lazy(() => import('@/pages/Vouchers'));
 const AccountStatement = lazy(() => import('@/pages/AccountStatement'));
+const QuickExpenses = lazy(() => import('@/pages/QuickExpenses'));
 const BackupPage = lazy(() => import('@/pages/Backup'));
 const Login = lazy(() => import('@/pages/Login'));
 // Not lazy: an error screen that has to fetch a chunk before it can render is
@@ -129,6 +130,8 @@ const router = createHashRouter([
           { path: 'accounts/:id/statement', element: <RequireManager><AccountStatement /></RequireManager> },
           // Vouchers are money end to end — manager-only, guarded here and on the API.
           { path: 'vouchers', element: <RequireManager><Vouchers /></RequireManager> },
+          // Quick Expenses — a fast Payment voucher against an expense account.
+          { path: 'expenses', element: <RequireManager><QuickExpenses /></RequireManager> },
           // Manager-only for the same reason, and with the same double guard:
           // the API refuses `/backup` outright for anyone else.
           { path: 'backup', element: <RequireManager><BackupPage /></RequireManager> },
