@@ -8,7 +8,7 @@ import type {
   BackupConfig, BackupSet, BackupStatus, BrowseResult, Category, DashboardPeriod, DashboardStats,
   Account, AccountType, AppFile, FileList, ManagerNote, ImportPreview, ImportResult,
   Invoice, Item, ItemImage, ItemUnit, InvoiceSummary, Movement, OrgUser, Paginated, Party,
-  PostProblem, RestoreResult, Settings, StockCount, Voucher, VoucherSummary,
+  PostProblem, RestoreResult, Settings, StockCount, Voucher, VoucherSummary, AccountStatement,
 } from '@/lib/types';
 
 /** Central query-key registry — keeps invalidation honest. */
@@ -35,6 +35,7 @@ export const keys = {
   account: (id: string) => ['account', id] as const,
   vouchers: (params?: unknown) => ['vouchers', params] as const,
   voucher: (id: string) => ['voucher', id] as const,
+  statement: (id: string, range?: unknown) => ['statement', id, range] as const,
   backup: ['backup'] as const,
 };
 
@@ -189,6 +190,21 @@ export const useAccount = (id: string | undefined, enabled = true) =>
   useQuery({
     queryKey: keys.account(id!),
     queryFn: () => api.get<Account>(`/accounts/${id}`),
+    enabled: !!id && enabled,
+  });
+
+/** An account statement over a date range — manager-only on the API. */
+export const useAccountStatement = (
+  id: string | undefined,
+  range: { date_from?: string; date_to?: string },
+  enabled = true,
+) =>
+  useQuery({
+    queryKey: keys.statement(id!, range),
+    queryFn: () => api.get<AccountStatement>(`/accounts/${id}/statement`, {
+      date_from: range.date_from || undefined,
+      date_to: range.date_to || undefined,
+    }),
     enabled: !!id && enabled,
   });
 

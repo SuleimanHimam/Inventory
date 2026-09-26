@@ -137,6 +137,21 @@ const MONEY_KEYS = new Set([
   // else in this file.
   'purchases',        // dashboard trading (derived)
   'sales',            // dashboard trading (derived)
+  // Accounting (phases 1–3). A staff account may browse the Chart of Accounts
+  // to see its structure, but not the money in it: an account's rolled-up
+  // balance (getAccount) and every figure on a statement are stripped the same
+  // way prices are. Vouchers are manager-only at the route, so `amount` is not
+  // listed here — nothing below manager ever receives a voucher to redact.
+  'balance',          // accounts — rolled-up ledger balance
+  'debit_total',      // accounts / statement
+  'credit_total',     // accounts / statement
+  'opening_balance',  // statement
+  'closing_balance',  // statement
+  'running_balance',  // statement lines
+  'total_debit',      // statement
+  'total_credit',     // statement
+  'debit',            // statement / voucher entry line
+  'credit',           // statement / voucher entry line
 ]);
 
 /**

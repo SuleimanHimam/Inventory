@@ -163,6 +163,102 @@ export async function accountBalance(id) {
   return { debit_total: money(debit), credit_total: money(credit), balance: money(debit - credit) };
 }
 
+/**
+ * A statement (كشف حساب) for one account over a date range: the opening balance
+ * carried in from before the range, every ledger line inside it with a running
+ * balance, and the closing balance and column totals.
+ *
+ * Rolled up over the subtree, same as `accountBalance`, so a group's statement
+ * shows every movement beneath it. Voucher lines are labelled with the voucher
+ * number so a reader can trace each entry back to its document. The running
+ * balance is computed here rather than with a window function so the rounding
+ * matches `money()` exactly at every step.
+ */
+export async function accountStatement(id, { dateFrom, dateTo } = {}) {
+  const org = orgId();
+  const account = await getAccount(id); // 404s if missing; carries the balance too
+
+  const SUBTREE = `WITH subtree AS (
+      SELECT id FROM accounts WHERE id = @id AND org_id = @org
+      UNION ALL
+      SELECT c.id FROM accounts c
+        JOIN subtree s ON c.parent_account_id = s.id
+       WHERE c.org_id = @org
+     )`;
+
+  // What the account already stood at the moment the range opened.
+  let opening = 0;
+  if (dateFrom) {
+    const o = await get(
+      `${SUBTREE}
+       SELECT COALESCE(SUM(t.debit), 0) AS d, COALESCE(SUM(t.credit), 0) AS c
+         FROM transactions t
+        WHERE t.org_id = @org AND t.entry_date < @from
+          AND t.account_id IN (SELECT id FROM subtree)`,
+      { id, org, from: dateFrom },
+    );
+    opening = money(o.d - o.c);
+  }
+
+  const params = { id, org };
+  let range = 't.org_id = @org AND t.account_id IN (SELECT id FROM subtree)';
+  if (dateFrom) { params.from = dateFrom; range += ' AND t.entry_date >= @from'; }
+  if (dateTo) { params.to = dateTo; range += ' AND t.entry_date <= @to'; }
+
+  const rows = await all(
+    `${SUBTREE}
+     SELECT t.id, t.entry_date, t.debit, t.credit, t.description,
+            t.source_type, t.source_id,
+            a.account_number, a.name AS account_name,
+            v.number AS voucher_number, v.type AS voucher_type
+       FROM transactions t
+       JOIN accounts a ON a.id = t.account_id AND a.org_id = t.org_id
+       LEFT JOIN vouchers v ON v.id = t.source_id AND v.org_id = t.org_id
+                           AND t.source_type = 'VOUCHER'
+      WHERE ${range}
+      ORDER BY t.entry_date, t.seq`,
+    params,
+  );
+
+  let running = opening;
+  const lines = rows.map((r) => {
+    running = money(running + r.debit - r.credit);
+    return {
+      id: r.id,
+      entry_date: r.entry_date,
+      account_number: r.account_number,
+      account_name: r.account_name,
+      description: r.description,
+      source_type: r.source_type,
+      source_id: r.source_id,
+      voucher_number: r.voucher_number,
+      voucher_type: r.voucher_type,
+      debit: money(r.debit),
+      credit: money(r.credit),
+      running_balance: running,
+    };
+  });
+  const totalDebit = money(rows.reduce((s, r) => s + r.debit, 0));
+  const totalCredit = money(rows.reduce((s, r) => s + r.credit, 0));
+
+  return {
+    account: {
+      id: account.id,
+      account_number: account.account_number,
+      name: account.name,
+      is_posting: account.is_posting,
+      type_name: account.type_name,
+    },
+    date_from: dateFrom ?? null,
+    date_to: dateTo ?? null,
+    opening_balance: opening,
+    closing_balance: money(opening + totalDebit - totalCredit),
+    total_debit: totalDebit,
+    total_credit: totalCredit,
+    lines,
+  };
+}
+
 /** One account, or 404 — with its rolled-up ledger balance. */
 export async function getAccount(id) {
   const row = await get(

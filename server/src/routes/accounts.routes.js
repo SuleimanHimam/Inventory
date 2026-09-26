@@ -48,6 +48,21 @@ router.get('/', wrap(async (req, res) => {
 
 router.get('/:id', wrap(async (req, res) => res.json(await accounts.getAccount(req.params.id))));
 
+/**
+ * Account statement (كشف حساب) — the ledger lines for one account over a date
+ * range, with a running balance. It is a money report, so manager-only, unlike
+ * the read routes above which staff use to browse the chart. The balance
+ * figures a non-manager could otherwise glimpse on GET /:id are also stripped
+ * by the money-redaction filter (see lib/roles.js).
+ */
+router.get('/:id/statement', requireManager, wrap(async (req, res) => {
+  const { date_from: dateFrom, date_to: dateTo } = parse(
+    z.object({ date_from: z.string().optional(), date_to: z.string().optional() }),
+    req.query,
+  );
+  res.json(await accounts.accountStatement(req.params.id, { dateFrom, dateTo }));
+}));
+
 router.post('/', requireManager, wrap(async (req, res) =>
   res.status(201).json(await accounts.createAccount(parse(accountBody, req.body), req.auth.userId))));
 

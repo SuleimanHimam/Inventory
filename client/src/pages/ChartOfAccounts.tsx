@@ -1,7 +1,8 @@
 import { useMemo, useState, type FormEvent } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   ChevronLeft, ChevronDown, Plus, Pencil, Trash2, Search as SearchIcon,
-  FolderTree, CheckCircle2, XCircle, Ban,
+  FolderTree, CheckCircle2, XCircle, Ban, FileText,
 } from 'lucide-react';
 import {
   Button, Card, Input, Select, Textarea, Modal, PageHeader, EmptyState,
@@ -188,6 +189,7 @@ function AccountSummary({
   onClose: () => void;
   onEdit: () => void;
 }) {
+  const navigate = useNavigate();
   const { setActive, remove } = useAccountMutations();
   const [confirmDelete, setConfirmDelete] = useState(false);
   // The flat list carries no balance; fetch this one account for its rolled-up
@@ -212,6 +214,9 @@ function AccountSummary({
       description={`رقم الحساب ${account.account_number}`}
       footer={isManager && (
         <>
+          <Button variant="ghost" onClick={() => navigate(`/accounts/${account.id}/statement`)}>
+            <FileText className="size-4" /> كشف الحساب
+          </Button>
           <Button
             variant="ghost"
             onClick={() => setActive.mutate(

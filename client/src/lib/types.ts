@@ -472,6 +472,38 @@ export type VoucherSummary = {
   net_total: number;
 };
 
+export type StatementLine = {
+  id: string;
+  entry_date: string;
+  account_number: string;
+  account_name: string;
+  description: string | null;
+  source_type: string;
+  source_id: string | null;
+  voucher_number: string | null;
+  voucher_type: VoucherType | null;
+  debit: number;
+  credit: number;
+  running_balance: number;
+};
+
+export type AccountStatement = {
+  account: {
+    id: string;
+    account_number: string;
+    name: string;
+    is_posting: boolean;
+    type_name: string | null;
+  };
+  date_from: string | null;
+  date_to: string | null;
+  opening_balance: number;
+  closing_balance: number;
+  total_debit: number;
+  total_credit: number;
+  lines: StatementLine[];
+};
+
 export type ManagerNote = {
   id: string;
   title: string;
