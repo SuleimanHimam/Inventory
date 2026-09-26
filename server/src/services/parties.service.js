@@ -20,8 +20,30 @@ const CONFIG = {
 
 const cfg = (kind) => CONFIG[kind];
 
+/**
+ * The walk-in default party each kind always has: a cash customer on a sale, a
+ * cash supplier on a purchase. Created once per file (idempotent on the name),
+ * so a new sale/purchase can default its party without the operator first
+ * having to add one. Seeded lazily on the first parties read, the same
+ * ensure-on-first-use pattern the chart of accounts uses.
+ */
+const DEFAULT_PARTY_NAME = { customers: 'عميل نقدي', suppliers: 'مورد نقدي' };
+
+export async function ensureDefaultParty(kind) {
+  const { table } = cfg(kind);
+  const name = DEFAULT_PARTY_NAME[kind];
+  if (!name) return;
+  await run(
+    `IF NOT EXISTS (SELECT 1 FROM ${table} WITH (UPDLOCK, HOLDLOCK)
+                     WHERE org_id = @org AND name = @name)
+       INSERT INTO ${table} (id, org_id, name) VALUES (@id, @org, @name);`,
+    { id: newId(), org: orgId(), name },
+  );
+}
+
 export async function listParties(kind, { search, is_active, page, limit }) {
   const { table } = cfg(kind);
+  await ensureDefaultParty(kind);
   const where = ['org_id = @org'];
   const params = { org: orgId() };
   if (search) {

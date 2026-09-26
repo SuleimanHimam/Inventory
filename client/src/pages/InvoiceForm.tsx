@@ -236,6 +236,26 @@ function InvoiceEditor({ invoice }: { invoice: Invoice }) {
     mutations.update.mutate({ id: invoice.id, ...patch });
 
   /*
+   * Default the party to the walk-in account — "عميل نقدي" on a sale, "مورد
+   * نقدي" on a purchase — once, when the draft has none set yet. The server
+   * guarantees the account exists (ensureDefaultParty), and the ref makes this
+   * fire only on a fresh draft: clearing the field afterwards is respected.
+   */
+  const defaultedParty = useRef(false);
+  useEffect(() => {
+    if (defaultedParty.current) return;
+    if (partyId) { defaultedParty.current = true; return; }
+    const list = parties?.data;
+    if (!list) return;
+    const wantName = partyKind === 'customers' ? 'عميل نقدي' : 'مورد نقدي';
+    const found = list.find((p) => p.name.trim() === wantName);
+    if (found) {
+      defaultedParty.current = true;
+      patchHeader(partyKind === 'customers' ? { customer_id: found.id } : { supplier_id: found.id });
+    }
+  }, [parties, partyId, partyKind]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /*
    * Set by "حفظ وطباعة" and read once, when the save succeeds. A ref rather
    * than state because nothing renders from it -- it only has to survive the
    * trip through the confirmation dialog.
