@@ -3,6 +3,7 @@ import {
 } from '../db/index.js';
 import { notFound, unprocessable, badRequest, conflict } from '../lib/errors.js';
 import { getItem, findByBarcode } from './items.service.js';
+import { getPartyAccountId } from './parties.service.js';
 
 /* ==========================================================================
  *  Financial ledger for invoices.
@@ -71,16 +72,29 @@ async function writeInvoiceLedger(invoice, { number } = {}) {
   const date = invoice.invoice_date || nowIso().slice(0, 10);
   const label = invoice.type === 'STOCK_OUT' ? 'فاتورة مبيع' : 'فاتورة شراء';
   const desc = `${label} ${number || invoice.number || ''}`.trim();
-
   const by = invoice.created_by;
+
+  /*
+   * The money side. A cash invoice moves the cash box; a credit (آجل) invoice
+   * moves the party's own account instead — the customer's receivable on a sale,
+   * the supplier's payable on a purchase — falling back to cash if the party has
+   * no linked account. The other side is always sales (out) or purchases (in).
+   */
+  let moneyAccount = cash;
+  if (invoice.payment_type === 'CREDIT') {
+    const partyKind = invoice.type === 'STOCK_OUT' ? 'customers' : 'suppliers';
+    const partyId = invoice.type === 'STOCK_OUT' ? invoice.customer_id : invoice.supplier_id;
+    moneyAccount = (await getPartyAccountId(partyKind, partyId)) || cash;
+  }
+
   if (invoice.type === 'STOCK_OUT') {
-    if (!cash || !sales) return; // sale not mapped yet
-    await insertLedgerEntry({ invoiceId: invoice.id, accountId: cash, debit: total, credit: 0, date, desc, by });
+    if (!moneyAccount || !sales) return; // sale not mapped yet
+    await insertLedgerEntry({ invoiceId: invoice.id, accountId: moneyAccount, debit: total, credit: 0, date, desc, by });
     await insertLedgerEntry({ invoiceId: invoice.id, accountId: sales, debit: 0, credit: total, date, desc, by });
   } else {
-    if (!cash || !purchase) return; // purchase not mapped yet
+    if (!moneyAccount || !purchase) return; // purchase not mapped yet
     await insertLedgerEntry({ invoiceId: invoice.id, accountId: purchase, debit: total, credit: 0, date, desc, by });
-    await insertLedgerEntry({ invoiceId: invoice.id, accountId: cash, debit: 0, credit: total, date, desc, by });
+    await insertLedgerEntry({ invoiceId: invoice.id, accountId: moneyAccount, debit: 0, credit: total, date, desc, by });
   }
 }
 
@@ -482,10 +496,10 @@ export async function createInvoice(input) {
   await run(
     `INSERT INTO invoices (id, org_id, type, number, supplier_id, customer_id, status, source,
                            invoice_date, discount_total, tax_total, note, stock_count_id,
-                           created_by, created_at)
+                           payment_type, created_by, created_at)
      VALUES (@id, @org, @type, @number, @supplier_id, @customer_id, 'DRAFT', @source,
              @invoice_date, @discount_total, @tax_total, @note, @stock_count_id,
-             @created_by, @created_at)`,
+             @payment_type, @created_by, @created_at)`,
     {
       id,
       org: orgId(),
@@ -503,6 +517,7 @@ export async function createInvoice(input) {
       tax_total: money(input.tax_total),
       note: input.note?.trim() || null,
       stock_count_id: input.stock_count_id || null,
+      payment_type: input.payment_type === 'CREDIT' ? 'CREDIT' : 'CASH',
       created_by: input.created_by || 'المستخدم',
       created_at: nowIso(),
     });
@@ -523,6 +538,7 @@ export async function updateInvoice(id, patch) {
   if (patch.tax_total !== undefined) assign('tax_total', money(patch.tax_total));
   if (patch.supplier_id !== undefined) assign('supplier_id', patch.supplier_id || null);
   if (patch.customer_id !== undefined) assign('customer_id', patch.customer_id || null);
+  if (patch.payment_type !== undefined) assign('payment_type', patch.payment_type === 'CREDIT' ? 'CREDIT' : 'CASH');
 
   if (fields.length) {
     await run(`UPDATE invoices SET ${fields.join(', ')} WHERE id = @id AND org_id = @org`, params);

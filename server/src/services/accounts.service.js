@@ -10,7 +10,7 @@
  * rest of the services.
  */
 import {
-  all, get, run, newId, orgId, nowIso, tx, publicRow, money,
+  all, get, run, newId, orgId, nowIso, tx, publicRow, money, getSettings, setSettings,
 } from '../db/index.js';
 import ACCOUNTS_SEED from '../db/accounts.seed.js';
 import { badRequest, conflict, notFound } from '../lib/errors.js';
@@ -89,6 +89,92 @@ export async function seedAccounts() {
 export async function ensureAccountsSeeded() {
   const { n } = await get('SELECT COUNT(*) AS n FROM accounts WHERE org_id = @org', { org: orgId() });
   if (n === 0) await seedAccounts();
+}
+
+/**
+ * A posting leaf under `parentId`, named `name` — created if it does not exist,
+ * returned if it does. Its number extends the parent's (1601 → 1601001, …) and
+ * it inherits the parent's type. Used to give each customer/supplier its own
+ * receivable/payable account.
+ */
+export async function ensureChildAccount({ parentId, name }) {
+  const org = orgId();
+  const trimmed = String(name || '').trim();
+  const existing = await get(
+    'SELECT id FROM accounts WHERE org_id = @org AND parent_account_id = @parent AND name = @name',
+    { org, parent: parentId, name: trimmed },
+  );
+  if (existing) return existing.id;
+
+  const parent = await get(
+    'SELECT account_number, account_type_id FROM accounts WHERE id = @id AND org_id = @org',
+    { id: parentId, org },
+  );
+  if (!parent) throw badRequest('الحساب الأب غير موجود', 'PARENT_NOT_FOUND');
+
+  // Next free number that extends the parent's, e.g. 1601 → 1601001.
+  const kids = await all(
+    'SELECT account_number FROM accounts WHERE org_id = @org AND parent_account_id = @parent',
+    { org, parent: parentId },
+  );
+  const base = parent.account_number;
+  let maxSuffix = 0;
+  for (const k of kids) {
+    const suffix = Number(String(k.account_number).slice(base.length));
+    if (Number.isFinite(suffix) && suffix > maxSuffix) maxSuffix = suffix;
+  }
+  const number = `${base}${String(maxSuffix + 1).padStart(3, '0')}`;
+  const id = newId();
+  await run(
+    `INSERT INTO accounts
+       (id, org_id, account_number, name, parent_account_id, account_type_id, is_posting, is_active)
+     VALUES (@id, @org, @number, @name, @parent, @type, 1, 1)`,
+    { id, org, number, name: trimmed, parent: parentId, type: parent.account_type_id ?? null },
+  );
+  return id;
+}
+
+/**
+ * Map the standard chart's well-known accounts into settings, once per file, so
+ * a new file's invoices and vouchers post correctly with no manual setup. Only
+ * fills a setting that is still empty — a value the manager set is never
+ * overwritten — and matches by the seed's fixed account numbers, with a name
+ * fallback for a hand-edited chart. Safe to run repeatedly.
+ */
+export async function autoConfigureAccounting() {
+  await ensureAccountsSeeded();
+  const org = orgId();
+  const accounts = await all(
+    `SELECT a.id, a.account_number, a.name, a.is_posting, t.code AS type_code
+       FROM accounts a
+       LEFT JOIN account_types t ON t.id = a.account_type_id AND t.org_id = a.org_id
+      WHERE a.org_id = @org`,
+    { org },
+  );
+  const byNumber = (num) => accounts.find((a) => a.account_number === num);
+  const byName = (pred) => accounts.find((a) => pred(a.name.trim(), a));
+  const posting = (a) => a && a.is_posting;
+
+  const cash = byNumber('1801001')
+    || byName((n, a) => posting(a) && n.includes('صندوق') && (n.includes('شيق') || n.includes('شيكل')))
+    || accounts.find((a) => posting(a) && (a.type_code === 'CASH'));
+  const sales = byNumber('41101') || byName((n, a) => posting(a) && n === 'المبيعات');
+  const purchase = byNumber('31101') || byName((n, a) => posting(a) && n === 'المشتريات');
+  const customersParent = byNumber('1601') || byName((n, a) => !a.is_posting && n.includes('العملاء'));
+  const suppliersParent = byNumber('261') || byName((n, a) => !a.is_posting && (n.includes('موردون') || n.includes('الموردون')));
+
+  const current = await getSettings();
+  const patch = {};
+  const fill = (key, acc) => { if (acc && !current[key]) patch[key] = acc.id; };
+  fill('invoice_cash_account', cash);
+  fill('invoice_sales_account', sales);
+  fill('invoice_purchase_account', purchase);
+  fill('invoice_customers_parent', customersParent);
+  fill('invoice_suppliers_parent', suppliersParent);
+  fill('voucher_receipt_cash_account', cash);
+  fill('voucher_payment_cash_account', cash);
+  if (Object.keys(patch).length) await setSettings(patch);
+  return patch;
 }
 
 /* ------------------------------------------------------------------ listing */

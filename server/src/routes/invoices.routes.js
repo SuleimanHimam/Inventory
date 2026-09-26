@@ -65,6 +65,7 @@ router.post('/', requireStockOutForClerk, wrap(async (req, res) => {
       note: z.string().trim().nullish(),
       discount_total: z.coerce.number().min(0).default(0),
       tax_total: z.coerce.number().min(0).default(0),
+      payment_type: z.enum(['CASH', 'CREDIT']).optional(),
     }), req.body);
   // The signed-in user is recorded on the document, not a client-supplied name.
   res.status(201).json(await invoices.createInvoice({ ...body, created_by: req.auth?.email }));
@@ -81,6 +82,7 @@ router.patch('/:id', requireStockOutForClerk, wrap(async (req, res) => {
       note: z.string().trim().nullish(),
       discount_total: z.coerce.number().min(0).optional(),
       tax_total: z.coerce.number().min(0).optional(),
+      payment_type: z.enum(['CASH', 'CREDIT']).optional(),
     }), req.body);
   res.json(await invoices.updateInvoice(req.params.id, body));
 }));

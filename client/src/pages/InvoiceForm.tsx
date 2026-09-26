@@ -405,6 +405,24 @@ function InvoiceEditor({ invoice }: { invoice: Invoice }) {
               />
             </FormRow>
 
+            <FormRow label="طريقة الدفع">
+              <div className="flex rounded-lg bg-surface-2 p-0.5">
+                {([['CASH', 'نقدي'], ['CREDIT', 'آجل']] as const).map(([val, lbl]) => (
+                  <button
+                    key={val}
+                    type="button"
+                    onClick={() => patchHeader({ payment_type: val })}
+                    className={cn(
+                      'flex-1 rounded-md px-3 py-1 text-xs font-medium transition',
+                      invoice.payment_type === val ? 'bg-surface text-ink shadow-sm' : 'text-muted hover:text-ink',
+                    )}
+                  >
+                    {lbl}
+                  </button>
+                ))}
+              </div>
+            </FormRow>
+
             {/* Auto-filled from the chosen account: its phone and address show
                 the moment it is picked, read-only, so the operator confirms who
                 the invoice is for without retyping anything. Nothing shows when

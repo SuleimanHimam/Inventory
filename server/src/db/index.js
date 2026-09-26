@@ -558,6 +558,10 @@ export const DEFAULT_SETTINGS = {
   invoice_sales_account: '',
   invoice_purchase_account: '',
   invoice_cash_account: '',
+  // Parent groups under which a new customer/supplier gets its own leaf account
+  // (a receivable / payable), used when an invoice is آجل (credit).
+  invoice_customers_parent: '',
+  invoice_suppliers_parent: '',
 };
 
 /** Seed the settings rows a brand-new organisation needs. */

@@ -1,5 +1,6 @@
-import { all, get, run, newId, nowIso, orgId, publicRow } from '../db/index.js';
+import { all, get, run, newId, nowIso, orgId, publicRow, getSettings } from '../db/index.js';
 import { notFound } from '../lib/errors.js';
+import { ensureChildAccount } from './accounts.service.js';
 
 /**
  * Customers and suppliers are structurally identical apart from one extra
@@ -39,6 +40,33 @@ export async function ensureDefaultParty(kind) {
        INSERT INTO ${table} (id, org_id, name) VALUES (@id, @org, @name);`,
     { id: newId(), org: orgId(), name },
   );
+}
+
+/**
+ * The party's own ledger account, created on demand under the configured parent
+ * (العملاء / موردون) and linked back to the party. Returns null when no parent
+ * is configured — a credit invoice then falls back to the cash account. This is
+ * what makes "post to the customer's account" mean the customer's own leaf.
+ */
+export async function getPartyAccountId(kind, partyId) {
+  if (!partyId) return null;
+  const { table } = cfg(kind);
+  const org = orgId();
+  const party = await get(`SELECT id, name, account_id FROM ${table} WHERE id = @id AND org_id = @org`,
+    { id: partyId, org });
+  if (!party) return null;
+  if (party.account_id) return party.account_id;
+
+  const settings = await getSettings();
+  const parentId = kind === 'customers'
+    ? settings.invoice_customers_parent
+    : settings.invoice_suppliers_parent;
+  if (!parentId) return null;
+
+  const accountId = await ensureChildAccount({ parentId, name: party.name });
+  await run(`UPDATE ${table} SET account_id = @acc WHERE id = @id AND org_id = @org`,
+    { acc: accountId, id: partyId, org });
+  return accountId;
 }
 
 export async function listParties(kind, { search, is_active, page, limit }) {

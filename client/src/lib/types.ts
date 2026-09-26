@@ -183,6 +183,8 @@ export type Invoice = {
   supplier_name: string | null;
   customer_name: string | null;
   party_name: string | null;
+  /** نقدي (moves the cash box) vs آجل (moves the party's account). */
+  payment_type: 'CASH' | 'CREDIT';
   invoice_date: string;
   /** @money The four below are absent for a staff role. */
   subtotal?: number;
@@ -556,6 +558,8 @@ export type Settings = {
   invoice_sales_account: string;
   invoice_purchase_account: string;
   invoice_cash_account: string;
+  invoice_customers_parent: string;
+  invoice_suppliers_parent: string;
 };
 
 /* ------------------------------------------------------------------ backup */

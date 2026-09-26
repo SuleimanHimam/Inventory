@@ -52,6 +52,8 @@ import { migrate } from '../db/migrate.js';
 import { hashPassword } from './password.js';
 import { UPLOADS_DIR, STORAGE_DRIVER } from './storage.js';
 import { MANAGER } from './roles.js';
+import { autoConfigureAccounting } from '../services/accounts.service.js';
+import { ensureDefaultParty } from '../services/parties.service.js';
 import { AppError, badRequest, conflict, notFound, unavailable } from './errors.js';
 
 /** Every database this app creates is prefixed, so it can find its own again. */
@@ -245,6 +247,11 @@ async function seedOrg(orgId, displayName) {
       "UPDATE settings SET value = @value WHERE org_id = @org AND [key] = 'company_name'",
       { org: orgId, value: displayName },
     );
+    // A new file is ready to keep books on day one: seed the chart, map the
+    // well-known accounts into settings, and create the walk-in cash parties.
+    await autoConfigureAccounting();
+    await ensureDefaultParty('customers');
+    await ensureDefaultParty('suppliers');
   });
 }
 

@@ -412,7 +412,8 @@ function VoucherDetail({ id, onClose }: { id: string; onClose: () => void }) {
 type DefaultKeys =
   | 'voucher_receipt_cash_account' | 'voucher_receipt_counter_account'
   | 'voucher_payment_cash_account' | 'voucher_payment_counter_account'
-  | 'invoice_sales_account' | 'invoice_purchase_account' | 'invoice_cash_account';
+  | 'invoice_sales_account' | 'invoice_purchase_account' | 'invoice_cash_account'
+  | 'invoice_customers_parent' | 'invoice_suppliers_parent';
 
 const EMPTY_DEFAULTS: Record<DefaultKeys, string> = {
   voucher_receipt_cash_account: '',
@@ -422,6 +423,8 @@ const EMPTY_DEFAULTS: Record<DefaultKeys, string> = {
   invoice_sales_account: '',
   invoice_purchase_account: '',
   invoice_cash_account: '',
+  invoice_customers_parent: '',
+  invoice_suppliers_parent: '',
 };
 function VoucherSettings({ onClose }: { onClose: () => void }) {
   const { data: settings } = useSettings();
@@ -436,6 +439,11 @@ function VoucherSettings({ onClose }: { onClose: () => void }) {
     return toOptions(money.length ? money : posting);
   }, [posting]);
   const counterOptions = useMemo(() => toOptions(posting), [posting]);
+  // Party parents are group accounts (العملاء / موردون), not posting leaves.
+  const groupOptions = useMemo(
+    () => toOptions((accountsData?.data ?? []).filter((a) => !a.is_posting)),
+    [accountsData],
+  );
 
   const [form, setForm] = useState<Record<DefaultKeys, string>>(EMPTY_DEFAULTS);
   useEffect(() => {
@@ -448,6 +456,8 @@ function VoucherSettings({ onClose }: { onClose: () => void }) {
       invoice_sales_account: settings.invoice_sales_account ?? '',
       invoice_purchase_account: settings.invoice_purchase_account ?? '',
       invoice_cash_account: settings.invoice_cash_account ?? '',
+      invoice_customers_parent: settings.invoice_customers_parent ?? '',
+      invoice_suppliers_parent: settings.invoice_suppliers_parent ?? '',
     });
   }, [settings]);
 
@@ -507,6 +517,8 @@ function VoucherSettings({ onClose }: { onClose: () => void }) {
           {field('حساب المبيعات', 'invoice_sales_account', counterOptions)}
           {field('حساب المشتريات', 'invoice_purchase_account', counterOptions)}
           {field('الصندوق النقدي', 'invoice_cash_account', cashOptions)}
+          {field('حساب أب العملاء (للآجل)', 'invoice_customers_parent', groupOptions)}
+          {field('حساب أب الموردين (للآجل)', 'invoice_suppliers_parent', groupOptions)}
         </section>
       </div>
     </Modal>
