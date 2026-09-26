@@ -1,10 +1,10 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   ArrowDownCircle, ArrowUpCircle, Receipt, RotateCcw, Settings as SettingsIcon,
 } from 'lucide-react';
 import {
-  Button, Card, Input, Textarea, Modal, PageHeader, EmptyState,
+  Button, Card, Modal, PageHeader, EmptyState,
   Skeleton, Badge, SearchInput, Pagination, ConfirmDialog, Combobox, type ComboOption,
 } from '@/components/ui';
 import {
@@ -35,25 +35,15 @@ const TYPE_META: Record<VoucherType, { label: string; icon: typeof ArrowDownCirc
 };
 
 export default function Vouchers() {
-  const [params, setParams] = useSearchParams();
+  const navigate = useNavigate();
   const [typeFilter, setTypeFilter] = useState<VoucherType | ''>('');
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(25);
   const debounced = useDebounced(search);
 
-  // A home tile deep-links here with ?new=RECEIPT|PAYMENT to open the form.
-  const newType = params.get('new');
-  const [creating, setCreating] = useState<VoucherType | null>(
-    newType === 'RECEIPT' || newType === 'PAYMENT' ? newType : null,
-  );
   const [viewing, setViewing] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
-
-  const closeCreate = () => {
-    setCreating(null);
-    if (params.has('new')) { params.delete('new'); setParams(params, { replace: true }); }
-  };
 
   const { data, isLoading } = useVouchers({
     type: typeFilter || undefined,
@@ -135,16 +125,15 @@ export default function Vouchers() {
       {/* Create actions live at the bottom, within thumb reach. */}
       <div className="no-print fixed bottom-[5.5rem] end-4 z-40 flex gap-2 sm:bottom-12">
         <Button variant="primary" size="lg" className="rounded-full shadow-lg"
-          onClick={() => setCreating('RECEIPT')}>
+          onClick={() => navigate('/vouchers/new?type=RECEIPT')}>
           <ArrowDownCircle className="size-5" /> سند قبض
         </Button>
         <Button variant="danger" size="lg" className="rounded-full shadow-lg"
-          onClick={() => setCreating('PAYMENT')}>
+          onClick={() => navigate('/vouchers/new?type=PAYMENT')}>
           <ArrowUpCircle className="size-5" /> سند صرف
         </Button>
       </div>
 
-      {creating && <VoucherEditor type={creating} onClose={closeCreate} />}
       {viewing && <VoucherDetail id={viewing} onClose={() => setViewing(null)} />}
       {settingsOpen && <VoucherSettings onClose={() => setSettingsOpen(false)} />}
     </>
@@ -184,136 +173,6 @@ function VoucherRow({ voucher, onOpen }: { voucher: Voucher; onOpen: () => void 
         </div>
       </button>
     </li>
-  );
-}
-
-/* ------------------------------------------------------------- create form */
-function VoucherEditor({ type, onClose }: { type: VoucherType; onClose: () => void }) {
-  const meta = TYPE_META[type];
-  const { create } = useVoucherMutations();
-  const { data: accountsData } = useAccounts({ active: true });
-  const posting = useMemo<Account[]>(
-    () => (accountsData?.data ?? []).filter((a) => a.is_posting),
-    [accountsData],
-  );
-  // Money accounts are cash/bank leaves; fall back to all posting if none typed.
-  const cashAccounts = useMemo(() => {
-    const money = posting.filter((a) => a.type_code === 'CASH' || a.type_code === 'BANK');
-    return money.length ? money : posting;
-  }, [posting]);
-
-  const [amount, setAmount] = useState('');
-  const [cashId, setCashId] = useState('');
-  const [counterId, setCounterId] = useState('');
-  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
-  const [description, setDescription] = useState('');
-
-  // Pre-select the defaults set in voucher settings, once they load — never
-  // overriding a choice the user has already made (the `c || …` keeps it).
-  const { data: settings } = useSettings();
-  useEffect(() => {
-    if (!settings) return;
-    const cashKey = type === 'RECEIPT' ? 'voucher_receipt_cash_account' : 'voucher_payment_cash_account';
-    const counterKey = type === 'RECEIPT' ? 'voucher_receipt_counter_account' : 'voucher_payment_counter_account';
-    setCashId((c) => c || settings[cashKey] || '');
-    setCounterId((c) => c || settings[counterKey] || '');
-  }, [settings, type]);
-
-  const cashOptions = useMemo(() => toOptions(cashAccounts), [cashAccounts]);
-  const counterOptions = useMemo(
-    () => toOptions(posting.filter((a) => a.id !== cashId)),
-    [posting, cashId],
-  );
-
-  const amountNum = Number(amount);
-  const valid = amountNum > 0 && cashId && counterId && cashId !== counterId;
-
-  const submit = (e: FormEvent) => {
-    e.preventDefault();
-    if (!valid) return;
-    create.mutate({
-      type,
-      amount: amountNum,
-      cash_account_id: cashId,
-      counter_account_id: counterId,
-      voucher_date: date,
-      description: description.trim() || null,
-    }, {
-      onSuccess: (v) => { toast.success(`تم حفظ ${meta.label} ${v.number}`); onClose(); },
-      onError: (err: Error) => toastError(err, 'تعذّر حفظ السند'),
-    });
-  };
-
-  const cashLabel = type === 'RECEIPT' ? 'المقبوض في (صندوق/بنك)' : 'المصروف من (صندوق/بنك)';
-  const counterLabel = type === 'RECEIPT' ? 'المقبوض من (الحساب)' : 'المدفوع إلى (الحساب)';
-
-  return (
-    <Modal
-      open
-      onClose={onClose}
-      title={meta.label}
-      footer={(
-        <>
-          <Button onClick={onClose} disabled={create.isPending}>إلغاء</Button>
-          <Button variant="primary" onClick={submit} loading={create.isPending} disabled={!valid}>
-            حفظ السند
-          </Button>
-        </>
-      )}
-    >
-      <form onSubmit={submit} className="space-y-3">
-        <label className="block">
-          <span className="mb-1 block text-xs text-muted">التاريخ</span>
-          <Input value={date} onChange={(e) => setDate(e.target.value)} type="date" dir="ltr" />
-        </label>
-
-        <label className="block">
-          <span className="mb-1 block text-xs text-muted">{cashLabel}</span>
-          <Combobox
-            value={cashId}
-            onChange={setCashId}
-            options={cashOptions}
-            placeholder="— اختر الحساب —"
-            searchPlaceholder="ابحث برقم الحساب أو اسمه…"
-          />
-        </label>
-
-        <label className="block">
-          <span className="mb-1 block text-xs text-muted">{counterLabel}</span>
-          <Combobox
-            value={counterId}
-            onChange={setCounterId}
-            options={counterOptions}
-            placeholder="— اختر الحساب —"
-            searchPlaceholder="ابحث برقم الحساب أو اسمه…"
-          />
-        </label>
-
-        <label className="block">
-          <span className="mb-1 block text-xs text-muted">المبلغ</span>
-          <Input
-            value={amount}
-            onChange={(e) => setAmount(e.target.value)}
-            type="number"
-            min="0"
-            step="any"
-            dir="ltr"
-            inputMode="decimal"
-            className="text-lg font-bold"
-            required
-          />
-        </label>
-
-        <label className="block">
-          <span className="mb-1 block text-xs text-muted">البيان</span>
-          <Textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} className="w-full" />
-        </label>
-
-        {cashId && counterId && cashId === counterId && (
-          <p className="text-xs text-accent-600 dark:text-accent-400">لا يمكن أن يكون الحسابان متطابقين.</p>
-        )}
-      </form>
-    </Modal>
   );
 }
 

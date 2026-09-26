@@ -40,6 +40,7 @@ const UsersPage = lazy(() => import('@/pages/Users'));
 const FilesPage = lazy(() => import('@/pages/Files'));
 const ChartOfAccounts = lazy(() => import('@/pages/ChartOfAccounts'));
 const Vouchers = lazy(() => import('@/pages/Vouchers'));
+const VoucherForm = lazy(() => import('@/pages/VoucherForm'));
 const AccountStatement = lazy(() => import('@/pages/AccountStatement'));
 const QuickExpenses = lazy(() => import('@/pages/QuickExpenses'));
 const AccountingDashboard = lazy(() => import('@/pages/AccountingDashboard'));
@@ -133,6 +134,7 @@ const router = createHashRouter([
           { path: 'statement', element: <RequireManager><AccountStatement /></RequireManager> },
           // Vouchers are money end to end — manager-only, guarded here and on the API.
           { path: 'vouchers', element: <RequireManager><Vouchers /></RequireManager> },
+          { path: 'vouchers/new', element: <RequireManager><VoucherForm /></RequireManager> },
           // Quick Expenses — a fast Payment voucher against an expense account.
           { path: 'expenses', element: <RequireManager><QuickExpenses /></RequireManager> },
           // Accounting dashboard — the money-standing summary. Manager-only.

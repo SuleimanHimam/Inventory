@@ -381,9 +381,11 @@ function InvoiceEditor({ invoice }: { invoice: Invoice }) {
 
   return (
     <>
-      {/* Header band — label beside field, dense, like a classic entry form */}
-      <Card className="mb-2.5 p-3">
-        <div className="grid gap-x-8 gap-y-2 lg:grid-cols-2">
+      {/* One form: the header band, the item list and the totals/actions all
+          live in a single card rather than separate stacked cards. */}
+      <Card className="overflow-visible">
+        {/* Header band — label beside field, dense, like a classic entry form */}
+        <div className="grid gap-x-8 gap-y-2 border-b border-line p-3 lg:grid-cols-2">
           {/* The party field is a rarely-needed optional note (see partyKind
               above) — on phone it costs a whole row for something most
               invoices leave empty, so it only shows from `sm:` up. */}
@@ -470,10 +472,8 @@ function InvoiceEditor({ invoice }: { invoice: Invoice }) {
             </FormRow>
           </div>
         </div>
-      </Card>
 
-      {/* Line grid — the last row is always blank and ready for the next entry */}
-      <Card className="overflow-visible">
+        {/* Line grid — the last row is always blank and ready for the next entry */}
         {/* Pinned above the scrolling item list, so opening the picker stays in
             reach however far the lines are scrolled. */}
         <div className="sticky top-0 z-20 flex items-center justify-between gap-2 border-b border-line bg-surface p-3 sm:top-[var(--topnav-h,0px)]">
