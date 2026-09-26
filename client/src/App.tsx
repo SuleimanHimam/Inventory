@@ -129,6 +129,8 @@ const router = createHashRouter([
           { path: 'accounts', element: <RequireNotClerk><ChartOfAccounts /></RequireNotClerk> },
           // The statement is a money report — manager-only, guarded here and on the API.
           { path: 'accounts/:id/statement', element: <RequireManager><AccountStatement /></RequireManager> },
+          // Standalone كشف حساب — pick an account and see its movements.
+          { path: 'statement', element: <RequireManager><AccountStatement /></RequireManager> },
           // Vouchers are money end to end — manager-only, guarded here and on the API.
           { path: 'vouchers', element: <RequireManager><Vouchers /></RequireManager> },
           // Quick Expenses — a fast Payment voucher against an expense account.

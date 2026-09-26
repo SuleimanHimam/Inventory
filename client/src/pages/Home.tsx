@@ -5,7 +5,7 @@ import {
   Package, PackagePlus, PackageMinus, Tags, ArrowLeftRight,
   TriangleAlert, Settings, LayoutDashboard, FileText, Users,
   Truck, StickyNote, LogOut, SlidersHorizontal, Check, EyeOff, RotateCcw, BookOpen,
-  ArrowDownCircle, ArrowUpCircle, Wallet, Scale,
+  ArrowDownCircle, ArrowUpCircle, Wallet, Scale, ScrollText,
 } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { usePermissions } from '@/lib/permissions';
@@ -214,6 +214,7 @@ export default function Home() {
     { id: 'vouchers', label: 'السندات', icon: FileText, to: '/vouchers', tone: 'teal', show: isManager },
     { id: 'expenses', label: 'مصروف سريع', icon: Wallet, to: '/expenses', tone: 'red', show: isManager },
     { id: 'accounting', label: 'المحاسبة', icon: Scale, to: '/accounting', tone: 'teal', show: isManager },
+    { id: 'statement', label: 'كشف حساب', icon: ScrollText, to: '/statement', tone: 'violet', show: isManager },
     { id: 'notes', label: 'ملاحظات', icon: StickyNote, onClick: () => setNotesOpen(true), tone: 'violet', show: isManager },
     { id: 'users', label: 'المستخدمون', icon: Users, to: '/users', tone: 'blue', show: canManageUsers },
     { id: 'settings', label: 'الإعدادات', icon: Settings, to: '/settings', tone: 'slate', show: canSeeFullNav },

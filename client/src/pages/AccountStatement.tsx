@@ -1,10 +1,10 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { ChevronRight, Printer, Download, FileText } from 'lucide-react';
+import { ChevronRight, Printer, Download, FileText, Search as SearchIcon } from 'lucide-react';
 import {
-  Button, Card, Input, PageHeader, EmptyState, Skeleton,
+  Button, Card, Input, Select, PageHeader, EmptyState, Skeleton,
 } from '@/components/ui';
-import { useAccountStatement } from '@/hooks';
+import { useAccountStatement, useAccounts } from '@/hooks';
 import { fmtCurrency, fmtDate } from '@/lib/format';
 import { printAs } from '@/lib/print';
 import { cn } from '@/lib/cn';
@@ -22,11 +22,26 @@ function sideLabel(balance: number) {
 }
 
 export default function AccountStatement() {
-  const { id } = useParams<{ id: string }>();
+  // Reached two ways: from an account's summary (/accounts/:id/statement) with
+  // the account fixed, or from the home tile (/statement) where the user picks
+  // one here. Either way the picker below lets them switch accounts.
+  const { id: paramId } = useParams<{ id: string }>();
   const today = new Date().toISOString().slice(0, 10);
+  const [accountId, setAccountId] = useState(paramId ?? '');
+  const [accountSearch, setAccountSearch] = useState('');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState(today);
-  const { data, isLoading } = useAccountStatement(id, { date_from: dateFrom, date_to: dateTo });
+  const { data, isLoading } = useAccountStatement(
+    accountId, { date_from: dateFrom, date_to: dateTo }, !!accountId,
+  );
+
+  const { data: accountsData } = useAccounts();
+  const accounts = useMemo(() => {
+    const list = accountsData?.data ?? [];
+    const q = accountSearch.trim().toLowerCase();
+    if (!q) return list;
+    return list.filter((a) => a.account_number.includes(q) || a.name.toLowerCase().includes(q));
+  }, [accountsData, accountSearch]);
 
   const exportCsv = () => {
     if (!data) return;
@@ -77,6 +92,26 @@ export default function AccountStatement() {
 
       <Card className="mb-3 p-2.5 no-print">
         <div className="flex flex-wrap items-end gap-3">
+          <label className="block min-w-64 flex-1">
+            <span className="mb-1 block text-xs text-muted">الحساب</span>
+            <div className="flex gap-2">
+              <div className="relative flex-1">
+                <SearchIcon className="pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-subtle" />
+                <Input
+                  value={accountSearch}
+                  onChange={(e) => setAccountSearch(e.target.value)}
+                  placeholder="تصفية القائمة…"
+                  className="ps-9"
+                />
+              </div>
+              <Select value={accountId} onChange={(e) => setAccountId(e.target.value)} className="flex-1">
+                <option value="">— اختر الحساب —</option>
+                {accounts.map((a) => (
+                  <option key={a.id} value={a.id}>{a.account_number} — {a.name}</option>
+                ))}
+              </Select>
+            </div>
+          </label>
           <label className="block">
             <span className="mb-1 block text-xs text-muted">من تاريخ</span>
             <Input value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} type="date" dir="ltr" />
@@ -91,7 +126,11 @@ export default function AccountStatement() {
         </div>
       </Card>
 
-      {isLoading || !data ? (
+      {!accountId ? (
+        <Card className="p-6">
+          <EmptyState icon={<FileText className="size-6" />} title="اختر حساباً" message="اختر حساباً من القائمة أعلاه لعرض حركاته." />
+        </Card>
+      ) : isLoading || !data ? (
         <Skeleton className="h-64" />
       ) : (
         <>
