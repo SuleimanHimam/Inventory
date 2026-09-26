@@ -18,6 +18,7 @@ import usersRoutes from './routes/users.routes.js';
 import filesRoutes from './routes/files.routes.js';
 import accountsRoutes from './routes/accounts.routes.js';
 import vouchersRoutes from './routes/vouchers.routes.js';
+import accountingRoutes from './routes/accounting.routes.js';
 import backupRoutes from './routes/backup.routes.js';
 import { partiesRouter } from './routes/parties.routes.js';
 import { redactMoney, stripMoneyFromBody, requireManager } from './lib/roles.js';
@@ -148,6 +149,8 @@ export function createApp() {
   api.use('/accounts', accountsRoutes);
   // Accounting — vouchers and the general ledger (phase 2). Manager-only.
   api.use('/vouchers', vouchersRoutes);
+  // Accounting dashboard (phase 5) — the money-standing summary. Manager-only.
+  api.use('/accounting', accountingRoutes);
   api.use('/customers', partiesRouter('customers'));
   api.use('/suppliers', partiesRouter('suppliers'));
   api.use('/invoices', invoicesRoutes);

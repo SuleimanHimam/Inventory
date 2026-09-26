@@ -487,6 +487,21 @@ export type StatementLine = {
   running_balance: number;
 };
 
+export type AccountingDashboard = {
+  date_from: string | null;
+  date_to: string | null;
+  cash_on_hand: number;
+  balances_by_type: Array<{ code: string; name: string; balance: number }>;
+  receipts_total: number;
+  payments_total: number;
+  net_total: number;
+  expenses_total: number;
+  voucher_count: number;
+  top_expenses: Array<{ id: string; account_number: string; name: string; total: number }>;
+  trend: Array<{ day: string; receipts: number; payments: number }>;
+  recent: Voucher[];
+};
+
 export type AccountStatement = {
   account: {
     id: string;
