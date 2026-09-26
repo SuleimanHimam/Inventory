@@ -1,9 +1,9 @@
 import { useState, useEffect, type FormEvent } from 'react';
 import {
   Boxes, KeyRound, Mail, ArrowLeft, Eye, EyeOff, Sun, Moon,
-  PackageSearch, FileText, TrendingUp, ShieldCheck, FolderOpen, Check, Search,
+  PackageSearch, FileText, TrendingUp, ShieldCheck,
 } from 'lucide-react';
-import { Button, Card, Field, Input } from '@/components/ui';
+import { Button, Card, Field, Input, Combobox } from '@/components/ui';
 import {
   signInWithPassword, sendMagicLink, sendPasswordReset, AUTH_BACKEND,
   listFiles, lastFileId, type FileChoice,
@@ -37,81 +37,31 @@ const FEATURES = [
 ];
 
 /**
- * The file (business) to sign in to, chosen as tappable cards rather than a
- * dropdown: the file is which company you are entering, so it is the first,
- * most visible decision on the screen — one card each, the last-used one
- * marked, the chosen one highlighted. A search box appears once there are
- * enough files that scanning the grid stops being instant.
+ * The file (business) to sign in to — a searchable list-select. The file is
+ * which company you are entering, so it is the first choice on the screen; the
+ * same type-to-search list used across the app opens it, marking the last-used
+ * file so a returning operator recognises it at a glance.
  */
 function FilePicker({
   files, value, onChange,
 }: { files: FileChoice[]; value: string; onChange: (id: string) => void }) {
-  const [query, setQuery] = useState('');
   const lastId = lastFileId();
-  const q = query.trim();
-  const shown = q ? files.filter((f) => f.name.includes(q)) : files;
-  const single = files.length === 1;
-
+  const options = files.map((f) => ({
+    value: f.id,
+    label: f.name,
+    hint: f.id === lastId ? 'آخر دخول' : undefined,
+  }));
   return (
-    <div>
-      <div className="mb-1.5 flex items-baseline justify-between">
-        <span className="text-xs font-medium text-muted">الملف الذي ستدخل إليه</span>
-        {files.length > 1 && <span className="nums text-[11px] text-subtle">{files.length} ملفات</span>}
-      </div>
-
-      {files.length > 6 && (
-        <div className="relative mb-2">
-          <Search className="pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-subtle" />
-          <input
-            className="field ps-9"
-            placeholder="ابحث عن ملف…"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-          />
-        </div>
-      )}
-
-      <div className={cn(
-        'grid gap-2',
-        single ? 'grid-cols-1' : 'grid-cols-2',
-        files.length > 6 && 'max-h-56 overflow-y-auto overscroll-contain pe-0.5',
-      )}>
-        {shown.map((f) => {
-          const active = f.id === value;
-          return (
-            <button
-              key={f.id}
-              type="button"
-              onClick={() => onChange(f.id)}
-              aria-pressed={active}
-              className={cn(
-                'relative flex items-center gap-2.5 rounded-xl border p-3 text-start transition',
-                active
-                  ? 'border-brand-500 bg-brand-500/10 ring-1 ring-brand-500'
-                  : 'border-line hover:border-brand-400 hover:bg-surface-2',
-              )}
-            >
-              <span className={cn(
-                'grid size-9 shrink-0 place-items-center rounded-lg transition',
-                active ? 'bg-brand-500 text-white' : 'bg-surface-2 text-muted',
-              )}>
-                <FolderOpen className="size-4" />
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-sm font-semibold">{f.name}</span>
-                {f.id === lastId && (
-                  <span className="text-[10px] font-medium text-brand-600 dark:text-brand-400">آخر دخول</span>
-                )}
-              </span>
-              {active && <Check className="size-4 shrink-0 text-brand-600 dark:text-brand-400" />}
-            </button>
-          );
-        })}
-        {shown.length === 0 && (
-          <p className="col-span-full py-3 text-center text-xs text-subtle">لا ملفات مطابقة</p>
-        )}
-      </div>
-    </div>
+    <Field label="الملف الذي ستدخل إليه" hint="لكل ملف بياناته ومستخدموه">
+      <Combobox
+        value={value}
+        onChange={onChange}
+        options={options}
+        allowClear={false}
+        placeholder="اختر الملف"
+        searchPlaceholder="ابحث عن ملف…"
+      />
+    </Field>
   );
 }
 
