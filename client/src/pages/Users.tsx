@@ -1,11 +1,11 @@
 import { useState } from 'react';
 import {
   UserPlus, KeyRound, Trash2, Users as UsersIcon, ShieldCheck, User, Info, TriangleAlert,
-  PackageMinus,
+  PackageMinus, UserCog,
 } from 'lucide-react';
 import {
   Badge, Button, Card, ConfirmDialog, EmptyState, Field, Input, Modal,
-  PageHeader, Select, TableSkeleton, Fab,
+  PageHeader, Select, TableSkeleton, Fab, Tabs,
 } from '@/components/ui';
 import { useUsers, useUserMutations } from '@/hooks';
 import { ROLE_LABEL, ROLE_HINT } from '@/lib/permissions';
@@ -34,6 +34,7 @@ export default function Users() {
   const { data, isLoading } = useUsers();
   const { create, update, remove } = useUserMutations();
   const email = useSession((s) => s.email);
+  const [tab, setTab] = useState<'users' | 'account'>('users');
 
   const [showAdd, setShowAdd] = useState(false);
   const [resetFor, setResetFor] = useState<OrgUser | null>(null);
@@ -88,6 +89,19 @@ export default function Users() {
         subtitle="حسابات الدخول إلى النظام وصلاحية كل منها"
       />
 
+      {AUTH_ENABLED && (
+        <Tabs
+          value={tab}
+          onChange={(id) => setTab(id as 'users' | 'account')}
+          items={[
+            { id: 'users', label: 'المستخدمون', icon: <UsersIcon className="size-4" /> },
+            { id: 'account', label: 'حسابي', icon: <UserCog className="size-4" /> },
+          ]}
+        />
+      )}
+
+      {tab === 'users' && (
+      <>
       {/* Role legend — three columns from `lg`, two from `sm`, stacked on a phone. */}
       <div className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         <RoleLegend
@@ -223,11 +237,13 @@ export default function Users() {
           )}
         </div>
       </Card>
+      </>
+      )}
 
-      {/* The signed-in manager's own credentials — moved here from Settings so
-          everything about accounts lives on one screen. */}
-      {AUTH_ENABLED && (
-        <div className="mt-4 lg:max-w-xl">
+      {/* The signed-in manager's own credentials — its own tab so everything
+          about accounts lives on one screen. */}
+      {tab === 'account' && AUTH_ENABLED && (
+        <div className="lg:max-w-xl">
           <AccountCard email={email} />
         </div>
       )}
@@ -283,7 +299,7 @@ export default function Users() {
         loading={remove.isPending}
       />
 
-      {data?.can_create && (
+      {tab === 'users' && data?.can_create && (
         <Fab icon={<UserPlus className="size-5" />} label="إضافة مستخدم" onClick={() => setShowAdd(true)} />
       )}
     </>
