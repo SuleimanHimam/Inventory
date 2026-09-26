@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { wrap, parse, pageQuery, paginated } from '../lib/http.js';
-import { requireManager, requireNotClerk } from '../lib/roles.js';
+import { requireManager, requireNotClerk, requirePermission } from '../lib/roles.js';
 import { notFound } from '../lib/errors.js';
 import { getSettings, setSettings, get, all, run, newId } from '../db/index.js';
 import { dashboardStats, DASHBOARD_PERIODS } from '../services/items.service.js';
@@ -59,7 +59,7 @@ router.get('/movements', wrap(async (req, res) => {
 // every screen. Writable by a manager only, one line below.
 router.get('/settings', wrap(async (_req, res) => res.json(await getSettings())));
 
-router.patch('/settings', requireManager, wrap(async (req, res) => {
+router.patch('/settings', requirePermission('settings', 'edit'), wrap(async (req, res) => {
   const body = parse(
     z.object({
       low_stock_threshold: z.coerce.number().int().min(0).optional(),

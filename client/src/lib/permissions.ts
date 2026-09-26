@@ -94,10 +94,16 @@ export function usePermissions() {
      * it makes goes through the one stock-out invoice it is there to enter.
      * Enforced on the API too (`requireItemWrite` in items.routes.js).
      */
-    canWriteItems: role === 'OWNER' || role === 'MEMBER',
-    canManageUsers: role === 'OWNER',
+    // These operational writes are grid-enforced on the API. Read from the grid
+    // when it is present, and fall back to the fixed role otherwise — so a
+    // built-in role behaves identically whether or not the map has loaded, and a
+    // custom role's UI matches what the API will actually allow.
+    canWriteItems: perms
+      ? (can('items', 'add') || can('items', 'edit') || can('items', 'delete'))
+      : (role === 'OWNER' || role === 'MEMBER'),
+    canManageUsers: perms ? can('users', 'view') : role === 'OWNER',
     canImport: role === 'OWNER',
-    canEditSettings: role === 'OWNER',
+    canEditSettings: perms ? can('settings', 'edit') : role === 'OWNER',
     // A clerk's whole job is one screen (see RequireNotClerk); the dashboard
     // and the invoice list are neither shown nor reachable for it. Written as
     // an allow-list, not `role !== 'CLERK'`, so it fails closed like every

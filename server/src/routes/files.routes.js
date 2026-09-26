@@ -19,7 +19,7 @@ import { wrap, parse } from '../lib/http.js';
 import { get, runWithoutOrg, bindFile, currentDb } from '../db/index.js';
 import { verifyPassword, hasNoPassword } from '../lib/password.js';
 import { AUTH_MODE } from '../lib/auth.js';
-import { requireManager } from '../lib/roles.js';
+import { requirePermission } from '../lib/roles.js';
 import {
   listFiles, createFile, deleteFile, renameFile, capabilities, fileOr404,
 } from '../lib/files.js';
@@ -27,7 +27,9 @@ import { createSet } from '../lib/backup.js';
 import { unauthorized, unavailable, badRequest } from '../lib/errors.js';
 
 const router = Router();
-router.use(requireManager);
+// Reads need files view; writes need the matching action. A built-in OWNER
+// has all of these, so this matches the old requireManager for the three roles.
+router.use(requirePermission('files', 'view'));
 
 /**
  * Creating a file means creating an account inside it, and an account needs
@@ -85,7 +87,7 @@ router.get('/', wrap(async (req, res) => {
   });
 }));
 
-router.post('/', wrap(async (req, res) => {
+router.post('/', requirePermission('files', 'add'), wrap(async (req, res) => {
   requireLocalAccounts();
   const { name, manager_username: username, manager_password: password } = parse(z.object({
     name: z.string().trim().min(1, 'اسم الملف مطلوب').max(200),
@@ -105,7 +107,7 @@ router.post('/', wrap(async (req, res) => {
   res.status(201).json(file);
 }));
 
-router.patch('/:id', wrap(async (req, res) => {
+router.patch('/:id', requirePermission('files', 'edit'), wrap(async (req, res) => {
   const { name } = parse(z.object({
     name: z.string().trim().min(1, 'اسم الملف مطلوب').max(200),
   }), req.body);
@@ -128,7 +130,7 @@ router.patch('/:id', wrap(async (req, res) => {
  * to make, in front of a dialog that says there will be no way back, and the
  * default is to refuse.
  */
-router.delete('/:id', wrap(async (req, res) => {
+router.delete('/:id', requirePermission('files', 'delete'), wrap(async (req, res) => {
   requireLocalAccounts();
   const { password, force } = parse(z.object({
     password: z.string().min(1, 'كلمة المرور مطلوبة'),

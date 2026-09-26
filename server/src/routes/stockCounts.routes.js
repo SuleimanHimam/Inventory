@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { wrap, parse, pageQuery, paginated } from '../lib/http.js';
 import * as counts from '../services/stockCounts.service.js';
+import { requirePermission } from '../lib/roles.js';
 
 const router = Router();
 
@@ -13,7 +14,7 @@ router.get('/', wrap(async (req, res) => {
   res.json(paginated(rows, total, q));
 }));
 
-router.post('/', wrap(async (req, res) => {
+router.post('/', requirePermission('stock_counts', 'add'), wrap(async (req, res) => {
   const body = parse(
     z.object({
       scope: z.enum(['ALL', 'CATEGORY', 'ITEM']),
@@ -28,7 +29,7 @@ router.post('/', wrap(async (req, res) => {
 
 router.get('/:id', wrap(async (req, res) => res.json(await counts.getStockCount(req.params.id))));
 
-router.patch('/:id/lines/:lineId', wrap(async (req, res) => {
+router.patch('/:id/lines/:lineId', requirePermission('stock_counts', 'edit'), wrap(async (req, res) => {
   const body = parse(
     z.object({
       counted_quantity: z.coerce.number().int().min(0).nullable().optional(),
@@ -38,16 +39,16 @@ router.patch('/:id/lines/:lineId', wrap(async (req, res) => {
   res.json(await counts.updateCountLine(req.params.id, req.params.lineId, body));
 }));
 
-router.post('/:id/refresh-expected', wrap(async (req, res) =>
+router.post('/:id/refresh-expected', requirePermission('stock_counts', 'edit'), wrap(async (req, res) =>
   res.json(await counts.refreshExpected(req.params.id))));
 
-router.post('/:id/submit', wrap(async (req, res) =>
+router.post('/:id/submit', requirePermission('stock_counts', 'edit'), wrap(async (req, res) =>
   res.json(await counts.submitStockCount(req.params.id))));
 
-router.post('/:id/apply', wrap(async (req, res) =>
+router.post('/:id/apply', requirePermission('stock_counts', 'edit'), wrap(async (req, res) =>
   res.json(await counts.applyStockCount(req.params.id))));
 
-router.post('/:id/cancel', wrap(async (req, res) =>
+router.post('/:id/cancel', requirePermission('stock_counts', 'edit'), wrap(async (req, res) =>
   res.json(await counts.cancelStockCount(req.params.id))));
 
 export default router;

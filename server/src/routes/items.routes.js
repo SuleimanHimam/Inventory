@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { runInOrg, bindFile } from '../db/index.js';
 import { wrap, parse, pageQuery, paginated } from '../lib/http.js';
 import { notFound } from '../lib/errors.js';
-import { canSeePrices, canSeeSalePrice, requireItemWrite } from '../lib/roles.js';
+import { canSeePrices, canSeeSalePrice, requirePermission } from '../lib/roles.js';
 import * as items from '../services/items.service.js';
 import { listMovements } from '../services/invoices.service.js';
 import {
@@ -95,7 +95,7 @@ router.get('/', wrap(async (req, res) => {
   res.json(paginated(rows, total, q));
 }));
 
-router.post('/', requireItemWrite, wrap(async (req, res) => {
+router.post('/', requirePermission('items', 'add'), wrap(async (req, res) => {
   res.status(201).json(await items.createItem(parse(itemBody, req.body)));
 }));
 
@@ -103,11 +103,11 @@ router.get('/:id', wrap(async (req, res) => {
   res.json(await items.getItem(req.params.id, { withDetail: true }));
 }));
 
-router.patch('/:id', requireItemWrite, wrap(async (req, res) => {
+router.patch('/:id', requirePermission('items', 'edit'), wrap(async (req, res) => {
   res.json(await items.updateItem(req.params.id, parse(itemBody.partial(), req.body)));
 }));
 
-router.delete('/:id', requireItemWrite, wrap(async (req, res) => {
+router.delete('/:id', requirePermission('items', 'delete'), wrap(async (req, res) => {
   res.json(await items.deleteItem(req.params.id));
 }));
 
@@ -118,14 +118,14 @@ router.get('/:id/subbarcodes', wrap(async (req, res) => {
   res.json({ data: await items.listSubBarcodes(req.params.id) });
 }));
 
-router.post('/:id/subbarcodes', requireItemWrite, wrap(async (req, res) => {
+router.post('/:id/subbarcodes', requirePermission('items', 'edit'), wrap(async (req, res) => {
   const body = parse(
     z.object({ barcode: z.string().trim().min(1, 'الباركود مطلوب').max(100), label: z.string().trim().max(120).nullish() }),
     req.body);
   res.status(201).json(await items.addSubBarcode(req.params.id, body));
 }));
 
-router.delete('/:id/subbarcodes/:sid', requireItemWrite, wrap(async (req, res) => {
+router.delete('/:id/subbarcodes/:sid', requirePermission('items', 'edit'), wrap(async (req, res) => {
   res.json(await items.removeSubBarcode(req.params.id, req.params.sid));
 }));
 
@@ -136,15 +136,15 @@ router.get('/:id/units', wrap(async (req, res) => {
   res.json({ data: await items.listUnits(req.params.id) });
 }));
 
-router.post('/:id/units', requireItemWrite, wrap(async (req, res) => {
+router.post('/:id/units', requirePermission('items', 'edit'), wrap(async (req, res) => {
   res.status(201).json(await items.addUnit(req.params.id, parse(unitBody, req.body)));
 }));
 
-router.patch('/:id/units/:uid', requireItemWrite, wrap(async (req, res) => {
+router.patch('/:id/units/:uid', requirePermission('items', 'edit'), wrap(async (req, res) => {
   res.json(await items.updateUnit(req.params.id, req.params.uid, parse(unitBody.partial(), req.body)));
 }));
 
-router.delete('/:id/units/:uid', requireItemWrite, wrap(async (req, res) => {
+router.delete('/:id/units/:uid', requirePermission('items', 'edit'), wrap(async (req, res) => {
   res.json(await items.removeUnit(req.params.id, req.params.uid));
 }));
 
@@ -169,7 +169,7 @@ router.get('/:id/images', wrap(async (req, res) => {
 // database and failed.
 router.post(
   '/:id/images',
-  requireItemWrite,
+  requirePermission('items', 'edit'),
   upload.fields([{ name: 'images' }, { name: 'image' }]),
   wrap(async (req, res) => {
     const files = [...(req.files?.images ?? []), ...(req.files?.image ?? [])];
@@ -179,15 +179,15 @@ router.post(
   }),
 );
 
-router.delete('/:id/images/:imageId', requireItemWrite, wrap(async (req, res) => {
+router.delete('/:id/images/:imageId', requirePermission('items', 'edit'), wrap(async (req, res) => {
   res.json({ data: await removeItemImage(req.params.id, req.params.imageId) });
 }));
 
-router.post('/:id/images/:imageId/primary', requireItemWrite, wrap(async (req, res) => {
+router.post('/:id/images/:imageId/primary', requirePermission('items', 'edit'), wrap(async (req, res) => {
   res.json({ data: await setPrimaryImage(req.params.id, req.params.imageId) });
 }));
 
-router.delete('/:id/images', requireItemWrite, wrap(async (req, res) => {
+router.delete('/:id/images', requirePermission('items', 'edit'), wrap(async (req, res) => {
   res.json({ data: await clearItemImages(req.params.id) });
 }));
 

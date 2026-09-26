@@ -2,10 +2,13 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { wrap, parse, pageQuery, paginated } from '../lib/http.js';
 import * as parties from '../services/parties.service.js';
+import { requirePermission } from '../lib/roles.js';
 
 /** One router factory serving both /customers and /suppliers. */
 export function partiesRouter(kind) {
   const router = Router();
+  // `kind` is the resource key ('customers'|'suppliers'); reads stay open.
+  const need = (action) => requirePermission(kind, action);
 
   const base = {
     name: z.string().trim().min(1, 'الاسم مطلوب').max(255),
@@ -38,26 +41,26 @@ export function partiesRouter(kind) {
     res.json({ duplicate: await parties.findDuplicateName(kind, name, exclude_id) });
   }));
 
-  router.post('/', wrap(async (req, res) =>
+  router.post('/', need('add'), wrap(async (req, res) =>
     res.status(201).json(await parties.createParty(kind, parse(body, req.body)))));
 
   router.get('/:id', wrap(async (req, res) =>
     res.json(await parties.getParty(kind, req.params.id, { withDetail: true }))));
 
-  router.patch('/:id', wrap(async (req, res) =>
+  router.patch('/:id', need('edit'), wrap(async (req, res) =>
     res.json(await parties.updateParty(kind, req.params.id,
       parse(body.partial().extend({ is_active: z.boolean().optional() }), req.body)))));
 
-  router.delete('/:id', wrap(async (req, res) =>
+  router.delete('/:id', need('edit'), wrap(async (req, res) =>
     res.json(await parties.archiveParty(kind, req.params.id))));
 
   // Permanent delete — only when the party has no invoices (the service
   // enforces it). Distinct path so it can never be reached by accident from the
   // archive button above.
-  router.delete('/:id/permanent', wrap(async (req, res) =>
+  router.delete('/:id/permanent', need('delete'), wrap(async (req, res) =>
     res.json(await parties.deleteParty(kind, req.params.id))));
 
-  router.post('/:id/restore', wrap(async (req, res) =>
+  router.post('/:id/restore', need('edit'), wrap(async (req, res) =>
     res.json(await parties.restoreParty(kind, req.params.id))));
 
   return router;

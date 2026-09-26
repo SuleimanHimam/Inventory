@@ -7,11 +7,14 @@ import {
 import { useCategories, useCategoryMutations } from '@/hooks';
 import { fmtInt } from '@/lib/format';
 import { toast, toastError } from '@/store/toast';
+import { usePermissions } from '@/lib/permissions';
 import type { Category } from '@/lib/types';
 
 export default function Categories() {
   const { data: categories = [], isLoading } = useCategories();
   const { create, rename, remove } = useCategoryMutations();
+  const { can, isManager } = usePermissions();
+  const canWrite = isManager || can('categories', 'add');
 
   const [showCreate, setShowCreate] = useState(false);
   const [name, setName] = useState('');
@@ -180,7 +183,9 @@ export default function Categories() {
         }
       />
 
-      <Fab icon={<Plus className="size-5" />} label="تصنيف جديد" onClick={() => setShowCreate(true)} />
+      {canWrite && (
+        <Fab icon={<Plus className="size-5" />} label="تصنيف جديد" onClick={() => setShowCreate(true)} />
+      )}
     </>
   );
 }

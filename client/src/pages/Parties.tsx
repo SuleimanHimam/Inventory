@@ -52,6 +52,9 @@ const CONFIG = {
 
 export default function Parties({ kind }: { kind: PartyKind }) {
   const config = CONFIG[kind];
+  const { can, isManager } = usePermissions();
+  const canWrite = isManager || can(kind, 'add') || can(kind, 'edit');
+  const canDelete = isManager || can(kind, 'delete');
   const [params, setParams] = useSearchParams();
   const [search, setSearch] = useState('');
   const [active, setActive] = useState('true');
@@ -173,25 +176,31 @@ export default function Parties({ kind }: { kind: PartyKind }) {
                     <td data-label="رقم الحساب" className="nums font-mono text-xs text-muted">{party.account_number || '—'}</td>
                     <td onClick={(e) => e.stopPropagation()}>
                       <div className="flex justify-end gap-0.5">
-                        <Button size="icon" variant="ghost" title="تعديل"
-                          onClick={() => { setEditing(party); setFormOpen(true); }}>
-                          <Pencil className="size-4" />
-                        </Button>
-                        <Button
-                          size="icon" variant="ghost"
-                          title={party.is_active ? 'أرشفة' : 'إعادة تنشيط'}
-                          className={party.is_active ? 'hover:text-accent-500' : 'hover:text-emerald-500'}
-                          onClick={() => setArchiveTarget(party)}
-                        >
-                          {party.is_active ? <Archive className="size-4" /> : <ArchiveRestore className="size-4" />}
-                        </Button>
-                        <Button
-                          size="icon" variant="ghost" title="حذف نهائي"
-                          className="hover:text-red-500"
-                          onClick={() => setDeleteTarget(party)}
-                        >
-                          <Trash2 className="size-4" />
-                        </Button>
+                        {canWrite && (
+                          <Button size="icon" variant="ghost" title="تعديل"
+                            onClick={() => { setEditing(party); setFormOpen(true); }}>
+                            <Pencil className="size-4" />
+                          </Button>
+                        )}
+                        {canWrite && (
+                          <Button
+                            size="icon" variant="ghost"
+                            title={party.is_active ? 'أرشفة' : 'إعادة تنشيط'}
+                            className={party.is_active ? 'hover:text-accent-500' : 'hover:text-emerald-500'}
+                            onClick={() => setArchiveTarget(party)}
+                          >
+                            {party.is_active ? <Archive className="size-4" /> : <ArchiveRestore className="size-4" />}
+                          </Button>
+                        )}
+                        {canDelete && (
+                          <Button
+                            size="icon" variant="ghost" title="حذف نهائي"
+                            className="hover:text-red-500"
+                            onClick={() => setDeleteTarget(party)}
+                          >
+                            <Trash2 className="size-4" />
+                          </Button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -242,11 +251,13 @@ export default function Parties({ kind }: { kind: PartyKind }) {
           إذا كان له فواتير فلن يُحذف — أرشِفه بدلاً من ذلك.</>}
       />
 
-      <Fab
-        icon={<Plus className="size-5" />}
-        label={`${config.singular} جديد`}
-        onClick={() => { setEditing(null); setFormOpen(true); }}
-      />
+      {canWrite && (
+        <Fab
+          icon={<Plus className="size-5" />}
+          label={`${config.singular} جديد`}
+          onClick={() => { setEditing(null); setFormOpen(true); }}
+        />
+      )}
     </>
   );
 }

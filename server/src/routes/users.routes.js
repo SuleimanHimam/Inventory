@@ -20,11 +20,13 @@ import { wrap, parse } from '../lib/http.js';
 import { all, get, run, newId, runWithoutOrg } from '../db/index.js';
 import { hashPassword } from '../lib/password.js';
 import { AUTH_MODE } from '../lib/auth.js';
-import { requireManager, MANAGER, STAFF, CLERK } from '../lib/roles.js';
+import { requirePermission, MANAGER, STAFF, CLERK } from '../lib/roles.js';
 import { badRequest, conflict, notFound, unavailable, guard } from '../lib/errors.js';
 
 const router = Router();
-router.use(requireManager);
+// Each verb needs the matching users permission. A built-in OWNER holds them
+// all, so this is identical to the old requireManager for the three built-in
+// roles, while a custom role can be granted user administration.
 
 const roleSchema = z.enum([MANAGER, STAFF, CLERK]);
 
@@ -65,7 +67,7 @@ async function memberOr404(orgId, userId) {
   return row;
 }
 
-router.get('/', wrap(async (req, res) => {
+router.get('/', requirePermission('users', 'view'), wrap(async (req, res) => {
   const rows = await runWithoutOrg(() => all(
     `SELECT m.user_id, m.role, m.role_id, m.created_at,
             COALESCE(u.email, m.email) AS email,
@@ -99,7 +101,7 @@ router.get('/', wrap(async (req, res) => {
   });
 }));
 
-router.post('/', wrap(async (req, res) => {
+router.post('/', requirePermission('users', 'add'), wrap(async (req, res) => {
   requireLocalAccounts();
   const { username, password, role } = parse(z.object({
     username: z.string().trim().toLowerCase().min(1, 'اسم المستخدم مطلوب').max(320),
@@ -152,7 +154,7 @@ router.post('/', wrap(async (req, res) => {
   });
 }));
 
-router.patch('/:id', wrap(async (req, res) => {
+router.patch('/:id', requirePermission('users', 'edit'), wrap(async (req, res) => {
   const { role, role_id, password, username } = parse(z.object({
     role: roleSchema.optional(),
     // A role from the roles table (built-in or custom). Preferred over `role`.
@@ -230,7 +232,7 @@ router.patch('/:id', wrap(async (req, res) => {
   });
 }));
 
-router.delete('/:id', wrap(async (req, res) => {
+router.delete('/:id', requirePermission('users', 'delete'), wrap(async (req, res) => {
   const target = await memberOr404(req.auth.orgId, req.params.id);
 
   if (target.user_id === req.auth.userId) {
