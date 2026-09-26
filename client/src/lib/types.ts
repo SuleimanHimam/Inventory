@@ -553,6 +553,9 @@ export type Settings = {
   voucher_receipt_counter_account: string;
   voucher_payment_cash_account: string;
   voucher_payment_counter_account: string;
+  invoice_sales_account: string;
+  invoice_purchase_account: string;
+  invoice_cash_account: string;
 };
 
 /* ------------------------------------------------------------------ backup */

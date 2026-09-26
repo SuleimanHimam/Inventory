@@ -71,7 +71,6 @@ export default function ChartOfAccounts() {
     <>
       <PageHeader
         title="دليل الحسابات"
-        subtitle="شجرة حسابات ديناميكية — الحسابات الفرعية فقط تقبل القيود"
         actions={isManager && (
           <Button variant="primary" onClick={() => setEditing('new')}>
             <Plus className="size-4" /> حساب جديد
@@ -374,7 +373,6 @@ function AccountEditor({
           checked={isPosting}
           onChange={setIsPosting}
           label="حساب فرعي يقبل القيود"
-          hint="أطفئه لجعله مجموعة تنظيمية فقط"
         />
 
         <label className="block">

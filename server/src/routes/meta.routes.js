@@ -70,6 +70,9 @@ router.patch('/settings', requireManager, wrap(async (req, res) => {
       voucher_receipt_counter_account: z.string().trim().max(64).optional(),
       voucher_payment_cash_account: z.string().trim().max(64).optional(),
       voucher_payment_counter_account: z.string().trim().max(64).optional(),
+      invoice_sales_account: z.string().trim().max(64).optional(),
+      invoice_purchase_account: z.string().trim().max(64).optional(),
+      invoice_cash_account: z.string().trim().max(64).optional(),
     }), req.body);
   res.json(await setSettings(body));
 }));

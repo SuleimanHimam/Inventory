@@ -73,7 +73,6 @@ export default function Vouchers() {
     <>
       <PageHeader
         title="السندات"
-        subtitle="سندات القبض والصرف — كل سند يُنشئ قيداً محاسبياً متوازناً"
         actions={(
           <div className="flex gap-2">
             <Button variant="primary" onClick={() => setCreating('RECEIPT')}>
@@ -82,7 +81,7 @@ export default function Vouchers() {
             <Button onClick={() => setCreating('PAYMENT')}>
               <ArrowUpCircle className="size-4" /> سند صرف
             </Button>
-            <Button variant="ghost" size="icon" aria-label="إعدادات السندات" onClick={() => setSettingsOpen(true)}>
+            <Button variant="ghost" size="icon" aria-label="إعدادات المحاسبة" onClick={() => setSettingsOpen(true)}>
               <SettingsIcon className="size-4" />
             </Button>
           </div>
@@ -208,8 +207,6 @@ function VoucherEditor({ type, onClose }: { type: VoucherType; onClose: () => vo
   const [counterId, setCounterId] = useState('');
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [method, setMethod] = useState<PaymentMethod>('CASH');
-  const [counterparty, setCounterparty] = useState('');
-  const [reference, setReference] = useState('');
   const [description, setDescription] = useState('');
 
   // Pre-select the defaults set in voucher settings, once they load — never
@@ -242,8 +239,6 @@ function VoucherEditor({ type, onClose }: { type: VoucherType; onClose: () => vo
       counter_account_id: counterId,
       voucher_date: date,
       payment_method: method,
-      counterparty: counterparty.trim() || null,
-      reference: reference.trim() || null,
       description: description.trim() || null,
     }, {
       onSuccess: (v) => { toast.success(`تم حفظ ${meta.label} ${v.number}`); onClose(); },
@@ -253,14 +248,12 @@ function VoucherEditor({ type, onClose }: { type: VoucherType; onClose: () => vo
 
   const cashLabel = type === 'RECEIPT' ? 'المقبوض في (صندوق/بنك)' : 'المصروف من (صندوق/بنك)';
   const counterLabel = type === 'RECEIPT' ? 'المقبوض من (الحساب)' : 'المدفوع إلى (الحساب)';
-  const partyLabel = type === 'RECEIPT' ? 'المستلَم منه (اسم)' : 'المدفوع له (اسم)';
 
   return (
     <Modal
       open
       onClose={onClose}
       title={meta.label}
-      description="القيد المحاسبي يُرحّل فور الحفظ"
       footer={(
         <>
           <Button onClick={onClose} disabled={create.isPending}>إلغاء</Button>
@@ -271,26 +264,10 @@ function VoucherEditor({ type, onClose }: { type: VoucherType; onClose: () => vo
       )}
     >
       <form onSubmit={submit} className="space-y-3">
-        <div className="grid grid-cols-2 gap-3">
-          <label className="block">
-            <span className="mb-1 block text-xs text-muted">المبلغ</span>
-            <Input
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              type="number"
-              min="0"
-              step="any"
-              dir="ltr"
-              inputMode="decimal"
-              autoFocus
-              required
-            />
-          </label>
-          <label className="block">
-            <span className="mb-1 block text-xs text-muted">التاريخ</span>
-            <Input value={date} onChange={(e) => setDate(e.target.value)} type="date" dir="ltr" />
-          </label>
-        </div>
+        <label className="block">
+          <span className="mb-1 block text-xs text-muted">التاريخ</span>
+          <Input value={date} onChange={(e) => setDate(e.target.value)} type="date" dir="ltr" />
+        </label>
 
         <label className="block">
           <span className="mb-1 block text-xs text-muted">{cashLabel}</span>
@@ -314,29 +291,33 @@ function VoucherEditor({ type, onClose }: { type: VoucherType; onClose: () => vo
           />
         </label>
 
-        <div className="grid grid-cols-2 gap-3">
-          <label className="block">
-            <span className="mb-1 block text-xs text-muted">طريقة الدفع</span>
-            <Select value={method} onChange={(e) => setMethod(e.target.value as PaymentMethod)}>
-              {(Object.keys(METHOD_LABEL) as PaymentMethod[]).map((m) => (
-                <option key={m} value={m}>{METHOD_LABEL[m]}</option>
-              ))}
-            </Select>
-          </label>
-          <label className="block">
-            <span className="mb-1 block text-xs text-muted">مرجع (شيك/حوالة)</span>
-            <Input value={reference} onChange={(e) => setReference(e.target.value)} dir="ltr" />
-          </label>
-        </div>
-
         <label className="block">
-          <span className="mb-1 block text-xs text-muted">{partyLabel}</span>
-          <Input value={counterparty} onChange={(e) => setCounterparty(e.target.value)} placeholder="اختياري" />
+          <span className="mb-1 block text-xs text-muted">طريقة الدفع</span>
+          <Select value={method} onChange={(e) => setMethod(e.target.value as PaymentMethod)}>
+            {(Object.keys(METHOD_LABEL) as PaymentMethod[]).map((m) => (
+              <option key={m} value={m}>{METHOD_LABEL[m]}</option>
+            ))}
+          </Select>
         </label>
 
         <label className="block">
           <span className="mb-1 block text-xs text-muted">البيان</span>
-          <Textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} className="w-full" placeholder="اختياري" />
+          <Textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} className="w-full" />
+        </label>
+
+        <label className="block">
+          <span className="mb-1 block text-xs text-muted">المبلغ</span>
+          <Input
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            type="number"
+            min="0"
+            step="any"
+            dir="ltr"
+            inputMode="decimal"
+            className="text-lg font-bold"
+            required
+          />
         </label>
 
         {cashId && counterId && cashId === counterId && (
@@ -446,21 +427,18 @@ function VoucherDetail({ id, onClose }: { id: string; onClose: () => void }) {
 /* -------------------------------------------------------- voucher settings */
 type DefaultKeys =
   | 'voucher_receipt_cash_account' | 'voucher_receipt_counter_account'
-  | 'voucher_payment_cash_account' | 'voucher_payment_counter_account';
+  | 'voucher_payment_cash_account' | 'voucher_payment_counter_account'
+  | 'invoice_sales_account' | 'invoice_purchase_account' | 'invoice_cash_account';
 
 const EMPTY_DEFAULTS: Record<DefaultKeys, string> = {
   voucher_receipt_cash_account: '',
   voucher_receipt_counter_account: '',
   voucher_payment_cash_account: '',
   voucher_payment_counter_account: '',
+  invoice_sales_account: '',
+  invoice_purchase_account: '',
+  invoice_cash_account: '',
 };
-
-/**
- * Default accounts pre-selected on a new voucher, set once per file. The cash
- * side lists cash/bank accounts (the صندوق you usually use); the counter side
- * lists every posting account. Saved to the shared settings, so a new receipt
- * or payment opens with the right accounts already chosen.
- */
 function VoucherSettings({ onClose }: { onClose: () => void }) {
   const { data: settings } = useSettings();
   const update = useUpdateSettings();
@@ -483,13 +461,16 @@ function VoucherSettings({ onClose }: { onClose: () => void }) {
       voucher_receipt_counter_account: settings.voucher_receipt_counter_account ?? '',
       voucher_payment_cash_account: settings.voucher_payment_cash_account ?? '',
       voucher_payment_counter_account: settings.voucher_payment_counter_account ?? '',
+      invoice_sales_account: settings.invoice_sales_account ?? '',
+      invoice_purchase_account: settings.invoice_purchase_account ?? '',
+      invoice_cash_account: settings.invoice_cash_account ?? '',
     });
   }, [settings]);
 
   const set = (key: DefaultKeys, value: string) => setForm((f) => ({ ...f, [key]: value }));
 
   const save = () => update.mutate(form as Partial<Settings>, {
-    onSuccess: () => { toast.success('تم حفظ إعدادات السندات'); onClose(); },
+    onSuccess: () => { toast.success('تم حفظ الإعدادات'); onClose(); },
     onError: (e: Error) => toastError(e, 'تعذّر الحفظ'),
   });
 
@@ -510,8 +491,7 @@ function VoucherSettings({ onClose }: { onClose: () => void }) {
     <Modal
       open
       onClose={onClose}
-      title="إعدادات السندات"
-      description="الحسابات الافتراضية التي تُختار تلقائياً عند إنشاء سند جديد"
+      title="إعدادات المحاسبة"
       footer={(
         <>
           <Button onClick={onClose} disabled={update.isPending}>إلغاء</Button>
@@ -534,6 +514,15 @@ function VoucherSettings({ onClose }: { onClose: () => void }) {
           </div>
           {field('المصروف من (صندوق/بنك)', 'voucher_payment_cash_account', cashOptions)}
           {field('المدفوع إلى (الحساب المقابل)', 'voucher_payment_counter_account', counterOptions)}
+        </section>
+
+        <section className="space-y-3 border-t border-line pt-4">
+          <div className="flex items-center gap-2 text-sm font-semibold text-brand-600 dark:text-brand-400">
+            <Receipt className="size-4" /> فواتير البيع والشراء
+          </div>
+          {field('حساب المبيعات', 'invoice_sales_account', counterOptions)}
+          {field('حساب المشتريات', 'invoice_purchase_account', counterOptions)}
+          {field('الصندوق النقدي', 'invoice_cash_account', cashOptions)}
         </section>
       </div>
     </Modal>

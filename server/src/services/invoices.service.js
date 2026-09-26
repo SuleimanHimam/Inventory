@@ -1,8 +1,88 @@
 import {
-  all, get, run, tx, money, newId, nowIso, nextNumber, orgId, publicRow,
+  all, get, run, tx, money, newId, nowIso, nextNumber, orgId, publicRow, getSettings,
 } from '../db/index.js';
 import { notFound, unprocessable, badRequest, conflict } from '../lib/errors.js';
 import { getItem, findByBarcode } from './items.service.js';
+
+/* ==========================================================================
+ *  Financial ledger for invoices.
+ *
+ *  A posted invoice moves money as well as stock. A sale credits the sales
+ *  account and debits cash; a purchase debits the purchase account and credits
+ *  cash — the mirror of a receipt/payment voucher, into the same `transactions`
+ *  ledger, so an account statement shows sales, purchases and vouchers together.
+ *
+ *  Unlike the stock ledger (immutable, delta-based), an invoice's financial
+ *  entries are simply recomputed: cleared and rewritten on every posting, and
+ *  cleared whenever the invoice leaves POSTED. That keeps balances exactly right
+ *  through edits and reversals without a second immutable-ledger machinery, and
+ *  the invoice document itself remains the audit record of what happened.
+ *
+ *  It is opt-in: until a file sets the three accounts in settings, invoices post
+ *  no financial entry at all (stock still moves), so nothing breaks for a file
+ *  that has not configured accounting.
+ * ========================================================================== */
+
+/** Remove any financial entries this invoice previously wrote. */
+const clearInvoiceLedger = (invoiceId) => run(
+  "DELETE FROM transactions WHERE org_id = @org AND source_type = 'INVOICE' AND source_id = @id",
+  { org: orgId(), id: invoiceId });
+
+/** The net amount that changed hands: line totals, less discount, plus tax. */
+function invoiceTotal(invoice, lines) {
+  const subtotal = lines.reduce((s, l) => s + (l.quantity * l.unit_price), 0);
+  return money(subtotal - (invoice.discount_total || 0) + (invoice.tax_total || 0));
+}
+
+async function insertLedgerEntry({ invoiceId, accountId, debit, credit, date, desc, by }) {
+  await run(
+    `INSERT INTO transactions
+       (id, org_id, account_id, entry_date, debit, credit, description, source_type, source_id, created_by)
+     VALUES (@id, @org, @account, @date, @debit, @credit, @desc, 'INVOICE', @src, @by)`,
+    {
+      id: newId(),
+      org: orgId(),
+      account: accountId,
+      date,
+      debit,
+      credit,
+      desc,
+      src: invoiceId,
+      by: by || 'system',
+    });
+}
+
+/**
+ * Recompute this invoice's financial entries from scratch: clear the old pair,
+ * then — if the accounts are configured and there is a non-zero total — write
+ * the balanced debit/credit for its direction.
+ */
+async function writeInvoiceLedger(invoice, { number } = {}) {
+  await clearInvoiceLedger(invoice.id);
+  const settings = await getSettings();
+  const cash = settings.invoice_cash_account;
+  const sales = settings.invoice_sales_account;
+  const purchase = settings.invoice_purchase_account;
+
+  const lines = await getLines(invoice.id);
+  const total = invoiceTotal(invoice, lines);
+  if (!(total > 0)) return;
+
+  const date = invoice.invoice_date || nowIso().slice(0, 10);
+  const label = invoice.type === 'STOCK_OUT' ? 'فاتورة مبيع' : 'فاتورة شراء';
+  const desc = `${label} ${number || invoice.number || ''}`.trim();
+
+  const by = invoice.created_by;
+  if (invoice.type === 'STOCK_OUT') {
+    if (!cash || !sales) return; // sale not mapped yet
+    await insertLedgerEntry({ invoiceId: invoice.id, accountId: cash, debit: total, credit: 0, date, desc, by });
+    await insertLedgerEntry({ invoiceId: invoice.id, accountId: sales, debit: 0, credit: total, date, desc, by });
+  } else {
+    if (!cash || !purchase) return; // purchase not mapped yet
+    await insertLedgerEntry({ invoiceId: invoice.id, accountId: purchase, debit: total, credit: 0, date, desc, by });
+    await insertLedgerEntry({ invoiceId: invoice.id, accountId: cash, debit: 0, credit: total, date, desc, by });
+  }
+}
 
 /** Invoice type → document-number prefix. */
 const PREFIX = { STOCK_IN: 'IN', STOCK_OUT: 'OUT' };
@@ -876,6 +956,11 @@ export function postInvoice(invoiceId, { referenceType } = {}) {
     await run(
       "UPDATE invoices SET status = 'POSTED', number = @number, posted_at = @now WHERE id = @id AND org_id = @org",
       { number, now, id: invoiceId, org: orgId() });
+
+    // The financial side: recompute this invoice's ledger entries (a no-op when
+    // the accounts are not configured). Recomputed rather than deltas, so a
+    // re-post after an edit lands on the correct amount every time.
+    await writeInvoiceLedger(invoice, { number });
     return getInvoice(invoiceId);
   });
 }
@@ -895,6 +980,7 @@ export function cancelInvoice(invoiceId) {
         'لا يمكن إلغاء فاتورة مرحّلة — أنشئ فاتورة عكسية لتصحيح الأثر', 'INVOICE_POSTED');
     }
     await reverseLedger(invoiceId, { note: `إلغاء الفاتورة ${invoice.number || ''}`.trim() });
+    await clearInvoiceLedger(invoiceId);
     await run("UPDATE invoices SET status = 'CANCELLED' WHERE id = @id AND org_id = @org",
       { id: invoiceId, org: orgId() });
     return getInvoice(invoiceId);
@@ -997,6 +1083,7 @@ export function reverseInvoice(invoiceId, { by } = {}) {
       throw unprocessable('هذه الفاتورة ليست مرحّلة', 'INVOICE_NOT_POSTED');
     }
     await reverseLedger(invoiceId, { note: `عكس الفاتورة ${invoice.number}` });
+    await clearInvoiceLedger(invoiceId);
     await run(
       `UPDATE invoices SET status = 'CANCELLED', reversed_at = @now, reversed_by = @by
         WHERE id = @id AND org_id = @org`,
@@ -1041,6 +1128,7 @@ export function reopenInvoice(invoiceId, { by } = {}) {
     if (invoice.stock_count_id) {
       throw conflict('لا يمكن تعديل فاتورة ناتجة عن جلسة جرد', 'INVOICE_FROM_STOCK_COUNT');
     }
+    await clearInvoiceLedger(invoiceId);
     await run(
       `UPDATE invoices SET status = 'DRAFT', posted_at = NULL, reopened_at = @now,
                           reopened_by = @by, revision = revision + 1

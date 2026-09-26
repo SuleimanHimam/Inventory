@@ -65,7 +65,6 @@ export default function AccountingDashboard() {
     <>
       <PageHeader
         title="المحاسبة"
-        subtitle="نظرة عامة على الحركة المالية والأرصدة"
         actions={(
           <div className="flex flex-wrap items-center gap-2">
             <Select value={period} onChange={(e) => setP(e.target.value as Period)} className="w-auto">

@@ -552,6 +552,12 @@ export const DEFAULT_SETTINGS = {
   voucher_receipt_counter_account: '',
   voucher_payment_cash_account: '',
   voucher_payment_counter_account: '',
+  // Accounts a posted invoice writes to. A sale credits the sales account and
+  // a purchase debits the purchase account; both move the cash account. Empty
+  // means invoices post no financial entry (stock still moves) until set.
+  invoice_sales_account: '',
+  invoice_purchase_account: '',
+  invoice_cash_account: '',
 };
 
 /** Seed the settings rows a brand-new organisation needs. */

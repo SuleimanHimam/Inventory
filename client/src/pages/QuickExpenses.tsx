@@ -1,12 +1,11 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
-import { Wallet, Plus } from 'lucide-react';
+import { Plus } from 'lucide-react';
 import {
-  Button, Card, Input, Textarea, Combobox, PageHeader, EmptyState, Skeleton, Badge,
+  Button, Card, Input, Textarea, Combobox, PageHeader,
 } from '@/components/ui';
-import { useVouchers, useVoucherMutations, useAccounts, useSettings } from '@/hooks';
+import { useVoucherMutations, useAccounts, useSettings } from '@/hooks';
 import { toast, toastError } from '@/store/toast';
-import { fmtCurrency, fmtDate } from '@/lib/format';
-import type { Account, Voucher } from '@/lib/types';
+import type { Account } from '@/lib/types';
 
 /**
  * Quick Expenses (مصروفات سريعة) — the fast path for "we spent money on X".
@@ -35,8 +34,6 @@ export default function QuickExpenses() {
   }, [posting]);
 
   const { create } = useVoucherMutations();
-  const { data, isLoading } = useVouchers({ expense_only: true, limit: 15 });
-  const recent = data?.data ?? [];
   const { data: settings } = useSettings();
 
   const [amount, setAmount] = useState('');
@@ -82,27 +79,11 @@ export default function QuickExpenses() {
 
   return (
     <>
-      <PageHeader title="مصروف سريع" subtitle="تسجيل مصروف بخطوة واحدة — يُرحّل كسند صرف على الحساب المختار" />
+      <PageHeader title="مصروف سريع" />
 
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,22rem)_1fr]">
+      <div className="mx-auto max-w-md">
         <Card className="p-4">
           <form onSubmit={submit} className="space-y-3">
-            <label className="block">
-              <span className="mb-1 block text-xs text-muted">المبلغ</span>
-              <Input
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-                type="number"
-                min="0"
-                step="any"
-                dir="ltr"
-                inputMode="decimal"
-                autoFocus
-                className="text-lg font-bold"
-                required
-              />
-            </label>
-
             <label className="block">
               <span className="mb-1 block text-xs text-muted">نوع المصروف (الحساب)</span>
               <Combobox
@@ -132,7 +113,22 @@ export default function QuickExpenses() {
 
             <label className="block">
               <span className="mb-1 block text-xs text-muted">البيان</span>
-              <Textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} className="w-full" placeholder="اختياري" />
+              <Textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} className="w-full" />
+            </label>
+
+            <label className="block">
+              <span className="mb-1 block text-xs text-muted">المبلغ</span>
+              <Input
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                type="number"
+                min="0"
+                step="any"
+                dir="ltr"
+                inputMode="decimal"
+                className="text-lg font-bold"
+                required
+              />
             </label>
 
             <Button type="submit" variant="primary" className="w-full" loading={create.isPending} disabled={!valid} icon={<Plus className="size-4" />}>
@@ -140,42 +136,7 @@ export default function QuickExpenses() {
             </Button>
           </form>
         </Card>
-
-        <Card className="overflow-hidden p-0">
-          <div className="border-b border-line px-4 py-3 text-sm font-semibold">أحدث المصروفات</div>
-          {isLoading ? (
-            <Skeleton className="h-64" />
-          ) : recent.length === 0 ? (
-            <EmptyState icon={<Wallet className="size-6" />} title="لا توجد مصروفات بعد" message="سجّل أول مصروف من النموذج." />
-          ) : (
-            <ul className="divide-y divide-line">
-              {recent.map((v) => <ExpenseRow key={v.id} voucher={v} />)}
-            </ul>
-          )}
-        </Card>
       </div>
     </>
-  );
-}
-
-function ExpenseRow({ voucher }: { voucher: Voucher }) {
-  const what = voucher.counter_account_name
-    || voucher.description
-    || voucher.counter_account_number
-    || '—';
-  return (
-    <li className="flex items-center gap-3 px-4 py-3">
-      <Wallet className="size-5 shrink-0 text-accent-600 dark:text-accent-400" />
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2">
-          <span className="truncate text-sm font-medium">{what}</span>
-          {voucher.status === 'REVERSED' && <Badge tone="warning">معكوس</Badge>}
-        </div>
-        <div className="nums text-[11px] text-subtle">{voucher.number} · {fmtDate(voucher.voucher_date)}</div>
-      </div>
-      <div className="nums shrink-0 font-bold text-accent-600 dark:text-accent-400">
-        {fmtCurrency(voucher.amount)}
-      </div>
-    </li>
   );
 }

@@ -106,7 +106,8 @@ export function Combobox({
       setQuery('');
       const idx = Math.max(0, filtered.findIndex((o) => o.value === value));
       setHighlight(idx === -1 ? 0 : idx);
-      setTimeout(() => searchRef.current?.focus(), 0);
+      // Focus once the portal has painted, so the mobile keyboard opens with it.
+      requestAnimationFrame(() => requestAnimationFrame(() => searchRef.current?.focus()));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
@@ -180,6 +181,10 @@ export function Combobox({
               onChange={(e) => { setQuery(e.target.value); setHighlight(0); }}
               onKeyDown={onKey}
               placeholder={searchPlaceholder}
+              autoComplete="off"
+              autoCorrect="off"
+              autoCapitalize="off"
+              enterKeyHint="search"
               className="field ps-9"
             />
           </div>
